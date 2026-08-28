@@ -34,8 +34,15 @@ import io.devkit.fillkit.FillKitConfig
 import io.devkit.fillkit.FillKitHost
 import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.FillType
+import io.devkit.fillkit.fillGenerator
 import io.devkit.fillkit.fillKit
+import io.devkit.fillkit.fillKitPack
+import io.devkit.fillkit.fillLocalePack
+import io.devkit.fillkit.fillPersona
 import io.devkit.fillkit.fillScenario
+import io.devkit.fillkit.generatorPack
+import io.devkit.fillkit.personaPack
+import io.devkit.fillkit.scenarioPack
 import io.devkit.ui.theme.DevKitTheme
 
 class MainActivity : ComponentActivity() {
@@ -44,6 +51,116 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent { DevKitTheme { FillKitSampleApp() } }
     }
+}
+
+private val returningCustomer = fillPersona("returning-customer", "Returning Customer") {
+    locale(FillLocale.Code("en-KE"))
+    firstName("Amina")
+    lastName("Wanjiku")
+    email("amina.wanjiku@example.com")
+    phone("+254712345678")
+    city("Nairobi")
+    country("Kenya")
+}
+
+private val newProvider = fillPersona("new-provider", "New Provider") {
+    firstName("Neema")
+    lastName("Kamau")
+    email("neema.kamau@example.com")
+    value("profession", "Plumber")
+}
+
+private val experiencedProvider = fillPersona("experienced-provider", "Experienced Provider") {
+    firstName("Brian")
+    lastName("Mwangi")
+    email("brian.mwangi@example.com")
+    value("profession", "Electrician")
+    value("yearsExperience", 12)
+    value("businessType", "Company")
+}
+
+private val internationalCustomer = fillPersona("international-customer", "International Customer") {
+    locale(FillLocale.Code("en-GB"))
+    firstName("Amelia")
+    lastName("Taylor")
+    email("amelia.taylor@example.com")
+    phone("+447123456789")
+    city("London")
+    country("United Kingdom")
+}
+
+private val samplePersonas = personaPack("sample-personas", "Sample Personas") {
+    persona(returningCustomer)
+    persona(newProvider)
+    persona(experiencedProvider)
+    persona(internationalCustomer)
+}
+
+private val professionGenerator = fillGenerator<String>("profession") {
+    oneOf("Plumber", "Electrician", "Cleaner", "Carpenter")
+}
+
+private val serviceGenerator = fillGenerator<String>("service") {
+    oneOf("House Cleaning", "Plumbing Repair", "Electrical Installation", "Furniture Assembly")
+}
+
+private val businessNameGenerator = fillGenerator<String>("business-name") {
+    "${oneOf("Savanna", "Urban", "Prime", "Metro")} ${oneOf("Cleaning", "Electrical", "Plumbing", "Repairs")} Ltd"
+}
+
+private val providerGenerators = generatorPack("home-services", "Home Services") {
+    generator(professionGenerator)
+    generator(serviceGenerator)
+    generator(businessNameGenerator)
+}
+
+private val happyPath = fillScenario("happy-path", "Happy Path") {
+    persona("returning-customer")
+    text("password", "FillKit-Test-42!")
+    boolean("acceptTerms", true)
+}
+
+private val providerScenarios = scenarioPack("provider", "Provider") {
+    scenario(happyPath)
+    scenario("experienced-provider", "Experienced Provider") {
+        persona("experienced-provider")
+        generated("businessName", "business-name")
+        generated("service", "service")
+    }
+}
+
+private val validationScenarios = scenarioPack("validation", "Validation") {
+    scenario("minimum-values", "Minimum Values") {
+        text("firstName", "A")
+        text("lastName", "B")
+        text("email", "a@b.co")
+    }
+    scenario("long-values", "Long Values") {
+        include(happyPath)
+        text("firstName", "Amina-Extremely-Long-Synthetic-First-Name")
+        text("businessName", "Savanna International Home Services and Property Maintenance Collective Limited")
+    }
+    scenario("validation-errors", "Validation Errors") {
+        text("email", "not-an-email")
+        text("phone", "123")
+        text("password", "short")
+        boolean("acceptTerms", false)
+    }
+}
+
+private val swahiliKenya = fillLocalePack("sw-KE", "Kenya — Swahili") {
+    firstNames("Amina", "Baraka", "Neema", "Juma")
+    lastNames("Mwangi", "Wanjiku", "Otieno", "Kamau")
+    cities("Nairobi", "Mombasa", "Kisumu")
+    phone { countryCode = "+254"; formats("7########", "1########") }
+}
+
+private val sampleTestingPack = fillKitPack("sample-testing", "Sample Testing") {
+    locale(swahiliKenya)
+    generators(providerGenerators)
+    personas(samplePersonas)
+    scenarios(providerScenarios)
+    scenarios(validationScenarios)
 }
 
 private enum class SampleScreen(val title: String, val shortLabel: String) {
@@ -87,28 +204,16 @@ private data class RegistrationState(
     val password: String = "",
     val dateOfBirth: FillDate? = null,
     val acceptTerms: Boolean = false,
+    val profession: String = "",
+    val service: String = "",
+    val businessName: String = "",
 )
 
 @Composable
 private fun RegistrationExample(modifier: Modifier = Modifier) {
     var state by remember { mutableStateOf(RegistrationState()) }
-    val happyPath = remember {
-        fillScenario("happy-path", "Happy path") {
-            text("firstName", "Amina")
-            text("lastName", "Wanjiku")
-            text("email", "amina.wanjiku@example.com")
-            text("phone", "+254700000000")
-            text("password", "FillKit-Test-42!")
-            date("dateOfBirth", FillDate(1995, 6, 14))
-            boolean("acceptTerms", true)
-        }
-    }
     val config = remember {
-        FillKitConfig(
-            locale = FillLocale.Code("en-KE"),
-            seed = 845912L,
-            scenarios = listOf(happyPath),
-        )
+        FillKitConfig(locale = FillLocale.Code("en-KE"), seed = 845912L, packs = listOf(sampleTestingPack))
     }
     FillKitHost("registration", modifier = modifier.fillMaxSize(), config = config) {
         FormColumn {
@@ -116,17 +221,17 @@ private fun RegistrationExample(modifier: Modifier = Modifier) {
             SampleTextField("Last name", state.lastName, { state = state.copy(lastName = it) }, "lastName", FillType.LastName, "Personal")
             SampleTextField("Email", state.email, { state = state.copy(email = it) }, "email", FillType.Email, "Contact")
             SampleTextField("Phone", state.phone, { state = state.copy(phone = it) }, "phone", FillType.PhoneNumber("KE"), "Contact")
+            SampleTextField("Profession", state.profession, { state = state.copy(profession = it) }, "profession", FillType.Custom("profession", String::class), "Provider")
+            SampleTextField("Service", state.service, { state = state.copy(service = it) }, "service", FillType.Custom("service", String::class), "Provider")
+            SampleTextField("Business name", state.businessName, { state = state.copy(businessName = it) }, "businessName", FillType.Custom("business-name", String::class), "Provider")
             OutlinedTextField(
                 value = state.password,
                 onValueChange = { state = state.copy(password = it) },
                 label = { Text("Password") },
                 visualTransformation = PasswordVisualTransformation(),
                 modifier = Modifier.fillMaxWidth().fillKit(
-                    id = "password",
-                    type = FillType.Password(minLength = 12),
-                    value = state.password,
-                    onFill = { state = state.copy(password = it) },
-                    group = "Personal",
+                    id = "password", type = FillType.Password(minLength = 12), value = state.password,
+                    onFill = { state = state.copy(password = it) }, group = "Personal",
                 ),
             )
             OutlinedTextField(
@@ -134,12 +239,9 @@ private fun RegistrationExample(modifier: Modifier = Modifier) {
                 onValueChange = { value -> parseDate(value)?.let { state = state.copy(dateOfBirth = it) } },
                 label = { Text("Date of birth (YYYY-MM-DD)") },
                 modifier = Modifier.fillMaxWidth().fillKit(
-                    id = "dateOfBirth",
-                    type = FillType.DateOfBirth,
-                    value = state.dateOfBirth,
+                    id = "dateOfBirth", type = FillType.DateOfBirth, value = state.dateOfBirth,
                     onFill = { state = state.copy(dateOfBirth = it) },
-                    onClear = { state = state.copy(dateOfBirth = null) },
-                    group = "Personal",
+                    onClear = { state = state.copy(dateOfBirth = null) }, group = "Personal",
                 ),
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -147,11 +249,8 @@ private fun RegistrationExample(modifier: Modifier = Modifier) {
                     checked = state.acceptTerms,
                     onCheckedChange = { state = state.copy(acceptTerms = it) },
                     modifier = Modifier.fillKit(
-                        id = "acceptTerms",
-                        label = "Accept terms",
-                        type = FillType.BooleanValue(probabilityTrue = 1f),
-                        value = state.acceptTerms,
-                        onFill = { state = state.copy(acceptTerms = it) },
+                        id = "acceptTerms", label = "Accept terms", type = FillType.BooleanValue(1f),
+                        value = state.acceptTerms, onFill = { state = state.copy(acceptTerms = it) },
                         onClear = { state = state.copy(acceptTerms = false) },
                     ),
                 )
@@ -170,9 +269,13 @@ private data class BusinessState(
 @Composable
 private fun BusinessExample(modifier: Modifier = Modifier) {
     var state by remember { mutableStateOf(BusinessState()) }
-    FillKitHost("business-onboarding", modifier = modifier.fillMaxSize(), config = FillKitConfig(locale = FillLocale.Code("en-GB"))) {
+    FillKitHost(
+        "business-onboarding",
+        modifier = modifier.fillMaxSize(),
+        config = FillKitConfig(locale = FillLocale.Code("en-NG"), packs = listOf(sampleTestingPack)),
+    ) {
         FormColumn {
-            SampleTextField("Business name", state.name, { state = state.copy(name = it) }, "businessName", FillType.CompanyName, "Business")
+            SampleTextField("Business name", state.name, { state = state.copy(name = it) }, "businessName", FillType.Custom("business-name", String::class), "Business")
             SampleTextField("Industry", state.industry, { state = state.copy(industry = it) }, "industry", FillType.Selection(listOf("Construction", "Hospitality", "Technology", "Retail")), "Business")
             SampleTextField("Email", state.email, { state = state.copy(email = it) }, "email", FillType.Email, "Contact")
             SampleTextField("Phone", state.phone, { state = state.copy(phone = it) }, "phone", FillType.PhoneNumber(), "Contact")
@@ -213,9 +316,7 @@ private fun FormColumn(content: @Composable () -> Unit) {
         modifier = Modifier.fillMaxSize(),
         contentPadding = PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
-    ) {
-        item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { content() } }
-    }
+    ) { item { Column(verticalArrangement = Arrangement.spacedBy(12.dp)) { content() } } }
 }
 
 @Composable
@@ -242,12 +343,8 @@ private fun NumberField(label: String, value: Int, onChange: (Int) -> Unit, id: 
         onValueChange = { it.toIntOrNull()?.let(onChange) },
         label = { Text(label) },
         modifier = Modifier.fillMaxWidth().fillKit(
-            id = id,
-            type = FillType.Integer(range),
-            value = value,
-            onFill = onChange,
-            group = "Business metrics",
-            onClear = { onChange(0) },
+            id = id, type = FillType.Integer(range), value = value, onFill = onChange,
+            group = "Business metrics", onClear = { onChange(0) },
         ),
     )
 }

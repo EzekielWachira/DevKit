@@ -14,6 +14,9 @@ class FillKitController internal constructor() {
     fun fill(fieldId: String) = commands?.fill(fieldId) ?: Unit
     fun clear(fieldId: String) = commands?.clear(fieldId) ?: Unit
     fun applyScenario(scenarioId: String) = commands?.applyScenario(scenarioId) ?: Unit
+    fun selectPersona(personaId: String) = commands?.selectPersona(personaId) ?: Unit
+    fun selectRandomPersona() = commands?.selectRandomPersona() ?: Unit
+    fun changeLocale(locale: FillLocale) = commands?.changeLocale(locale) ?: Unit
 
     internal fun bind(value: FillKitCommands?) {
         commands = value

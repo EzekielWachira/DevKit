@@ -2,6 +2,13 @@ package io.devkit.fillkit.debug.runtime
 
 import io.devkit.fillkit.FillKitConfig
 import io.devkit.fillkit.FillType
+import io.devkit.fillkit.FillValue
+import io.devkit.fillkit.fillPersona
+import io.devkit.fillkit.personaPack
+import io.devkit.fillkit.debug.persistence.RuntimePersonaPersistence
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.yield
 import io.devkit.fillkit.ScenarioValidationMode
 import io.devkit.fillkit.fillScenario
 import io.devkit.fillkit.runtime.FillKitField
@@ -100,7 +107,7 @@ class FormRegistryTest {
         registry.register(Any(), field("name", FillType.FirstName, "", {}))
 
         val error = assertThrows(IllegalStateException::class.java) { registry.applyScenario("bad") }
-        assertTrue(error.message.orEmpty().contains("expected String, got Int"))
+        assertTrue(error.message.orEmpty().contains("expected String"))
     }
 
     @Test
@@ -111,7 +118,55 @@ class FormRegistryTest {
         assertTrue(first != registry.persona)
         registry.changeLocale("en-GB")
         assertEquals("en-GB", registry.localeTag)
-        assertEquals("United Kingdom", registry.persona.address.country)
+        assertEquals(FillValue.Text("United Kingdom"), registry.persona.values["country"])
+    }
+
+    @Test
+    fun selectingSavedPersonaResolvesDefinedAndMissingFields() {
+        val saved = fillPersona("known", "Known User") {
+            firstName("Brian")
+            lastName("Mwangi")
+            email("known@example.com")
+        }
+        val config = FillKitConfig(personaPacks = listOf(personaPack("people", "People") { persona(saved) }), seed = 4)
+        val registry = registry(config)
+        var email = ""
+        var country = ""
+        registry.register(Any(), field("email", FillType.Email, "", { email = it }))
+        registry.register(Any(), field("country", FillType.Country, "", { country = it }))
+
+        registry.selectPersona("known")
+
+        assertEquals("known@example.com", email)
+        assertEquals("Kenya", country)
+        assertEquals("known", registry.activePersonaId)
+    }
+
+    @Test
+    fun runtimePersonasSaveLoadDeleteAndClear() = runBlocking {
+        val store = FakePersonaPersistence()
+        val registry = FormRegistry("test", "en-KE", FillKitConfig(seed = 2), {}, store)
+        registry.attachPersistence(this)
+        yield()
+
+        registry.saveCurrentPersona("Checkout Test User")
+        yield()
+        assertEquals(listOf("Checkout Test User"), registry.savedRuntimePersonas.map { it.name })
+        val id = registry.savedRuntimePersonas.single().id
+        assertTrue(id.startsWith("runtime-"))
+
+        registry.deleteRuntimePersona(id)
+        yield()
+        assertTrue(registry.savedRuntimePersonas.isEmpty())
+
+        registry.saveCurrentPersona("First")
+        registry.saveCurrentPersona("Second")
+        yield()
+        assertEquals(2, registry.savedRuntimePersonas.size)
+        registry.deleteAllRuntimePersonas()
+        yield()
+        assertTrue(registry.savedRuntimePersonas.isEmpty())
+        registry.detachPersistence()
     }
 
     private fun registry(
@@ -128,4 +183,14 @@ class FormRegistryTest {
         value: T,
         callback: (T) -> Unit,
     ) = FillKitField(id, null, null, type, value, callback, null)
+
+    private class FakePersonaPersistence : RuntimePersonaPersistence {
+        private val state = MutableStateFlow<List<io.devkit.fillkit.FillPersona>>(emptyList())
+        override val personas = state
+        override suspend fun save(persona: io.devkit.fillkit.FillPersona) {
+            state.value = state.value.filterNot { it.id == persona.id } + persona
+        }
+        override suspend fun delete(id: String) { state.value = state.value.filterNot { it.id == id } }
+        override suspend fun clear() { state.value = emptyList() }
+    }
 }

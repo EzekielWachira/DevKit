@@ -1,11 +1,11 @@
 package io.devkit.fillkit.engine
 
 import io.devkit.fillkit.FillDate
-import io.devkit.fillkit.engine.locale.LocaleData
+import io.devkit.fillkit.FillLocalePack
 import kotlin.random.Random
 
 class PersonaGenerator {
-    fun generate(random: Random, locale: LocaleData): FakePersona {
+    fun generate(random: Random, locale: FillLocalePack): FakePersona {
         val firstName = locale.firstNames.random(random)
         val lastName = locale.lastNames.random(random)
         val username = normalize("$firstName.$lastName")
@@ -16,19 +16,20 @@ class PersonaGenerator {
         val birthMonth = random.nextInt(1, 13)
         val birthDay = random.nextInt(1, FillDate.daysInMonth(birthYear, birthMonth) + 1)
         val companySlug = normalize(locale.companyPrefixes.random(random))
+        val phoneData = requireNotNull(locale.phone) { "locale ${locale.code} has no phone data after fallback" }
         return FakePersona(
             firstName = firstName,
             lastName = lastName,
             email = email,
             username = username,
-            phoneNumber = phone(random, locale.countryCallingCode),
+            phoneNumber = phone(random, phoneData.countryCode, phoneData.formats.random(random)),
             dateOfBirth = FillDate(birthYear, birthMonth, birthDay),
             age = age,
             address = FakeAddress(
                 street = "${random.nextInt(10, 999)} ${locale.streetNames.random(random)}",
                 city = locale.cities.random(random),
                 region = locale.regions.random(random),
-                country = locale.country,
+                country = requireNotNull(locale.country),
                 postalCode = locale.postalCodes.random(random),
             ),
             company = FakeCompany(
@@ -49,9 +50,9 @@ class PersonaGenerator {
             .replace(Regex("\\.+"), ".")
             .trim('.')
 
-        fun phone(random: Random, callingCode: String): String = buildString {
+        fun phone(random: Random, callingCode: String, format: String = if (callingCode == "+1") "##########" else "#########"): String = buildString {
             append(callingCode)
-            repeat(if (callingCode == "+1") 10 else 9) { append(random.nextInt(10)) }
+            format.forEach { append(if (it == '#') random.nextInt(10) else it) }
         }
     }
 }

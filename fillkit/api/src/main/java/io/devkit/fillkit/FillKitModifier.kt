@@ -19,9 +19,10 @@ fun <T : Any> Modifier.fillKit(
     label: String? = null,
     group: String? = null,
     onClear: (() -> Unit)? = null,
+    generator: FillGenerator<T>? = null,
 ): Modifier {
     require(id.isNotBlank()) { "FillKit field id cannot be blank" }
-    return this then FillKitElement(id, label, group, type, value, onFill, onClear)
+    return this then FillKitElement(id, label, group, type, value, onFill, onClear, generator)
 }
 
 private class FillKitElement<T : Any>(
@@ -32,17 +33,18 @@ private class FillKitElement<T : Any>(
     private val value: T?,
     private val onFill: (T) -> Unit,
     private val onClear: (() -> Unit)?,
+    private val generator: FillGenerator<T>?,
 ) : ModifierNodeElement<FillKitNode<T>>() {
-    override fun create() = FillKitNode(id, label, group, type, value, onFill, onClear)
+    override fun create() = FillKitNode(id, label, group, type, value, onFill, onClear, generator)
 
     override fun update(node: FillKitNode<T>) {
-        node.update(id, label, group, type, value, onFill, onClear)
+        node.update(id, label, group, type, value, onFill, onClear, generator)
     }
 
     override fun equals(other: Any?): Boolean = other is FillKitElement<*> &&
         id == other.id && label == other.label && group == other.group &&
         type == other.type && value == other.value && onFill === other.onFill &&
-        onClear === other.onClear
+        onClear === other.onClear && generator === other.generator
 
     override fun hashCode(): Int {
         var result = id.hashCode()
@@ -52,6 +54,7 @@ private class FillKitElement<T : Any>(
         result = 31 * result + (value?.hashCode() ?: 0)
         result = 31 * result + System.identityHashCode(onFill)
         result = 31 * result + System.identityHashCode(onClear)
+        result = 31 * result + System.identityHashCode(generator)
         return result
     }
 }
@@ -64,6 +67,7 @@ private class FillKitNode<T : Any>(
     private var value: T?,
     private var onFill: (T) -> Unit,
     private var onClear: (() -> Unit)?,
+    private var generator: FillGenerator<T>?,
 ) : Modifier.Node(), CompositionLocalConsumerModifierNode, ObserverModifierNode {
     private var registry: FillKitRegistry? = null
 
@@ -95,6 +99,7 @@ private class FillKitNode<T : Any>(
         value: T?,
         onFill: (T) -> Unit,
         onClear: (() -> Unit)?,
+        generator: FillGenerator<T>?,
     ) {
         this.id = id
         this.label = label
@@ -103,8 +108,9 @@ private class FillKitNode<T : Any>(
         this.value = value
         this.onFill = onFill
         this.onClear = onClear
+        this.generator = generator
         registry?.update(this, field())
     }
 
-    private fun field() = FillKitField(id, label, group, type, value, onFill, onClear)
+    private fun field() = FillKitField(id, label, group, type, value, onFill, onClear, generator)
 }

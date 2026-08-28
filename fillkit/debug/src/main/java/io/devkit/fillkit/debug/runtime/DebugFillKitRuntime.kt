@@ -6,11 +6,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import io.devkit.fillkit.FillKitConfig
 import io.devkit.fillkit.FillKitController
 import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.debug.ui.FillKitOverlay
+import io.devkit.fillkit.debug.persistence.RuntimePersonaStore
 import io.devkit.fillkit.runtime.FillKitRuntime
 import io.devkit.fillkit.runtime.FillKitRuntimeProvider
 import io.devkit.fillkit.runtime.LocalFillKitRegistry
@@ -25,16 +28,23 @@ object DebugFillKitRuntime : FillKitRuntime {
         controller: FillKitController?,
         content: @Composable () -> Unit,
     ) {
+        val context = LocalContext.current
+        val persistence = remember(context.applicationContext) { RuntimePersonaStore(context.applicationContext) }
+        val persistenceScope = rememberCoroutineScope()
         val initialLocale = when (val locale = config.locale) {
             FillLocale.System -> Locale.getDefault().toLanguageTag()
             is FillLocale.Code -> locale.value
         }
         val registry = remember(formId, config, initialLocale) {
-            FormRegistry(formId, initialLocale, config) { Log.w("FillKit", it) }
+            FormRegistry(formId, initialLocale, config, { Log.w("FillKit", it) }, persistence)
         }
         DisposableEffect(controller, registry) {
             FillKitRuntimeProvider.bind(controller, registry)
-            onDispose { FillKitRuntimeProvider.bind(controller, null) }
+            registry.attachPersistence(persistenceScope)
+            onDispose {
+                registry.detachPersistence()
+                FillKitRuntimeProvider.bind(controller, null)
+            }
         }
 
         CompositionLocalProvider(LocalFillKitRegistry provides registry) {

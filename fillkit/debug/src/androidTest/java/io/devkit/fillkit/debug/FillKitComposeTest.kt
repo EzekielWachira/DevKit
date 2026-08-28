@@ -8,8 +8,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import io.devkit.fillkit.FillKitConfig
@@ -17,6 +19,8 @@ import io.devkit.fillkit.FillKitController
 import io.devkit.fillkit.FillKitHost
 import io.devkit.fillkit.FillType
 import io.devkit.fillkit.fillKit
+import io.devkit.fillkit.fillPersona
+import io.devkit.fillkit.personaPack
 import io.devkit.fillkit.rememberFillKitController
 import io.devkit.fillkit.debug.runtime.DebugFillKitRuntime
 import io.devkit.fillkit.runtime.FillKitRuntimeProvider
@@ -107,5 +111,47 @@ class FillKitComposeTest {
         compose.onNodeWithText("⚡").performClick()
         compose.onNodeWithText("FillKit").assertIsDisplayed()
         compose.onNodeWithText("Email").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun fillAllPopulatesFieldsAndDismissesPanel() {
+        var email = ""
+        compose.setContent {
+            MaterialTheme {
+                FillKitHost("registration", modifier = Modifier.fillMaxSize()) {
+                    Box(Modifier.fillKit("email", FillType.Email, email, onFill = { email = it }))
+                }
+            }
+        }
+
+        compose.onNodeWithText("⚡").performClick()
+        compose.onNodeWithText("Fill All").performClick()
+
+        compose.runOnIdle { check(email.isNotBlank()) }
+        compose.onAllNodesWithText("FillKit").assertCountEquals(0)
+    }
+
+    @Test
+    fun developerPanelSelectsSavedPersonaAndFillsItsValues() {
+        var email = ""
+        val returningCustomer = fillPersona("returning", "Returning Customer") {
+            email("returning@example.com")
+        }
+        val config = FillKitConfig(
+            personaPacks = listOf(personaPack("customers", "Customers") { persona(returningCustomer) }),
+        )
+        compose.setContent {
+            MaterialTheme {
+                FillKitHost("checkout", modifier = Modifier.fillMaxSize(), config = config) {
+                    Box(Modifier.fillKit("email", FillType.Email, email, onFill = { email = it }))
+                }
+            }
+        }
+
+        compose.onNodeWithText("⚡").performClick()
+        compose.onNodeWithText("Returning Customer").performClick()
+
+        compose.runOnIdle { assertEquals("returning@example.com", email) }
+        compose.onNodeWithText("Returning Customer").assertIsDisplayed()
     }
 }

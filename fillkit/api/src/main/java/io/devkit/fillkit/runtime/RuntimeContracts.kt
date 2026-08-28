@@ -6,6 +6,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import io.devkit.fillkit.FillKitConfig
 import io.devkit.fillkit.FillKitController
+import io.devkit.fillkit.FillGenerator
+import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.FillType
 
 /** Runtime SPI used by the separately packaged debug artifact. */
@@ -29,6 +31,7 @@ data class FillKitField<T : Any>(
     val currentValue: T?,
     val onFill: (T) -> Unit,
     val onClear: (() -> Unit)?,
+    val generator: FillGenerator<T>? = null,
 )
 
 /** Composition-scoped registry contract. Implementations must not retain detached owners. */
@@ -45,6 +48,9 @@ interface FillKitCommands {
     fun fill(fieldId: String)
     fun clear(fieldId: String)
     fun applyScenario(scenarioId: String)
+    fun selectPersona(personaId: String)
+    fun selectRandomPersona()
+    fun changeLocale(locale: FillLocale)
 }
 
 val LocalFillKitRegistry = staticCompositionLocalOf<FillKitRegistry?> { null }

@@ -1,27 +1,85 @@
 package io.devkit.fillkit
 
-import kotlin.random.Random
-
 enum class ScenarioValidationMode { Lenient, Strict }
 
-/** Context supplied to a form-scoped custom generator. */
-data class FillGenerationContext(
-    val locale: FillLocale,
-    val random: Random,
-)
-
-fun interface FillGenerator<T : Any> {
-    fun generate(context: FillGenerationContext): T
+/** A reusable collection spanning all four FillKit 0.2 systems. */
+data class FillKitPack(
+    val id: String,
+    val name: String,
+    val localePacks: List<FillLocalePack> = emptyList(),
+    val personaPacks: List<FillPersonaPack> = emptyList(),
+    val scenarioPacks: List<FillScenarioPack> = emptyList(),
+    val generatorPacks: List<FillGeneratorPack> = emptyList(),
+) {
+    init {
+        require(id.isNotBlank()) { "FillKit pack id cannot be blank" }
+        require(name.isNotBlank()) { "FillKit pack name cannot be blank" }
+    }
 }
 
-/** Behavior shared by one [FillKitHost]. */
+fun fillKitPack(id: String, name: String, block: FillKitPackBuilder.() -> Unit): FillKitPack =
+    FillKitPackBuilder().apply(block).build(id, name)
+
+class FillKitPackBuilder internal constructor() {
+    private val locales = mutableListOf<FillLocalePack>()
+    private val personas = mutableListOf<FillPersonaPack>()
+    private val scenarios = mutableListOf<FillScenarioPack>()
+    private val generators = mutableListOf<FillGeneratorPack>()
+
+    fun locale(value: FillLocalePack) { locales += value }
+    fun personas(value: FillPersonaPack) { personas += value }
+    fun scenarios(value: FillScenarioPack) { scenarios += value }
+    fun generators(value: FillGeneratorPack) { generators += value }
+
+    internal fun build(id: String, name: String) =
+        FillKitPack(id, name, locales.toList(), personas.toList(), scenarios.toList(), generators.toList())
+}
+
+/** Behavior and reusable test data scoped to one [FillKitHost]. */
 data class FillKitConfig(
     val locale: FillLocale = FillLocale.System,
     val seed: Long? = null,
+    val localePacks: List<FillLocalePack> = emptyList(),
+    val personaPacks: List<FillPersonaPack> = emptyList(),
+    val scenarioPacks: List<FillScenarioPack> = emptyList(),
+    val generatorPacks: List<FillGeneratorPack> = emptyList(),
+    val generators: List<FillGenerator<*>> = emptyList(),
+    /** Compatibility shortcut for form-local scenarios. */
+    val scenarios: List<FillScenario> = emptyList(),
+    /** Compatibility shortcut; the map key explicitly overrides the generator's own ID. */
+    val customGenerators: Map<String, FillGenerator<*>> = emptyMap(),
+    val packs: List<FillKitPack> = emptyList(),
     val showTrigger: Boolean = true,
     val showFieldValues: Boolean = true,
     val scenarioValidationMode: ScenarioValidationMode = ScenarioValidationMode.Lenient,
-    val scenarios: List<FillScenario> = emptyList(),
-    val customGenerators: Map<String, FillGenerator<*>> = emptyMap(),
     val loggingEnabled: Boolean = true,
-)
+) {
+    init {
+        requireUniqueIds("FillKit pack", packs.map(FillKitPack::id))
+        requireUniqueIds("packed locale", packs.flatMap(FillKitPack::localePacks).map(FillLocalePack::code))
+        requireUniqueIds("local locale", localePacks.map(FillLocalePack::code))
+        requireUniqueIds("persona", allPersonas().map(FillPersona::id))
+        requireUniqueIds("packed scenario", allScenarioPacks().flatMap(FillScenarioPack::scenarios).map(FillScenario::id))
+        requireUniqueIds("local scenario", scenarios.map(FillScenario::id))
+        requireUniqueIds("packed generator", allGeneratorPacks().flatMap(FillGeneratorPack::generators).map(FillGenerator<*>::id))
+        requireUniqueIds("local generator", generators.map(FillGenerator<*>::id))
+    }
+
+    fun allLocalePacks(): List<FillLocalePack> =
+        overrideBy(packs.flatMap(FillKitPack::localePacks), localePacks, FillLocalePack::code)
+    fun allPersonaPacks(): List<FillPersonaPack> = packs.flatMap(FillKitPack::personaPacks) + personaPacks
+    fun allPersonas(): List<FillPersona> = allPersonaPacks().flatMap(FillPersonaPack::personas)
+    fun allScenarioPacks(): List<FillScenarioPack> = packs.flatMap(FillKitPack::scenarioPacks) + scenarioPacks
+    fun allScenarios(): List<FillScenario> =
+        overrideBy(allScenarioPacks().flatMap(FillScenarioPack::scenarios), scenarios, FillScenario::id)
+    fun allGeneratorPacks(): List<FillGeneratorPack> = packs.flatMap(FillKitPack::generatorPacks) + generatorPacks
+    fun allGenerators(): List<Pair<String, FillGenerator<*>>> =
+        allGeneratorPacks().flatMap(FillGeneratorPack::generators).map { it.id to it } +
+            generators.map { it.id to it } + customGenerators.toList()
+}
+
+private fun <T, K> overrideBy(base: List<T>, overrides: List<T>, key: (T) -> K): List<T> =
+    LinkedHashMap<K, T>().apply {
+        base.forEach { put(key(it), it) }
+        overrides.forEach { put(key(it), it) }
+    }.values.toList()

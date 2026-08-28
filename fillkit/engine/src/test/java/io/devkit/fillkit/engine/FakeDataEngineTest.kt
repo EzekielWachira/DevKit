@@ -1,8 +1,9 @@
 package io.devkit.fillkit.engine
 
 import io.devkit.fillkit.FillDate
+import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.FillType
-import io.devkit.fillkit.engine.locale.LocaleDataRegistry
+import io.devkit.fillkit.engine.locale.DefaultFillLocaleRegistry
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -28,10 +29,10 @@ class FakeDataEngineTest {
 
     @Test
     fun localesResolveExactlyAndFallBackByRegion() {
-        val registry = LocaleDataRegistry()
-        assertEquals("en-GB", registry.resolve("en-GB").locale)
-        assertEquals("en-KE", registry.resolve("sw_KE").locale)
-        assertEquals("en-US", registry.resolve("fr-FR").locale)
+        val registry = DefaultFillLocaleRegistry()
+        assertEquals("en-GB", registry.resolve(FillLocale.Code("en-GB")).code)
+        assertEquals("en-KE", registry.resolve(FillLocale.Code("sw_KE")).code)
+        assertEquals("en-US", registry.resolve(FillLocale.Code("fr-FR")).code)
     }
 
     @Test
