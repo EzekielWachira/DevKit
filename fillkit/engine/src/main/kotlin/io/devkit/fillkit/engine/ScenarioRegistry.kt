@@ -29,14 +29,23 @@ class ScenarioRegistry(scenarios: List<FillScenario>) {
         val values = linkedMapOf<String, io.devkit.fillkit.FillValue>()
         val generators = linkedMapOf<String, io.devkit.fillkit.FillScenarioGenerator>()
         var personaId: String? = null
+        var locale: String? = null
         bases.forEach { base ->
             personaId = base.personaId ?: personaId
+            locale = base.locale ?: locale
             base.values.forEach { (key, value) -> values[key] = value; generators.remove(key) }
             base.generators.forEach { (key, value) -> generators[key] = value; values.remove(key) }
         }
         personaId = scenario.personaId ?: personaId
+        locale = scenario.locale ?: locale
         scenario.values.forEach { (key, value) -> values[key] = value; generators.remove(key) }
         scenario.generators.forEach { (key, value) -> generators[key] = value; values.remove(key) }
-        return scenario.copy(values = values, generators = generators, includes = emptyList(), personaId = personaId)
+        return scenario.copy(
+            values = values,
+            generators = generators,
+            includes = emptyList(),
+            personaId = personaId,
+            locale = locale,
+        )
     }
 }

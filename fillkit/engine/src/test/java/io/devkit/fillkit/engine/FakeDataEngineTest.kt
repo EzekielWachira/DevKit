@@ -32,8 +32,12 @@ class FakeDataEngineTest {
     fun localesResolveExactlyAndFallBackByRegion() {
         val registry = DefaultFillLocaleRegistry()
         assertEquals("en-GB", registry.resolve(FillLocale.Code("en-GB")).code)
-        assertEquals("en-KE", registry.resolve(FillLocale.Code("sw_KE")).code)
-        assertEquals("en-US", registry.resolve(FillLocale.Code("fr-FR")).code)
+        // Underscore separators and casing are normalised before lookup.
+        assertEquals("sw-KE", registry.resolve(FillLocale.Code("sw_KE")).code)
+        assertEquals("fr-FR", registry.resolve(FillLocale.Code("fr-FR")).code)
+        // No pack for this region, but the language is covered.
+        assertEquals("fr-CA", registry.resolve(FillLocale.Code("fr-BE")).code)
+        assertEquals("en-US", registry.resolve(FillLocale.Code("zz-ZZ")).code)
     }
 
     @Test

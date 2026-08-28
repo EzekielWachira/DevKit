@@ -1,0 +1,174 @@
+package io.devkit.fillkit.debug.overlay
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Button
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Text
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import io.devkit.fillkit.FillType
+import io.devkit.fillkit.debug.runtime.FormRegistry
+import io.devkit.fillkit.debug.runtime.StoredField
+import io.devkit.fillkit.debug.ui.ControlShape
+import io.devkit.fillkit.debug.ui.RouteHeader
+import io.devkit.fillkit.debug.ui.SectionLabel
+import io.devkit.fillkit.debug.ui.SheetGutter
+import io.devkit.fillkit.debug.ui.SheetShape
+import io.devkit.fillkit.debug.ui.ValueShape
+import io.devkit.fillkit.debug.ui.FillKitDragHandle
+import io.devkit.fillkit.displayName
+
+/**
+ * The overlay's `⋯` destination: everything FillKit knows about one field, and
+ * the actions that are too detailed for a one-line bar.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+internal fun FieldInspectorSheet(field: StoredField, registry: FormRegistry, onDismiss: () -> Unit) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val preview = registry.preview(field)
+    val current = field.currentValue?.toString().orEmpty()
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        shape = SheetShape,
+        containerColor = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+        dragHandle = { FillKitDragHandle() },
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .navigationBarsPadding()
+                .padding(start = SheetGutter, end = SheetGutter, bottom = 12.dp),
+        ) {
+            RouteHeader(field.label, "Everything FillKit knows about this field.")
+
+            Column(
+                modifier = Modifier.heightIn(max = 380.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                InspectorRow("ID", field.id)
+                InspectorRow("FillType", field.type.displayName())
+                InspectorRow("Detected from", field.source)
+                InspectorRow("Confidence", field.confidence.name)
+                InspectorRow("Fill target", field.target.kind.name)
+                field.group?.let { InspectorRow("Group", it) }
+                InspectorRow("Generator", field.generator?.id ?: "Built-in resolver")
+                // Locale diagnostics: which locale, why, and from which pack.
+                val (localeSource, localePack) = registry.localeSourceFor(field)
+                InspectorRow("Locale", localePack.code)
+                InspectorRow("Locale source", localeSource)
+                InspectorRow("Locale pack", localePack.coordinate())
+                if (!registry.localeResolution.exact && localeSource == "Form") {
+                    InspectorRow("Locale fallback", registry.localeResolution.describe())
+                }
+                localePack.address?.let { address ->
+                    InspectorRow("Administrative area", address.administrativeAreaLabel)
+                    if (!address.postalCodeSupported) InspectorRow("Postal codes", "Not used in this locale")
+                }
+                InspectorRow("Persona", if (registry.isRandomPersona) "Random" else registry.persona.name)
+                registry.activeScenarioId?.let { InspectorRow("Scenario", it) }
+                InspectorRow("Seed", registry.masterSeed.value.toString())
+                InspectorRow("Form generation", registry.generation.toString())
+                InspectorRow("Field regenerations", registry.generationOf(field.id).toString())
+                if (registry.isScenarioValue(field)) {
+                    InspectorRow("Value source", "Pinned by the active scenario")
+                }
+                if (registry.isModified(field)) {
+                    InspectorRow("Value source", "Modified after FillKit filled it")
+                }
+                InspectorValue("Suggested", preview?.toString() ?: "Not generated by FillKit")
+                if (current.isNotEmpty()) InspectorValue("Current", current)
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (field.type is FillType.BooleanValue) {
+                    FilledTonalButton(
+                        onClick = { registry.fill(field.id); onDismiss() },
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = ControlShape,
+                    ) { Text("Set", maxLines = 1) }
+                } else {
+                    Button(
+                        onClick = { registry.fill(field.id); onDismiss() },
+                        enabled = preview != null,
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = ControlShape,
+                    ) { Text("Fill", fontWeight = FontWeight.SemiBold, maxLines = 1) }
+                    FilledTonalButton(
+                        onClick = { registry.regenerate(field.id) },
+                        enabled = preview != null,
+                        modifier = Modifier.weight(1f).height(46.dp),
+                        shape = ControlShape,
+                    ) { Text("Another", maxLines = 1) }
+                }
+                OutlinedButton(
+                    onClick = { registry.clear(field.id); onDismiss() },
+                    modifier = Modifier.height(46.dp),
+                    shape = ControlShape,
+                ) { Text("Clear", maxLines = 1) }
+            }
+        }
+    }
+}
+
+@Composable
+private fun InspectorRow(label: String, value: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SectionLabel(label)
+        Text(
+            value,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+    }
+}
+
+@Composable
+private fun InspectorValue(label: String, value: String) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        SectionLabel(label)
+        Text(
+            value,
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(ValueShape)
+                .background(MaterialTheme.colorScheme.surfaceContainerHighest)
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            style = MaterialTheme.typography.labelSmall,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.onSurface,
+        )
+    }
+}

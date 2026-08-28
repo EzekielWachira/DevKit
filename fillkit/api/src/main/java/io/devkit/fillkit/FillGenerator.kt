@@ -60,10 +60,11 @@ inline fun <reified T : Any> fillGenerator(
 ): FillGenerator<T> = FillGenerator(id, T::class, block)
 
 data class FillGeneratorPack(
-    val id: String,
-    val name: String,
+    override val id: String,
+    override val name: String,
     val generators: List<FillGenerator<*>>,
-) {
+    override val version: String? = null,
+) : FillVersionedPack {
     init {
         require(id.isNotBlank()) { "generator pack id cannot be blank" }
         require(name.isNotBlank()) { "generator pack name cannot be blank" }
@@ -71,11 +72,16 @@ data class FillGeneratorPack(
     }
 }
 
-fun generatorPack(id: String, name: String, block: FillGeneratorPackBuilder.() -> Unit): FillGeneratorPack =
-    FillGeneratorPackBuilder().apply(block).build(id, name)
+fun generatorPack(
+    id: String,
+    name: String,
+    version: String? = null,
+    block: FillGeneratorPackBuilder.() -> Unit,
+): FillGeneratorPack = FillGeneratorPackBuilder().apply(block).build(id, name, version)
 
 class FillGeneratorPackBuilder internal constructor() {
     private val generators = mutableListOf<FillGenerator<*>>()
     fun generator(value: FillGenerator<*>) { generators += value }
-    internal fun build(id: String, name: String) = FillGeneratorPack(id, name, generators.toList())
+    internal fun build(id: String, name: String, version: String? = null) =
+        FillGeneratorPack(id, name, generators.toList(), version)
 }

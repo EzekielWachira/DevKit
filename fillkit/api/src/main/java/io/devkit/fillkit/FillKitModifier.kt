@@ -4,7 +4,13 @@ import androidx.compose.foundation.text.input.TextFieldState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.autofill.FillableData
+import androidx.compose.ui.focus.FocusEventModifierNode
+import androidx.compose.ui.focus.FocusState
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInWindow
 import androidx.compose.ui.node.CompositionLocalConsumerModifierNode
+import androidx.compose.ui.node.GlobalPositionAwareModifierNode
 import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.node.ObserverModifierNode
 import androidx.compose.ui.node.SemanticsModifierNode
@@ -29,8 +35,10 @@ fun <T : Any> Modifier.fillKit(
     group: String? = null,
     onClear: (() -> Unit)? = null,
     generator: FillGenerator<T>? = null,
+    overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
+    locale: FillLocale? = null,
 ): Modifier = fillKitTarget(
-    id, type, CallbackFillTarget(value, onFill, onClear), label, group, generator, null,
+    id, type, CallbackFillTarget(value, onFill, onClear), label, group, generator, null, overlay, locale,
 )
 
 /** State-based Compose overload. Fill places the cursor at the end; clear resets the state. */
@@ -43,8 +51,10 @@ fun Modifier.fillKit(
     generator: FillGenerator<String>? = null,
     normalize: (String) -> String = { it },
     contentType: ContentType? = null,
+    overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
+    locale: FillLocale? = null,
 ): Modifier = fillKitTarget(
-    id, type, TextFieldStateFillTarget(state, normalize), label, group, generator, contentType,
+    id, type, TextFieldStateFillTarget(state, normalize), label, group, generator, contentType, overlay, locale,
 )
 
 /** ContentType-assisted state registration resolved by the host's scoped mapping chain. */
@@ -57,11 +67,14 @@ fun Modifier.fillKit(
     mapper: ContentTypeMapper? = null,
     generator: FillGenerator<String>? = null,
     normalize: (String) -> String = { it },
+    overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
+    locale: FillLocale? = null,
 ): Modifier {
     require(id.isNotBlank()) { "FillKit field id cannot be blank" }
     return this then FillKitContentTypeElement(
         FillKitContentTypeField(
             id, label, group, contentType, TextFieldStateFillTarget(state, normalize), mapper, generator,
+            overlay, locale,
         ),
     )
 }
@@ -76,8 +89,10 @@ fun Modifier.fillKitSemantics(
     group: String? = null,
     generator: FillGenerator<String>? = null,
     contentType: ContentType? = null,
+    overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
+    locale: FillLocale? = null,
 ): Modifier = fillKitTarget(
-    id, type, SemanticsFillTarget(currentText, onFillData), label, group, generator, contentType,
+    id, type, SemanticsFillTarget(currentText, onFillData), label, group, generator, contentType, overlay, locale,
 )
 
 private fun <T : Any> Modifier.fillKitTarget(
@@ -88,9 +103,11 @@ private fun <T : Any> Modifier.fillKitTarget(
     group: String?,
     generator: FillGenerator<T>?,
     contentType: ContentType?,
+    overlay: FieldOverlayBehavior,
+    locale: FillLocale?,
 ): Modifier {
     require(id.isNotBlank()) { "FillKit field id cannot be blank" }
-    return this then FillKitElement(id, label, group, type, target, generator, contentType)
+    return this then FillKitElement(id, label, group, type, target, generator, contentType, overlay, locale)
 }
 
 /**
@@ -138,9 +155,12 @@ private data class FillKitElement<T : Any>(
     val target: FillTarget<T>,
     val generator: FillGenerator<T>?,
     val contentType: ContentType?,
+    val overlay: FieldOverlayBehavior,
+    val locale: FillLocale?,
 ) : ModifierNodeElement<FillKitNode<T>>() {
-    override fun create() = FillKitNode(id, label, group, type, target, generator, contentType)
-    override fun update(node: FillKitNode<T>) = node.update(id, label, group, type, target, generator, contentType)
+    override fun create() = FillKitNode(id, label, group, type, target, generator, contentType, overlay, locale)
+    override fun update(node: FillKitNode<T>) =
+        node.update(id, label, group, type, target, generator, contentType, overlay, locale)
 }
 
 private class FillKitNode<T : Any>(
@@ -151,9 +171,30 @@ private class FillKitNode<T : Any>(
     private var target: FillTarget<T>,
     private var generator: FillGenerator<T>?,
     private var declaredContentType: ContentType?,
-) : Modifier.Node(), CompositionLocalConsumerModifierNode, ObserverModifierNode, SemanticsModifierNode {
+    private var overlay: FieldOverlayBehavior,
+    private var locale: FillLocale?,
+) : Modifier.Node(),
+    CompositionLocalConsumerModifierNode,
+    ObserverModifierNode,
+    SemanticsModifierNode,
+    FocusEventModifierNode,
+    GlobalPositionAwareModifierNode {
     private var registry: FillKitRegistry? = null
+    private var focused = false
     override val isImportantForBounds: Boolean get() = false
+
+    /** Ordinary Compose focus events from the field below this modifier. */
+    override fun onFocusEvent(focusState: FocusState) {
+        val next = focusState.hasFocus
+        if (next == focused) return
+        focused = next
+        registry?.setFieldFocus(this, next)
+    }
+
+    override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
+        if (!coordinates.isAttached) return
+        registry?.setFieldBounds(this, coordinates.boundsInWindow())
+    }
 
     override fun onAttach() = onObservedReadsChanged()
     override fun onObservedReadsChanged() {
@@ -167,14 +208,21 @@ private class FillKitNode<T : Any>(
             }
         }
     }
-    override fun onDetach() { registry?.unregister(this); registry = null }
+    override fun onDetach() {
+        if (focused) registry?.setFieldFocus(this, false)
+        focused = false
+        registry?.unregister(this)
+        registry = null
+    }
 
     fun update(
         id: String, label: String?, group: String?, type: FillType<T>, target: FillTarget<T>,
-        generator: FillGenerator<T>?, contentType: ContentType?,
+        generator: FillGenerator<T>?, contentType: ContentType?, overlay: FieldOverlayBehavior,
+        locale: FillLocale?,
     ) {
         this.id = id; this.label = label; this.group = group; this.type = type
         this.target = target; this.generator = generator; this.declaredContentType = contentType
+        this.overlay = overlay; this.locale = locale
         registry?.update(this, field())
         invalidateSemantics()
     }
@@ -192,7 +240,7 @@ private class FillKitNode<T : Any>(
         fillKitTarget = target.kind.name
     }
 
-    private fun field() = FillKitField(id, label, group, type, target, generator)
+    private fun field() = FillKitField(id, label, group, type, target, generator, overlay, locale)
 }
 
 private data class FillKitSuggestionElement(
@@ -213,9 +261,28 @@ private data class FillKitContentTypeElement(
 
 private class FillKitContentTypeNode(
     private var field: FillKitContentTypeField,
-) : Modifier.Node(), CompositionLocalConsumerModifierNode, ObserverModifierNode, SemanticsModifierNode {
+) : Modifier.Node(),
+    CompositionLocalConsumerModifierNode,
+    ObserverModifierNode,
+    SemanticsModifierNode,
+    FocusEventModifierNode,
+    GlobalPositionAwareModifierNode {
     private var registry: FillKitRegistry? = null
+    private var focused = false
     override val isImportantForBounds: Boolean get() = false
+
+    override fun onFocusEvent(focusState: FocusState) {
+        val next = focusState.hasFocus
+        if (next == focused) return
+        focused = next
+        registry?.setFieldFocus(this, next)
+    }
+
+    override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
+        if (!coordinates.isAttached) return
+        registry?.setFieldBounds(this, coordinates.boundsInWindow())
+    }
+
     override fun onAttach() = onObservedReadsChanged()
     override fun onObservedReadsChanged() {
         observeReads {
@@ -228,7 +295,12 @@ private class FillKitContentTypeNode(
             }
         }
     }
-    override fun onDetach() { registry?.unregister(this); registry = null }
+    override fun onDetach() {
+        if (focused) registry?.setFieldFocus(this, false)
+        focused = false
+        registry?.unregister(this)
+        registry = null
+    }
     fun update(field: FillKitContentTypeField) {
         this.field = field
         registry?.updateContentType(this, field)

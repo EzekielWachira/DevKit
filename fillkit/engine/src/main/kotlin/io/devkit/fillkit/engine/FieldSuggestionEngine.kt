@@ -10,7 +10,15 @@ import io.devkit.fillkit.SuggestionReason
 import io.devkit.fillkit.SuggestionSource
 
 /** Deterministic, platform-neutral field inference. No Compose tree access or reflection. */
-class FieldSuggestionEngine(private val rulePacks: List<FillSuggestionRulePack> = emptyList()) {
+class FieldSuggestionEngine(
+    private val rulePacks: List<FillSuggestionRulePack> = emptyList(),
+    /**
+     * Localized field labels from the active locale pack, so `Prénom`, `Vorname`
+     * and `jina` are recognised the same way `First name` is.
+     */
+    private val localeAliases: Map<String, FillContentHint> = emptyMap(),
+    private val localeCode: String = "",
+) {
     fun suggest(metadata: FieldMetadata): List<FillTypeSuggestion> {
         metadata.explicitFillType?.let {
             return listOf(suggestion(it, SuggestionConfidence.Exact, SuggestionSource.Explicit, "explicit FillType"))
@@ -18,6 +26,7 @@ class FieldSuggestionEngine(private val rulePacks: List<FillSuggestionRulePack> 
 
         val results = buildList {
             metadata.contentHint?.let { hint -> fromContentHint(hint)?.let(::add) }
+            localeAlias(metadata)?.let(::add)
             rulePacks.flatMapTo(this) { pack ->
                 pack.rules.flatMap { rule -> rule.suggest(metadata) }.map { candidate ->
                     candidate.copy(reasons = candidate.reasons.map { reason ->
@@ -35,6 +44,24 @@ class FieldSuggestionEngine(private val rulePacks: List<FillSuggestionRulePack> 
             .groupBy { it.type }
             .map { (_, values) -> values.maxBy { it.confidence.rank }.copy(reasons = values.flatMap { it.reasons }.distinct()) }
             .sortedWith(compareByDescending<FillTypeSuggestion> { it.confidence.rank }.thenBy { it.type.toString() })
+    }
+
+    /** An exact label match in the active locale is as strong as a ContentType. */
+    private fun localeAlias(metadata: FieldMetadata): FillTypeSuggestion? {
+        if (localeAliases.isEmpty()) return null
+        val label = metadata.label?.lowercase()?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        val hint = localeAliases[label]
+            ?: localeAliases.entries.firstOrNull { (alias, _) -> label.contains(alias) }?.value
+            ?: return null
+        return fromContentHint(hint)?.copy(
+            confidence = SuggestionConfidence.High,
+            reasons = listOf(
+                SuggestionReason(
+                    source = SuggestionSource.LocaleAlias(localeCode),
+                    description = "$localeCode label alias matched \"$label\"",
+                ),
+            ),
+        )
     }
 
     private fun fromContentHint(hint: FillContentHint): FillTypeSuggestion? {

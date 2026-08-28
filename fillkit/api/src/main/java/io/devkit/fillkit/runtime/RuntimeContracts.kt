@@ -5,6 +5,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.geometry.Rect
+import io.devkit.fillkit.FillActivationRejection
+import io.devkit.fillkit.FillActivationRequest
+import io.devkit.fillkit.FillActivationResult
 import io.devkit.fillkit.FillKitConfig
 import io.devkit.fillkit.FillKitController
 import io.devkit.fillkit.FillGenerator
@@ -13,8 +17,18 @@ import io.devkit.fillkit.FillTarget
 import io.devkit.fillkit.FillType
 import io.devkit.fillkit.CallbackFillTarget
 import io.devkit.fillkit.FieldMetadata
+import io.devkit.fillkit.FieldOverlayBehavior
 import io.devkit.fillkit.FillTypeSuggestion
 import io.devkit.fillkit.ContentTypeMapper
+
+/**
+ * Runtime SPI for scenario activation. `fillkit-debug` installs the real engine;
+ * without it every request is rejected, so an application can call
+ * [io.devkit.fillkit.FillKit.activate] from shared code.
+ */
+fun interface FillKitActivator {
+    fun activate(request: FillActivationRequest): FillActivationResult
+}
 
 /** Runtime SPI used by the separately packaged debug artifact. */
 interface FillKitRuntime {
@@ -36,6 +50,9 @@ data class FillKitField<T : Any>(
     val type: FillType<T>,
     val target: FillTarget<T>,
     val generator: FillGenerator<T>? = null,
+    val overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
+    /** Overrides the form locale for this field only. */
+    val locale: FillLocale? = null,
 ) {
     constructor(
         id: String,
@@ -63,6 +80,8 @@ data class FillKitContentTypeField(
     val target: FillTarget<String>,
     val mapper: ContentTypeMapper? = null,
     val generator: FillGenerator<String>? = null,
+    val overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
+    val locale: FillLocale? = null,
 )
 
 data class RegisteredSuggestion(
@@ -76,6 +95,15 @@ data class RegisteredSuggestion(
 /** Composition-scoped registry contract. Implementations must not retain detached owners. */
 interface FillKitRegistry {
     val formId: String
+
+    /**
+     * Focus and bounds reporting for the contextual field overlay. Both come
+     * from ordinary Compose focus and layout callbacks on the field's own
+     * modifier node; FillKit never inspects accessibility focus globally.
+     */
+    fun setFieldFocus(owner: Any, focused: Boolean) {}
+    fun setFieldBounds(owner: Any, bounds: Rect) {}
+
     fun <T : Any> register(owner: Any, field: FillKitField<T>)
     fun <T : Any> update(owner: Any, field: FillKitField<T>)
     fun unregister(owner: Any)
@@ -113,9 +141,18 @@ object FillKitRuntimeProvider {
         current = runtime
     }
 
+    @Volatile
+    var activator: FillKitActivator? = null
+
     fun bind(controller: FillKitController?, commands: FillKitCommands?) {
         controller?.bind(commands)
     }
+
+    fun activate(request: FillActivationRequest): FillActivationResult =
+        activator?.activate(request) ?: FillActivationResult.Rejected(
+            FillActivationRejection.NoRuntime,
+            "FillKit activation needs the fillkit-debug runtime; this build has none.",
+        )
 }
 
 private object NoOpFillKitRuntime : FillKitRuntime {

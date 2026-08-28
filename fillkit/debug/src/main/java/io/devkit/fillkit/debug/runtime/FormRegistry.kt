@@ -5,12 +5,25 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Rect
+import io.devkit.fillkit.FieldOverlayBehavior
+import io.devkit.fillkit.FillCatalogInput
+import io.devkit.fillkit.FillActivationRejection
+import io.devkit.fillkit.FillActivationRequest
+import io.devkit.fillkit.FillActivationResult
 import io.devkit.fillkit.FillGenerator
 import io.devkit.fillkit.FillKitConfig
+import io.devkit.fillkit.FillKitCommand
+import io.devkit.fillkit.FillKitFormSnapshot
+import io.devkit.fillkit.FillKitPack
+import io.devkit.fillkit.FillKitSeed
 import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.FillLocalePack
 import io.devkit.fillkit.FillPersona
+import io.devkit.fillkit.FillReproductionSpec
 import io.devkit.fillkit.FillScenario
+import io.devkit.fillkit.FillSeed
+import io.devkit.fillkit.configurationFingerprint
 import io.devkit.fillkit.FillTarget
 import io.devkit.fillkit.FillTargetKind
 import io.devkit.fillkit.FillType
@@ -26,6 +39,7 @@ import io.devkit.fillkit.engine.FillValueResolver
 import io.devkit.fillkit.engine.FieldSuggestionEngine
 import io.devkit.fillkit.engine.ScenarioRegistry
 import io.devkit.fillkit.engine.locale.DefaultFillLocaleRegistry
+import io.devkit.fillkit.engine.locale.FillLocaleResolution
 import io.devkit.fillkit.runtime.FillKitCommands
 import io.devkit.fillkit.runtime.FillKitField
 import io.devkit.fillkit.runtime.FillKitRegistry
@@ -50,9 +64,15 @@ internal class StoredField(
     val generator: FillGenerator<*>?,
     val source: String = "Explicit",
     val confidence: SuggestionConfidence = SuggestionConfidence.Exact,
+    val overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
+    /** Field-level locale override; wins over scenario, persona and form. */
+    val locale: FillLocale? = null,
 ) {
     val currentValue: Any? get() = target.currentValue
 }
+
+/** What the overlay knows about the field the developer is currently in. */
+internal data class FocusedField(val field: StoredField, val bounds: Rect?)
 
 internal data class StoredSuggestion(
     val owner: Any,
@@ -70,6 +90,8 @@ internal class FormRegistry(
     private val config: FillKitConfig,
     private val logger: (String) -> Unit,
     private val persistence: RuntimePersonaPersistence? = null,
+    private val applicationPacks: List<FillKitPack> = emptyList(),
+    initialSeed: FillSeed = config.seed?.let(::coerceSeed) ?: FillKitSeed.random(),
 ) : FillKitRegistry, FillKitCommands {
     private val registrations = mutableStateMapOf<Any, StoredField>()
     private val registrationOrder = mutableStateListOf<Any>()
@@ -84,9 +106,45 @@ internal class FormRegistry(
     private var resolver: FillValueResolver
     private var generatedPersona: FillPersona
 
-    var localePack by mutableStateOf(localeRegistry.resolve(FillLocale.Code(initialLocaleTag)))
+    /**
+     * Per-field regeneration counters. They are deliberately outside the
+     * reproduction spec: applying a seed resets them, so a reproduction is exact
+     * while a single-field reroll stays a local exploration.
+     */
+    private val fieldNonces = mutableStateMapOf<String, Int>()
+
+    /** Debug-only bookkeeping for the overlay; never application state. */
+    private val lastGenerated = mutableStateMapOf<String, Any>()
+    private val bounds = mutableStateMapOf<Any, Rect>()
+    private var focusedOwner by mutableStateOf<Any?>(null)
+
+    /** Digest of everything that can change generated data for a given seed. */
+    val configurationFingerprint: String = config.configurationFingerprint(applicationPacks)
+
+    var masterSeed by mutableStateOf(initialSeed)
         private set
+    var generation by mutableStateOf(0)
+        private set
+
+    var localeResolution by mutableStateOf(localeRegistry.resolution(initialLocaleTag))
+        private set
+    val localePack: FillLocalePack get() = localeResolution.pack
     val localeTag: String get() = localePack.code
+
+    /**
+     * Locale precedence, decided once per field: field → scenario → persona →
+     * form → system. Documented in the README and mirrored by the inspector.
+     */
+    fun localeFor(field: StoredField): FillLocalePack = localeSourceFor(field).second
+
+    fun localeSourceFor(field: StoredField): Pair<String, FillLocalePack> {
+        field.locale?.let { return "Field" to localeRegistry.resolve(it) }
+        activeScenarioId?.let(scenarioRegistry::find)?.locale
+            ?.let { return "Scenario" to localeRegistry.resolve(FillLocale.Code(it)) }
+        activePersonaId?.let(::findPersona)?.locale
+            ?.let { return "Persona" to localeRegistry.resolve(it) }
+        return "Form" to localePack
+    }
 
     var activePersonaId by mutableStateOf<String?>(null)
         private set
@@ -96,6 +154,36 @@ internal class FormRegistry(
     val persona: FillPersona get() = activePersonaId?.let(::findPersona) ?: generatedPersona
     val isRandomPersona: Boolean get() = activePersonaId == null
     val fields: List<StoredField> get() = registrationOrder.mapNotNull(registrations::get)
+
+    /** Non-zero per-field reroll counters, the shape a reproduction records. */
+    val fieldGenerations: Map<String, Int> get() = fieldNonces.filterValues { it > 0 }.toSortedMap()
+
+    /** The focused registered field, with its latest window bounds. */
+    val focusedField: FocusedField?
+        get() = focusedOwner?.let { owner ->
+            registrations[owner]?.let { FocusedField(it, bounds[owner]) }
+        }
+
+    fun boundsOf(field: StoredField): Rect? = bounds[field.owner]
+
+    fun generationOf(fieldId: String): Int = fieldNonces[fieldId] ?: 0
+
+    /** True when the application value diverged from what FillKit last generated. */
+    fun isModified(field: StoredField): Boolean {
+        val current = field.currentValue ?: return false
+        if (current is String && current.isEmpty()) return false
+        val generated = lastGenerated[field.id] ?: return true
+        return generated != current
+    }
+
+    /** Resolves what [fill] would write, without touching the field. */
+    fun preview(field: StoredField): Any? = runCatching { resolveValue(field) }.getOrNull()
+
+    /** True when the active scenario pins this field explicitly. */
+    fun isScenarioValue(field: StoredField): Boolean {
+        val scenario = activeScenarioId?.let(scenarioRegistry::find) ?: return false
+        return field.id in scenario.values || field.id in scenario.generators
+    }
     val suggestions: List<StoredSuggestion> get() = suggestionOrder.mapNotNull(suggestionRegistrations::get)
         .filter { ignoredSuggestions[it.owner] != true && it.owner !in registrations }
     val availableLocales: List<FillLocalePack> get() = localeRegistry.availableLocales()
@@ -113,6 +201,151 @@ internal class FormRegistry(
     init {
         resolver = newResolver()
         generatedPersona = resolver.generatedPersona()
+    }
+
+    // --- Reproduction --------------------------------------------------------
+
+    fun reproductionSpec() = FillReproductionSpec(
+        formId = formId,
+        seed = masterSeed.value,
+        generation = generation,
+        locale = localeTag,
+        scenarioPackId = activeScenarioId?.let(::scenarioPackIdOf),
+        scenarioId = activeScenarioId,
+        personaPackId = activePersonaId?.let(::personaPackIdOf),
+        personaId = activePersonaId,
+        configurationFingerprint = configurationFingerprint,
+        fieldGenerations = fieldGenerations,
+        localePack = localePack.coordinate(),
+    )
+
+    /** Everything the QA catalog needs from this host's effective configuration. */
+    fun catalogInput(navigableForms: Set<String>, hasNavigator: Boolean) = FillCatalogInput(
+        packs = config.packs,
+        scenarioPacks = config.scenarioPacks,
+        scenarios = config.scenarios,
+        personaIds = personas.mapTo(mutableSetOf(), FillPersona::id),
+        localeCodes = availableLocales.mapTo(mutableSetOf()) { it.code },
+        generatorIds = config.allGenerators().mapTo(mutableSetOf()) { it.first },
+        navigableForms = navigableForms,
+        hasNavigator = hasNavigator,
+    )
+
+    fun snapshot() = FillKitFormSnapshot(
+        formId = formId,
+        seed = masterSeed.value,
+        generation = generation,
+        localeTag = localeTag,
+        scenarioId = activeScenarioId,
+        personaId = activePersonaId,
+        fieldIds = fields.map(StoredField::id),
+        reproduction = reproductionSpec(),
+    )
+
+    /** Fresh master seed, generation reset to zero, form refilled. */
+    fun newSeed(): FillSeed = FillKitSeed.random().also { applySeed(it) }
+
+    fun applySeed(seed: FillSeed, generation: Int = 0, fill: Boolean = true) {
+        masterSeed = seed
+        this.generation = generation
+        fieldNonces.clear()
+        rebuildResolver()
+        if (fill) fillAll()
+    }
+
+    // --- Activation ----------------------------------------------------------
+
+    /**
+     * The single path every entry point converges on: panel, QA launcher, deep
+     * link and Compose tests all end up here with a [FillActivationRequest].
+     */
+    fun activate(request: FillActivationRequest): FillActivationResult {
+        val warnings = mutableListOf<String>()
+        request.configurationFingerprint?.let { recorded ->
+            if (recorded != configurationFingerprint) {
+                warnings += "Reproduction was recorded with configuration $recorded but this build is " +
+                    "$configurationFingerprint; the same seed may produce different values."
+            }
+        }
+        request.localePack?.let { recorded ->
+            if (recorded != localePack.coordinate() && request.locale != null) {
+                warnings += "Reproduction used locale pack $recorded but this build resolves " +
+                    "${request.locale} to ${localePack.coordinate()}; generated values may differ."
+            }
+        }
+        request.personaId?.let { id ->
+            if (findPersona(id) == null) {
+                return FillActivationResult.Rejected(FillActivationRejection.UnknownPersona, "unknown persona \"$id\"")
+            }
+        }
+        request.scenarioId?.let { id ->
+            if (scenarioRegistry.find(id) == null) {
+                return FillActivationResult.Rejected(FillActivationRejection.UnknownScenario, "unknown scenario \"$id\"")
+            }
+        }
+        request.locale?.let { tag ->
+            if (availableLocales.none { it.code.equals(tag, ignoreCase = true) }) {
+                warnings += "Missing locale pack \"$tag\"; FillKit fell back to the closest available locale."
+            }
+            localeResolution = localeRegistry.resolution(tag)
+        }
+        fieldNonces.clear()
+        request.fieldGenerations.forEach { (id, value) -> if (value > 0) fieldNonces[id] = value }
+        request.seed?.let { masterSeed = coerceSeed(it) }
+        generation = request.generation
+        activePersonaId = request.personaId
+        rebuildResolver()
+        request.scenarioId?.let { id ->
+            activeScenarioId = id
+            scenarioRegistry.find(id)?.let { scenario ->
+                scenario.personaId?.let { personaId -> if (findPersona(personaId) != null) activePersonaId = personaId }
+                if (request.locale == null) {
+                    scenario.locale?.let { tag -> localeResolution = localeRegistry.resolution(tag) }
+                }
+                validateScenarioFields(scenario)
+            }
+        }
+        if (request.fill) fillAll()
+        val spec = reproductionSpec()
+        return if (warnings.isEmpty()) {
+            FillActivationResult.Applied(spec)
+        } else {
+            FillActivationResult.PartiallyApplied(spec, warnings)
+        }
+    }
+
+    /** Programmatic command surface shared by the test bridge and the panel. */
+    fun execute(command: FillKitCommand): Boolean {
+        when (command) {
+            FillKitCommand.FillAll -> fillAll()
+            FillKitCommand.ClearAll -> clearAll()
+            FillKitCommand.RegenerateAll -> regenerateAll()
+            FillKitCommand.SelectRandomPersona -> selectRandomPersona()
+            is FillKitCommand.Fill -> if (field(command.fieldId) == null) return false else fill(command.fieldId)
+            is FillKitCommand.Clear -> if (field(command.fieldId) == null) return false else clear(command.fieldId)
+            is FillKitCommand.SelectPersona -> {
+                if (findPersona(command.personaId) == null) return false
+                selectPersona(command.personaId)
+            }
+            is FillKitCommand.SetLocale -> changeLocale(command.localeTag)
+            is FillKitCommand.SetSeed -> applySeed(coerceSeed(command.seed), command.generation)
+            is FillKitCommand.ApplyScenario -> {
+                if (scenarioRegistry.find(command.scenarioId) == null) return false
+                applyScenario(command.scenarioId)
+            }
+        }
+        return true
+    }
+
+    /**
+     * Rerolls one field only. The counter is recorded in the reproduction so a
+     * QA engineer who tapped "another" twice can still be reproduced exactly.
+     */
+    fun regenerate(fieldId: String) {
+        val next = (fieldNonces[fieldId] ?: 0) + 1
+        if (next > FillReproductionSpec.MAX_GENERATION) return problem("field \"$fieldId\" exhausted its reroll counter")
+        fieldNonces[fieldId] = next
+        fill(fieldId)
     }
 
     fun attachPersistence(scope: CoroutineScope) {
@@ -152,6 +385,20 @@ internal class FormRegistry(
     override fun unregister(owner: Any) {
         registrations.remove(owner)
         registrationOrder.remove(owner)
+        bounds.remove(owner)
+        if (focusedOwner === owner) focusedOwner = null
+    }
+
+    override fun setFieldFocus(owner: Any, focused: Boolean) {
+        if (focused) {
+            focusedOwner = owner
+        } else if (focusedOwner === owner) {
+            focusedOwner = null
+        }
+    }
+
+    override fun setFieldBounds(owner: Any, bounds: Rect) {
+        if (this.bounds[owner] != bounds) this.bounds[owner] = bounds
     }
 
     override fun registerContentType(owner: Any, field: FillKitContentTypeField) {
@@ -174,6 +421,7 @@ internal class FormRegistry(
         registrations[owner] = StoredField(
             owner, field.id, field.label ?: field.id.humanize(), field.group, type,
             field.target as FillTarget<Any>, field.generator, "ContentType", suggestion.confidence,
+            field.overlay, field.locale,
         )
     }
 
@@ -238,9 +486,12 @@ internal class FormRegistry(
 
     override fun fillAll() = fields.forEach(::fillResolved)
 
+    /** Randomize keeps the master seed and advances the generation counter. */
     override fun regenerateAll() {
         activePersonaId = null
-        generatedPersona = resolver.generatedPersona()
+        generation += 1
+        fieldNonces.clear()
+        rebuildResolver()
         fillAll()
     }
 
@@ -254,6 +505,10 @@ internal class FormRegistry(
             return
         }
         activeScenarioId = scenario.id
+        scenario.locale?.let { tag ->
+            localeResolution = localeRegistry.resolution(tag)
+            rebuildResolver()
+        }
         scenario.personaId?.let { id ->
             if (findPersona(id) == null) problem("scenario \"${scenario.id}\" references unknown persona \"$id\"")
             else activePersonaId = id
@@ -268,6 +523,17 @@ internal class FormRegistry(
         fillAll()
     }
 
+    private fun rebuildResolver() {
+        resolver = newResolver()
+        generatedPersona = resolver.generatedPersona()
+    }
+
+    private fun scenarioPackIdOf(scenarioId: String): String? =
+        config.allScenarioPacks().firstOrNull { pack -> pack.scenarios.any { it.id == scenarioId } }?.id
+
+    private fun personaPackIdOf(personaId: String): String? =
+        config.allPersonaPacks().firstOrNull { pack -> pack.personas.any { it.id == personaId } }?.id
+
     override fun selectPersona(personaId: String) {
         if (findPersona(personaId) == null) {
             problem("unknown persona \"$personaId\"")
@@ -278,9 +544,9 @@ internal class FormRegistry(
     }
 
     fun changeLocale(tag: String) {
-        localePack = localeRegistry.resolve(FillLocale.Code(tag))
-        resolver = newResolver()
-        generatedPersona = resolver.generatedPersona()
+        localeResolution = localeRegistry.resolution(tag)
+        rebuildResolver()
+        // A saved persona keeps its own identity; only a random one is re-drawn.
         if (isRandomPersona) fillAll()
     }
 
@@ -288,6 +554,8 @@ internal class FormRegistry(
         when (locale) {
             FillLocale.System -> changeLocale(initialLocaleTag)
             is FillLocale.Code -> changeLocale(locale.value)
+            // A country alone: the registry picks an appropriate language pack.
+            is FillLocale.Country -> changeLocale(localeRegistry.resolve(locale).code)
         }
     }
 
@@ -329,21 +597,27 @@ internal class FormRegistry(
         }
     }
 
-    private fun newResolver() = FillValueResolver(localePack, config.allGenerators(), config.seed)
+    private fun newResolver() =
+        FillValueResolver(localePack, config.allGenerators(), masterSeed, generation, formId)
+
+    @Suppress("UNCHECKED_CAST")
+    private fun resolveValue(field: StoredField): Any = resolver.resolve(
+        FillResolutionRequest(
+            fieldId = field.id,
+            type = field.type as FillType<Any>,
+            scenario = activeScenarioId?.let(scenarioRegistry::find),
+            persona = activePersonaId?.let(::findPersona),
+            fieldGenerator = field.generator as? FillGenerator<Any>,
+            nonce = fieldNonces[field.id] ?: 0,
+            locale = localeFor(field),
+        ),
+        generatedPersona,
+    )
 
     private fun fillResolved(field: StoredField) {
         try {
-            @Suppress("UNCHECKED_CAST")
-            val value = resolver.resolve(
-                FillResolutionRequest(
-                    fieldId = field.id,
-                    type = field.type as FillType<Any>,
-                    scenario = activeScenarioId?.let(scenarioRegistry::find),
-                    persona = activePersonaId?.let(::findPersona),
-                    fieldGenerator = field.generator as? FillGenerator<Any>,
-                ),
-                generatedPersona,
-            )
+            val value = resolveValue(field)
+            lastGenerated[field.id] = value
             field.target.fill(value)
         } catch (error: Exception) {
             problem("cannot fill field \"${field.id}\": ${error.message}")
@@ -381,7 +655,11 @@ internal class FormRegistry(
         val mapped = contentType?.let { type ->
             config.allContentTypeMappers().firstNotNullOfOrNull { it.suggest(type, context) }
         }
-        val inferred = FieldSuggestionEngine(config.allSuggestionRulePacks()).suggest(metadata)
+        val inferred = FieldSuggestionEngine(
+            rulePacks = config.allSuggestionRulePacks(),
+            localeAliases = localePack.semantics?.normalized.orEmpty(),
+            localeCode = localePack.code,
+        ).suggest(metadata)
         val candidates = listOfNotNull(mapped).plus(inferred).map { suggestion ->
             suggestion.copy(fillability = when {
                 suggestion.type is FillType.Unsupported -> SuggestionFillability.Unsupported
@@ -404,10 +682,16 @@ private fun <T : Any> FillKitField<T>.erase(owner: Any) = StoredField(
     type = type,
     target = target as FillTarget<Any>,
     generator = generator,
+    overlay = overlay,
+    locale = locale,
 )
 
 private fun String.humanize(): String =
     replace(Regex("([a-z])([A-Z])"), "$1 $2").replace('-', ' ').replaceFirstChar(Char::uppercase)
+
+/** Keeps arbitrary configured longs inside the reproducible seed range. */
+internal fun coerceSeed(value: Long): FillSeed =
+    if (FillKitSeed.isValid(value)) FillSeed(value) else FillSeed(value.mod(FillKitSeed.MAX + 1))
 
 private fun FillType<*>.supportsTextTarget(): Boolean = when (this) {
     FillType.DateOfBirth, FillType.Age, is FillType.Integer, is FillType.Decimal,

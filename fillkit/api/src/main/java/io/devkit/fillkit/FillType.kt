@@ -14,7 +14,10 @@ sealed interface FillType<T : Any> {
     data object DateOfBirth : FillType<FillDate>
     data object Age : FillType<Int>
     data object Email : FillType<String>
-    data class PhoneNumber(val countryCode: String? = null) : FillType<String>
+    data class PhoneNumber(
+        val countryCode: String? = null,
+        val format: FillPhoneNumberFormat = FillPhoneNumberFormat.International,
+    ) : FillType<String>
     data object PhoneCountryCode : FillType<String>
     data object StreetAddress : FillType<String>
     data object City : FillType<String>
@@ -102,6 +105,24 @@ sealed interface FillType<T : Any> {
     ) : FillType<FillDate> {
         init {
             require(min <= max) { "date range cannot be empty" }
+        }
+    }
+
+    /**
+     * A formatted money string. Currency follows the locale's region or an
+     * explicit code, never the language.
+     */
+    data class CurrencyAmount(
+        val currencyCode: String? = null,
+        val range: ClosedFloatingPointRange<Double> = 1.0..10_000.0,
+        val decimalPlaces: Int = 2,
+    ) : FillType<String> {
+        init {
+            require(currencyCode == null || currencyCode.length == 3) {
+                "currency must be a 3-letter ISO 4217 code"
+            }
+            require(range.start <= range.endInclusive) { "currency range cannot be empty" }
+            require(decimalPlaces in 0..4) { "currency decimalPlaces must be in 0..4" }
         }
     }
 

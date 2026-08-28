@@ -48,11 +48,22 @@ class FillPersonaBuilder internal constructor() {
     internal fun build(id: String, name: String) = FillPersona(id, name, locale, values.toMap(), metadata.toMap())
 }
 
+/** Optional version metadata used by configuration fingerprints and QA warnings. */
+interface FillVersionedPack {
+    val id: String
+    val name: String
+    val version: String?
+
+    /** `pack@version` when a version exists, otherwise just the id. */
+    fun coordinate(): String = version?.let { "$id@$it" } ?: id
+}
+
 data class FillPersonaPack(
-    val id: String,
-    val name: String,
+    override val id: String,
+    override val name: String,
     val personas: List<FillPersona>,
-) {
+    override val version: String? = null,
+) : FillVersionedPack {
     init {
         require(id.isNotBlank()) { "persona pack id cannot be blank" }
         require(name.isNotBlank()) { "persona pack name cannot be blank" }
@@ -60,13 +71,18 @@ data class FillPersonaPack(
     }
 }
 
-fun personaPack(id: String, name: String, block: FillPersonaPackBuilder.() -> Unit): FillPersonaPack =
-    FillPersonaPackBuilder().apply(block).build(id, name)
+fun personaPack(
+    id: String,
+    name: String,
+    version: String? = null,
+    block: FillPersonaPackBuilder.() -> Unit,
+): FillPersonaPack = FillPersonaPackBuilder().apply(block).build(id, name, version)
 
 class FillPersonaPackBuilder internal constructor() {
     private val personas = mutableListOf<FillPersona>()
     fun persona(value: FillPersona) { personas += value }
-    internal fun build(id: String, name: String) = FillPersonaPack(id, name, personas.toList())
+    internal fun build(id: String, name: String, version: String? = null) =
+        FillPersonaPack(id, name, personas.toList(), version)
 }
 
 internal fun requireUniqueIds(kind: String, ids: List<String>) {
