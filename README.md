@@ -18,6 +18,7 @@ This is the complete documentation for the workspace and the library.
 - Registering fields: [TextFieldState](#textfieldstate-and-one-fill-target) · [ContentType](#compose-contenttype-mapping) · [Suggestions](#field-suggestions) · [Semantics](#semantics-integration-and-discovery-boundary)
 - Test data: [Personas](#saved-personas) · [Locales](#locales) · [Scenarios](#scenario-packs) · [Generators](#custom-generator-dsl) · [Packs](#unified-packs) · [Precedence](#resolution-precedence)
 - Reproducibility: [Deterministic generation](#deterministic-generation) · [Generation counter](#generation-counter) · [Specs](#reproduction-specs) · [Tokens](#reproduction-tokens) · [Fingerprints](#configuration-fingerprints)
+- Field overlay: [Prefill overlay](#field-prefill-overlay) · [Placement](#placement-and-the-keyboard) · [Per-field regeneration](#per-field-regeneration)
 - Test control: [Compose UI testing](#compose-ui-testing) · [Finders](#finding-fields-in-tests) · [Activating scenarios](#activating-scenarios-in-tests)
 - QA: [Scenario launcher](#qa-scenario-launcher) · [Launching](#launching-scenarios) · [Cold start](#cold-start-activation) · [Navigation](#navigation-integration) · [Deep links](#deep-link-activation) · [ADB](#adb-reproduction)
 - [The full workflow](#qa-to-developer-to-regression-test) · [Guarantees](#reproduction-guarantee) · [Verification](#verification)
@@ -492,6 +493,106 @@ Reproduction was recorded with configuration 8f2a1c4d0b73 but this build is
 
 The activation still runs — the result is `FillActivationResult.PartiallyApplied` with that warning — unless a component genuinely no longer exists.
 
+## Field prefill overlay
+
+Focusing a registered field shows a contextual accessory. Tap the value to fill that field, `↻` for another, `⋯` for the inspector.
+
+```text
+┌──────────────────────────────────────┐
+│ ⚡ +254 712 348 921         ↻    ⋯  │
+└──────────────────────────────────────┘
+```
+
+It is FillKit tooling, not part of the form: `TextField` stays a `TextField`, and the existing registration is all it needs.
+
+```kotlin
+OutlinedTextField(
+    value = state.phone,
+    onValueChange = onPhoneChanged,
+    modifier = Modifier.fillKit(
+        id = "phone",
+        type = FillType.PhoneNumber("KE"),
+        value = state.phone,
+        onFill = onPhoneChanged,
+    ),
+)
+```
+
+The suggestion comes from the same `FillValueResolver` as Fill All — same seed, persona, scenario, generators and locale — so with persona *Amina Wanjiku* active, first name offers `Amina`, last name `Wanjiku`, and email `amina.wanjiku@example.com`. A value pinned by the active scenario is offered as-is and tagged `SCENARIO`.
+
+### Placement and the keyboard
+
+One overlay host per `FillKitHost` renders the bar; there is no popup per field, and no `Dialog`. It draws inside the host's own window, which is why tapping a suggestion cannot move focus or dismiss the IME — the controls use raw pointer input rather than `clickable`, which would make them focusable.
+
+Placement is computed from the field's bounds and the live `WindowInsets.ime`, never a hard-coded keyboard height:
+
+```text
+room below the field          → anchored popover under it
+IME open, field close to it   → keyboard-accessory bar above the IME
+no IME, field near the bottom → anchored popover above it
+```
+
+`FieldOverlayPositioner` is pure and unit-tested, including right-to-left anchoring, edge clamping and IME promotion. A field scrolled out of view gets no overlay — a `LazyColumn` keeps its focused item composed, so registration alone is not proof the field is on screen.
+
+### Per-field regeneration
+
+`↻` rerolls one field. Persona-derived fields draw from a per-field persona variant, so rerolling the phone leaves the name that is already in the form untouched, and the reroll itself is deterministic in `(seed, generation, field, counter)`.
+
+Counters appear in the reproduction only when non-zero, so the common case stays compact:
+
+```text
+seed=845912
+generation=0
+fields=phone:2
+```
+
+That means a QA engineer who tapped `↻` twice before hitting the bug still hands over a token that reproduces it exactly.
+
+### Behaviour by field type
+
+| Field | Overlay |
+| --- | --- |
+| Text, email, phone, names, addresses, OTP | Value preview, tap to fill |
+| Password | Masked preview, tap to fill |
+| Long values | Truncated in the bar, full value in the inspector |
+| Booleans | Actions only; set the value from the inspector |
+| `FillType.Unsupported` | No fill affordance — FillKit does not pretend it can generate it |
+
+An edited field is tagged `MODIFIED` and the bar offers to replace rather than silently overwriting manual input. Nothing is filled just because a field gained focus.
+
+### Configuration
+
+```kotlin
+FillKitConfig(
+    fieldOverlay = FieldOverlayConfig(
+        enabled = true,
+        mode = FieldOverlayMode.FocusedField,
+        placement = FieldOverlayPlacement.Auto,
+        showPreview = true,
+    ),
+)
+```
+
+Per field, when one is genuinely unhelpful:
+
+```kotlin
+Modifier.fillKit(id = "code", type = FillType.Text(), state = code, overlay = FieldOverlayBehavior.Disabled)
+```
+
+The overlay and the main ⚡ trigger solve different problems and coexist; `showTrigger = false` with the overlay enabled gives a panel-free workflow.
+
+### Testing the overlay
+
+Overlay semantics are separate from the application field's, so a test can tell the accessory apart from the form:
+
+```kotlin
+composeRule.onFillKitField("phone").performClick()
+composeRule.onFillKitFieldOverlay("phone").assertExists().performFill()
+composeRule.onFillKitOverlayAction("phone", FillKitOverlayAction.Regenerate).performClick()
+```
+
+These exist mainly for testing FillKit itself. Application tests should prefer the programmatic driver, which does not depend on focus or layout.
+
 ## Compose UI testing
 
 Tests never open the developer panel. The debug runtime publishes a control node as Compose semantics, and `fillkit-testing` drives it:
@@ -685,7 +786,7 @@ Changes to locale datasets, generators, scenario definitions, pack versions or t
 
 ## Debug-only guarantees
 
-A release build contains none of: the developer panel, the QA launcher, `FillKitDeepLinkActivity`, FillKit deep-link intent filters, FillKit control semantics, the pending activation store, the activation engine, the generation engine, or `fillkit-testing`. `FillKit.activate` degrades to `Rejected(NoRuntime)` and release builds do not resolve FillKit links.
+A release build contains none of: the developer panel, the field overlay and its positioner, the field inspector, the QA launcher, `FillKitDeepLinkActivity`, FillKit deep-link intent filters, FillKit control semantics, the pending activation store, the activation engine, the generation engine, or `fillkit-testing`. `FillKit.activate` degrades to `Rejected(NoRuntime)` and release builds do not resolve FillKit links.
 
 ## Programmatic control
 

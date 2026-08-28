@@ -53,6 +53,7 @@ class FillValueResolver(
         generators.forEach { (id, generator) -> this[id] = generator }
     }.toMap()
     private val dependencyStack = ThreadLocal.withInitial { mutableListOf<String>() }
+    private val personaVariants = mutableMapOf<String, FillPersona>()
 
     fun generatedPersona(id: String = "generated", name: String = "Random"): FillPersona =
         PersonaGenerator().generate(source, locale).toFillPersona(id, name, locale.code)
@@ -62,14 +63,19 @@ class FillValueResolver(
         request.scenario?.values?.get(request.fieldId)?.let { return checked(request.type, it.raw, "scenario value") }
         request.scenario?.generators?.get(request.fieldId)?.let {
             val namespace = field + FillRandomSource.SCENARIO
-            return checked(request.type, scenarioValue(it, request.persona, generatedPersona, namespace), "scenario generator")
+            val scenarioPersona = personaFor(request.fieldId, request.nonce, generatedPersona)
+            return checked(request.type, scenarioValue(it, request.persona, scenarioPersona, namespace), "scenario generator")
         }
         request.fieldGenerator?.let {
             return checked(request.type, run(it, request.persona, field + FillRandomSource.GENERATOR), "field generator")
         }
         request.persona?.values?.get(request.fieldId)?.let { return checked(request.type, it.raw, "persona value") }
 
-        val effective = effectivePersona(generatedPersona, request.persona)
+        // Rerolling one field draws its persona-derived values from a per-field
+        // persona variant, so "another phone" cannot disturb the name already
+        // filled into the form.
+        val base = personaFor(request.fieldId, request.nonce, generatedPersona)
+        val effective = effectivePersona(base, request.persona)
         val builtInNamespace = field + listOf(FillRandomSource.VALUE, request.type.generatorId())
         if (request.persona != null && request.type !is FillType.Custom<*>) {
             return checked(request.type, builtIn(request.type, effective, source.stream(builtInNamespace)), "persona-aware generator")
@@ -81,6 +87,18 @@ class FillValueResolver(
             return checked(request.type, runUntyped(it, request.persona, field + FillRandomSource.GENERATOR), "type generator")
         }
         return checked(request.type, builtIn(request.type, effective, source.stream(builtInNamespace)), "built-in generator")
+    }
+
+    /**
+     * Nonce zero keeps every field on one coherent identity; a rerolled field
+     * gets its own deterministic identity derived from the same master seed.
+     */
+    private fun personaFor(fieldId: String, nonce: Int, generated: FillPersona): FillPersona {
+        if (nonce <= 0) return generated
+        return personaVariants.getOrPut("$fieldId#$nonce") {
+            PersonaGenerator().generate(source, locale, "$fieldId#$nonce")
+                .toFillPersona("generated", "Random", locale.code)
+        }
     }
 
     private fun scenarioValue(

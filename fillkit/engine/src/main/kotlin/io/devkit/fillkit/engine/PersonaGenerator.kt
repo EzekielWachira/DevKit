@@ -14,8 +14,10 @@ class PersonaGenerator {
      * attribute later cannot change the ones that already existed. Dependent
      * values (username, email, website) stay derived from the chosen name.
      */
-    fun generate(source: FillRandomSource, locale: FillLocalePack): FakePersona =
-        generate(locale) { attribute -> source.stream(FillRandomSource.PERSONA, locale.code, attribute) }
+    fun generate(source: FillRandomSource, locale: FillLocalePack, variant: String? = null): FakePersona =
+        generate(locale) { attribute ->
+            source.stream(FillRandomSource.PERSONA, locale.code, variant, attribute)
+        }
 
     private inline fun generate(locale: FillLocalePack, stream: (String) -> Random): FakePersona {
         val firstName = locale.firstNames.random(stream("firstName"))

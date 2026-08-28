@@ -5,6 +5,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Rect
+import io.devkit.fillkit.FieldOverlayBehavior
 import io.devkit.fillkit.FillCatalogInput
 import io.devkit.fillkit.FillActivationRejection
 import io.devkit.fillkit.FillActivationRequest
@@ -61,9 +63,13 @@ internal class StoredField(
     val generator: FillGenerator<*>?,
     val source: String = "Explicit",
     val confidence: SuggestionConfidence = SuggestionConfidence.Exact,
+    val overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
 ) {
     val currentValue: Any? get() = target.currentValue
 }
+
+/** What the overlay knows about the field the developer is currently in. */
+internal data class FocusedField(val field: StoredField, val bounds: Rect?)
 
 internal data class StoredSuggestion(
     val owner: Any,
@@ -104,6 +110,11 @@ internal class FormRegistry(
      */
     private val fieldNonces = mutableStateMapOf<String, Int>()
 
+    /** Debug-only bookkeeping for the overlay; never application state. */
+    private val lastGenerated = mutableStateMapOf<String, Any>()
+    private val bounds = mutableStateMapOf<Any, Rect>()
+    private var focusedOwner by mutableStateOf<Any?>(null)
+
     /** Digest of everything that can change generated data for a given seed. */
     val configurationFingerprint: String = config.configurationFingerprint(applicationPacks)
 
@@ -124,6 +135,36 @@ internal class FormRegistry(
     val persona: FillPersona get() = activePersonaId?.let(::findPersona) ?: generatedPersona
     val isRandomPersona: Boolean get() = activePersonaId == null
     val fields: List<StoredField> get() = registrationOrder.mapNotNull(registrations::get)
+
+    /** Non-zero per-field reroll counters, the shape a reproduction records. */
+    val fieldGenerations: Map<String, Int> get() = fieldNonces.filterValues { it > 0 }.toSortedMap()
+
+    /** The focused registered field, with its latest window bounds. */
+    val focusedField: FocusedField?
+        get() = focusedOwner?.let { owner ->
+            registrations[owner]?.let { FocusedField(it, bounds[owner]) }
+        }
+
+    fun boundsOf(field: StoredField): Rect? = bounds[field.owner]
+
+    fun generationOf(fieldId: String): Int = fieldNonces[fieldId] ?: 0
+
+    /** True when the application value diverged from what FillKit last generated. */
+    fun isModified(field: StoredField): Boolean {
+        val current = field.currentValue ?: return false
+        if (current is String && current.isEmpty()) return false
+        val generated = lastGenerated[field.id] ?: return true
+        return generated != current
+    }
+
+    /** Resolves what [fill] would write, without touching the field. */
+    fun preview(field: StoredField): Any? = runCatching { resolveValue(field) }.getOrNull()
+
+    /** True when the active scenario pins this field explicitly. */
+    fun isScenarioValue(field: StoredField): Boolean {
+        val scenario = activeScenarioId?.let(scenarioRegistry::find) ?: return false
+        return field.id in scenario.values || field.id in scenario.generators
+    }
     val suggestions: List<StoredSuggestion> get() = suggestionOrder.mapNotNull(suggestionRegistrations::get)
         .filter { ignoredSuggestions[it.owner] != true && it.owner !in registrations }
     val availableLocales: List<FillLocalePack> get() = localeRegistry.availableLocales()
@@ -155,6 +196,7 @@ internal class FormRegistry(
         personaPackId = activePersonaId?.let(::personaPackIdOf),
         personaId = activePersonaId,
         configurationFingerprint = configurationFingerprint,
+        fieldGenerations = fieldGenerations,
     )
 
     /** Everything the QA catalog needs from this host's effective configuration. */
@@ -222,6 +264,7 @@ internal class FormRegistry(
             localePack = localeRegistry.resolve(FillLocale.Code(tag))
         }
         fieldNonces.clear()
+        request.fieldGenerations.forEach { (id, value) -> if (value > 0) fieldNonces[id] = value }
         request.seed?.let { masterSeed = coerceSeed(it) }
         generation = request.generation
         activePersonaId = request.personaId
@@ -265,9 +308,14 @@ internal class FormRegistry(
         return true
     }
 
-    /** Rerolls one field only; reset by any seed change, so reproductions stay exact. */
+    /**
+     * Rerolls one field only. The counter is recorded in the reproduction so a
+     * QA engineer who tapped "another" twice can still be reproduced exactly.
+     */
     fun regenerate(fieldId: String) {
-        fieldNonces[fieldId] = (fieldNonces[fieldId] ?: 0) + 1
+        val next = (fieldNonces[fieldId] ?: 0) + 1
+        if (next > FillReproductionSpec.MAX_GENERATION) return problem("field \"$fieldId\" exhausted its reroll counter")
+        fieldNonces[fieldId] = next
         fill(fieldId)
     }
 
@@ -308,6 +356,20 @@ internal class FormRegistry(
     override fun unregister(owner: Any) {
         registrations.remove(owner)
         registrationOrder.remove(owner)
+        bounds.remove(owner)
+        if (focusedOwner === owner) focusedOwner = null
+    }
+
+    override fun setFieldFocus(owner: Any, focused: Boolean) {
+        if (focused) {
+            focusedOwner = owner
+        } else if (focusedOwner === owner) {
+            focusedOwner = null
+        }
+    }
+
+    override fun setFieldBounds(owner: Any, bounds: Rect) {
+        if (this.bounds[owner] != bounds) this.bounds[owner] = bounds
     }
 
     override fun registerContentType(owner: Any, field: FillKitContentTypeField) {
@@ -329,7 +391,7 @@ internal class FormRegistry(
         @Suppress("UNCHECKED_CAST")
         registrations[owner] = StoredField(
             owner, field.id, field.label ?: field.id.humanize(), field.group, type,
-            field.target as FillTarget<Any>, field.generator, "ContentType", suggestion.confidence,
+            field.target as FillTarget<Any>, field.generator, "ContentType", suggestion.confidence, field.overlay,
         )
     }
 
@@ -501,20 +563,23 @@ internal class FormRegistry(
     private fun newResolver() =
         FillValueResolver(localePack, config.allGenerators(), masterSeed, generation, formId)
 
+    @Suppress("UNCHECKED_CAST")
+    private fun resolveValue(field: StoredField): Any = resolver.resolve(
+        FillResolutionRequest(
+            fieldId = field.id,
+            type = field.type as FillType<Any>,
+            scenario = activeScenarioId?.let(scenarioRegistry::find),
+            persona = activePersonaId?.let(::findPersona),
+            fieldGenerator = field.generator as? FillGenerator<Any>,
+            nonce = fieldNonces[field.id] ?: 0,
+        ),
+        generatedPersona,
+    )
+
     private fun fillResolved(field: StoredField) {
         try {
-            @Suppress("UNCHECKED_CAST")
-            val value = resolver.resolve(
-                FillResolutionRequest(
-                    fieldId = field.id,
-                    type = field.type as FillType<Any>,
-                    scenario = activeScenarioId?.let(scenarioRegistry::find),
-                    persona = activePersonaId?.let(::findPersona),
-                    fieldGenerator = field.generator as? FillGenerator<Any>,
-                    nonce = fieldNonces[field.id] ?: 0,
-                ),
-                generatedPersona,
-            )
+            val value = resolveValue(field)
+            lastGenerated[field.id] = value
             field.target.fill(value)
         } catch (error: Exception) {
             problem("cannot fill field \"${field.id}\": ${error.message}")
@@ -575,6 +640,7 @@ private fun <T : Any> FillKitField<T>.erase(owner: Any) = StoredField(
     type = type,
     target = target as FillTarget<Any>,
     generator = generator,
+    overlay = overlay,
 )
 
 private fun String.humanize(): String =

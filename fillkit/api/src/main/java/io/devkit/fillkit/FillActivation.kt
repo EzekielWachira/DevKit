@@ -18,6 +18,8 @@ data class FillActivationRequest(
     val seed: Long? = null,
     val generation: Int = 0,
     val configurationFingerprint: String? = null,
+    /** Non-zero per-field regeneration counters to restore, from a reproduction. */
+    val fieldGenerations: Map<String, Int> = emptyMap(),
     val source: FillActivationSource = FillActivationSource.Programmatic,
     /** Fill every registered field once the state is applied. */
     val fill: Boolean = true,
@@ -43,6 +45,7 @@ data class FillActivationRequest(
         personaPackId = personaPackId,
         personaId = personaId,
         configurationFingerprint = configurationFingerprint,
+        fieldGenerations = fieldGenerations,
     )
 }
 
@@ -62,6 +65,7 @@ fun FillReproductionSpec.toActivationRequest(
     seed = seed,
     generation = generation,
     configurationFingerprint = configurationFingerprint,
+    fieldGenerations = fieldGenerations,
     source = source,
     fill = fill,
 )

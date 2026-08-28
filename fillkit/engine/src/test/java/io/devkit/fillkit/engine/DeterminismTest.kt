@@ -143,6 +143,23 @@ class DeterminismTest {
     }
 
     @Test
+    fun rerollingAPersonaDerivedFieldChangesOnlyThatField() {
+        val engine = resolver()
+        val generated = engine.generatedPersona()
+        fun value(fieldId: String, type: FillType<String>, nonce: Int) =
+            engine.resolve(FillResolutionRequest(fieldId, type, nonce = nonce), generated)
+
+        val firstName = value("firstName", FillType.FirstName, 0)
+        val phone = value("phone", FillType.PhoneNumber(), 0)
+
+        val rerolledPhone = value("phone", FillType.PhoneNumber(), 1)
+        assertNotEquals(phone, rerolledPhone)
+        assertEquals(firstName, value("firstName", FillType.FirstName, 0))
+        assertEquals(rerolledPhone, value("phone", FillType.PhoneNumber(), 1))
+        assertNotEquals(rerolledPhone, value("phone", FillType.PhoneNumber(), 2))
+    }
+
+    @Test
     fun rerollingOneFieldLeavesOtherFieldsAlone() {
         val engine = resolver()
         val code = FillType.OtpCode(8, numericOnly = false)

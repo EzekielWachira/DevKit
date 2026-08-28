@@ -14,6 +14,12 @@ data class FillReproductionSpec(
     val personaPackId: String? = null,
     val personaId: String? = null,
     val configurationFingerprint: String? = null,
+    /**
+     * Per-field regeneration counters, non-zero entries only. Filled in when a
+     * developer or QA engineer rerolled individual fields from the overlay, so
+     * that exploration stays reproducible without bloating the common case.
+     */
+    val fieldGenerations: Map<String, Int> = emptyMap(),
     val version: Int = VERSION,
 ) {
     init {
@@ -21,6 +27,10 @@ data class FillReproductionSpec(
         require(FillKitSeed.isValid(seed)) { "reproduction seed must be in ${FillKitSeed.MIN}..${FillKitSeed.MAX}" }
         require(generation in 0..MAX_GENERATION) { "reproduction generation must be in 0..$MAX_GENERATION" }
         require(version in 1..VERSION) { "unsupported reproduction spec version: $version" }
+        require(fieldGenerations.values.all { it in 1..MAX_GENERATION }) {
+            "field generations must be in 1..$MAX_GENERATION; omit zeros"
+        }
+        require(fieldGenerations.keys.none(String::isBlank)) { "field generation keys cannot be blank" }
     }
 
     /** Human-readable block intended for bug reports. Never contains generated values. */
@@ -32,6 +42,9 @@ data class FillReproductionSpec(
         locale?.let { appendLine("locale=$it") }
         appendLine("seed=$seed")
         appendLine("generation=$generation")
+        if (fieldGenerations.isNotEmpty()) {
+            appendLine("fields=" + fieldGenerations.entries.sortedBy { it.key }.joinToString(",") { "${it.key}:${it.value}" })
+        }
         configurationFingerprint?.let { appendLine("config=$it") }
         token?.let { append("token=$it") }
     }.trimEnd()
@@ -75,6 +88,7 @@ object FillReproductionTokenCodec {
 
     private val idPattern = Regex("[A-Za-z0-9._:-]{1,$MAX_ID_LENGTH}")
     private val localePattern = Regex("[A-Za-z0-9_-]{1,$MAX_LOCALE_LENGTH}")
+    private val fieldGenerationsPattern = Regex("[A-Za-z0-9._:,-]{1,256}")
 
     fun encode(spec: FillReproductionSpec): String {
         val payload = buildString {
@@ -87,6 +101,9 @@ object FillReproductionTokenCodec {
             spec.personaPackId?.let { field("pp", it) }
             spec.personaId?.let { field("p", it) }
             spec.configurationFingerprint?.let { field("c", it) }
+            if (spec.fieldGenerations.isNotEmpty()) {
+                field("fg", spec.fieldGenerations.entries.sortedBy { it.key }.joinToString(",") { "${it.key}:${it.value}" })
+            }
         }
         val token = "$PREFIX${spec.version}-${Base64Url.encode(payload)}-${checksum(payload)}"
         if (token.length > MAX_TOKEN_LENGTH) {
@@ -155,14 +172,37 @@ object FillReproductionTokenCodec {
             personaPackId = fields["pp"]?.let { id(it, "persona pack") },
             personaId = fields["p"]?.let { id(it, "persona") },
             configurationFingerprint = fields["c"]?.let { id(it, "fingerprint") },
+            fieldGenerations = fields["fg"]?.let(::fieldGenerations).orEmpty(),
             version = version,
         )
     }
 
     private fun StringBuilder.field(key: String, value: String) {
-        val pattern = if (key == "l") localePattern else idPattern
+        val pattern = when (key) {
+            "l" -> localePattern
+            "fg" -> fieldGenerationsPattern
+            else -> idPattern
+        }
         validate(pattern, value, key)
         append(key).append('=').append(value).append(';')
+    }
+
+    private fun fieldGenerations(value: String): Map<String, Int> {
+        validate(fieldGenerationsPattern, value, "field generations")
+        return value.split(',').filter(String::isNotEmpty).associate { entry ->
+            val separator = entry.lastIndexOf(':')
+            if (separator <= 0) {
+                throw FillReproductionTokenException(FillTokenError.InvalidField, "malformed field generation \"$entry\"")
+            }
+            val id = id(entry.take(separator), "field")
+            val generation = entry.substring(separator + 1).toIntOrNull()
+                ?.takeIf { it in 1..FillReproductionSpec.MAX_GENERATION }
+                ?: throw FillReproductionTokenException(
+                    FillTokenError.InvalidField,
+                    "field generation for \"$id\" is out of range",
+                )
+            id to generation
+        }
     }
 
     private fun id(value: String, label: String): String {

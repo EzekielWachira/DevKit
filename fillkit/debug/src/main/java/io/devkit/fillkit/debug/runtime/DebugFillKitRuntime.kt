@@ -24,6 +24,7 @@ import io.devkit.fillkit.FillKitPack
 import io.devkit.fillkit.FillKitTestSemantics
 import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.debug.activation.FillKitActivationEngine
+import io.devkit.fillkit.debug.overlay.FieldOverlayHost
 import io.devkit.fillkit.debug.ui.FillKitOverlay
 import io.devkit.fillkit.debug.persistence.RuntimePersonaStore
 import io.devkit.fillkit.runtime.FillKitRuntime
@@ -76,6 +77,7 @@ object DebugFillKitRuntime : FillKitRuntime {
             Box(modifier = modifier.fillKitTestControls(registry)) {
                 content()
                 FillKitOverlay(registry, effectiveConfig)
+                FieldOverlayHost(registry, effectiveConfig.fieldOverlay)
             }
         }
     }

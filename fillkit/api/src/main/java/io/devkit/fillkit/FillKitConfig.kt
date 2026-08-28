@@ -79,6 +79,8 @@ data class FillKitConfig(
     val semanticDiscovery: Boolean = true,
     val showTrigger: Boolean = true,
     val showFieldValues: Boolean = true,
+    /** Contextual per-field suggestion accessory; see [FieldOverlayConfig]. */
+    val fieldOverlay: FieldOverlayConfig = FieldOverlayConfig(),
     val scenarioValidationMode: ScenarioValidationMode = ScenarioValidationMode.Lenient,
     val loggingEnabled: Boolean = true,
 ) {

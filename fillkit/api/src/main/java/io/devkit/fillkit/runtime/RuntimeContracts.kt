@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.geometry.Rect
 import io.devkit.fillkit.FillActivationRejection
 import io.devkit.fillkit.FillActivationRequest
 import io.devkit.fillkit.FillActivationResult
@@ -16,6 +17,7 @@ import io.devkit.fillkit.FillTarget
 import io.devkit.fillkit.FillType
 import io.devkit.fillkit.CallbackFillTarget
 import io.devkit.fillkit.FieldMetadata
+import io.devkit.fillkit.FieldOverlayBehavior
 import io.devkit.fillkit.FillTypeSuggestion
 import io.devkit.fillkit.ContentTypeMapper
 
@@ -48,6 +50,7 @@ data class FillKitField<T : Any>(
     val type: FillType<T>,
     val target: FillTarget<T>,
     val generator: FillGenerator<T>? = null,
+    val overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
 ) {
     constructor(
         id: String,
@@ -75,6 +78,7 @@ data class FillKitContentTypeField(
     val target: FillTarget<String>,
     val mapper: ContentTypeMapper? = null,
     val generator: FillGenerator<String>? = null,
+    val overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
 )
 
 data class RegisteredSuggestion(
@@ -88,6 +92,15 @@ data class RegisteredSuggestion(
 /** Composition-scoped registry contract. Implementations must not retain detached owners. */
 interface FillKitRegistry {
     val formId: String
+
+    /**
+     * Focus and bounds reporting for the contextual field overlay. Both come
+     * from ordinary Compose focus and layout callbacks on the field's own
+     * modifier node; FillKit never inspects accessibility focus globally.
+     */
+    fun setFieldFocus(owner: Any, focused: Boolean) {}
+    fun setFieldBounds(owner: Any, bounds: Rect) {}
+
     fun <T : Any> register(owner: Any, field: FillKitField<T>)
     fun <T : Any> update(owner: Any, field: FillKitField<T>)
     fun unregister(owner: Any)
