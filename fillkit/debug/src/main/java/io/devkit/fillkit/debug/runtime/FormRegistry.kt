@@ -39,6 +39,7 @@ import io.devkit.fillkit.engine.FillValueResolver
 import io.devkit.fillkit.engine.FieldSuggestionEngine
 import io.devkit.fillkit.engine.ScenarioRegistry
 import io.devkit.fillkit.engine.locale.DefaultFillLocaleRegistry
+import io.devkit.fillkit.engine.locale.FillLocaleResolution
 import io.devkit.fillkit.runtime.FillKitCommands
 import io.devkit.fillkit.runtime.FillKitField
 import io.devkit.fillkit.runtime.FillKitRegistry
@@ -64,6 +65,8 @@ internal class StoredField(
     val source: String = "Explicit",
     val confidence: SuggestionConfidence = SuggestionConfidence.Exact,
     val overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
+    /** Field-level locale override; wins over scenario, persona and form. */
+    val locale: FillLocale? = null,
 ) {
     val currentValue: Any? get() = target.currentValue
 }
@@ -123,9 +126,25 @@ internal class FormRegistry(
     var generation by mutableStateOf(0)
         private set
 
-    var localePack by mutableStateOf(localeRegistry.resolve(FillLocale.Code(initialLocaleTag)))
+    var localeResolution by mutableStateOf(localeRegistry.resolution(initialLocaleTag))
         private set
+    val localePack: FillLocalePack get() = localeResolution.pack
     val localeTag: String get() = localePack.code
+
+    /**
+     * Locale precedence, decided once per field: field → scenario → persona →
+     * form → system. Documented in the README and mirrored by the inspector.
+     */
+    fun localeFor(field: StoredField): FillLocalePack = localeSourceFor(field).second
+
+    fun localeSourceFor(field: StoredField): Pair<String, FillLocalePack> {
+        field.locale?.let { return "Field" to localeRegistry.resolve(it) }
+        activeScenarioId?.let(scenarioRegistry::find)?.locale
+            ?.let { return "Scenario" to localeRegistry.resolve(FillLocale.Code(it)) }
+        activePersonaId?.let(::findPersona)?.locale
+            ?.let { return "Persona" to localeRegistry.resolve(it) }
+        return "Form" to localePack
+    }
 
     var activePersonaId by mutableStateOf<String?>(null)
         private set
@@ -197,6 +216,7 @@ internal class FormRegistry(
         personaId = activePersonaId,
         configurationFingerprint = configurationFingerprint,
         fieldGenerations = fieldGenerations,
+        localePack = localePack.coordinate(),
     )
 
     /** Everything the QA catalog needs from this host's effective configuration. */
@@ -247,6 +267,12 @@ internal class FormRegistry(
                     "$configurationFingerprint; the same seed may produce different values."
             }
         }
+        request.localePack?.let { recorded ->
+            if (recorded != localePack.coordinate() && request.locale != null) {
+                warnings += "Reproduction used locale pack $recorded but this build resolves " +
+                    "${request.locale} to ${localePack.coordinate()}; generated values may differ."
+            }
+        }
         request.personaId?.let { id ->
             if (findPersona(id) == null) {
                 return FillActivationResult.Rejected(FillActivationRejection.UnknownPersona, "unknown persona \"$id\"")
@@ -261,7 +287,7 @@ internal class FormRegistry(
             if (availableLocales.none { it.code.equals(tag, ignoreCase = true) }) {
                 warnings += "Missing locale pack \"$tag\"; FillKit fell back to the closest available locale."
             }
-            localePack = localeRegistry.resolve(FillLocale.Code(tag))
+            localeResolution = localeRegistry.resolution(tag)
         }
         fieldNonces.clear()
         request.fieldGenerations.forEach { (id, value) -> if (value > 0) fieldNonces[id] = value }
@@ -273,6 +299,9 @@ internal class FormRegistry(
             activeScenarioId = id
             scenarioRegistry.find(id)?.let { scenario ->
                 scenario.personaId?.let { personaId -> if (findPersona(personaId) != null) activePersonaId = personaId }
+                if (request.locale == null) {
+                    scenario.locale?.let { tag -> localeResolution = localeRegistry.resolution(tag) }
+                }
                 validateScenarioFields(scenario)
             }
         }
@@ -391,7 +420,8 @@ internal class FormRegistry(
         @Suppress("UNCHECKED_CAST")
         registrations[owner] = StoredField(
             owner, field.id, field.label ?: field.id.humanize(), field.group, type,
-            field.target as FillTarget<Any>, field.generator, "ContentType", suggestion.confidence, field.overlay,
+            field.target as FillTarget<Any>, field.generator, "ContentType", suggestion.confidence,
+            field.overlay, field.locale,
         )
     }
 
@@ -475,6 +505,10 @@ internal class FormRegistry(
             return
         }
         activeScenarioId = scenario.id
+        scenario.locale?.let { tag ->
+            localeResolution = localeRegistry.resolution(tag)
+            rebuildResolver()
+        }
         scenario.personaId?.let { id ->
             if (findPersona(id) == null) problem("scenario \"${scenario.id}\" references unknown persona \"$id\"")
             else activePersonaId = id
@@ -510,8 +544,9 @@ internal class FormRegistry(
     }
 
     fun changeLocale(tag: String) {
-        localePack = localeRegistry.resolve(FillLocale.Code(tag))
+        localeResolution = localeRegistry.resolution(tag)
         rebuildResolver()
+        // A saved persona keeps its own identity; only a random one is re-drawn.
         if (isRandomPersona) fillAll()
     }
 
@@ -519,6 +554,8 @@ internal class FormRegistry(
         when (locale) {
             FillLocale.System -> changeLocale(initialLocaleTag)
             is FillLocale.Code -> changeLocale(locale.value)
+            // A country alone: the registry picks an appropriate language pack.
+            is FillLocale.Country -> changeLocale(localeRegistry.resolve(locale).code)
         }
     }
 
@@ -572,6 +609,7 @@ internal class FormRegistry(
             persona = activePersonaId?.let(::findPersona),
             fieldGenerator = field.generator as? FillGenerator<Any>,
             nonce = fieldNonces[field.id] ?: 0,
+            locale = localeFor(field),
         ),
         generatedPersona,
     )
@@ -617,7 +655,11 @@ internal class FormRegistry(
         val mapped = contentType?.let { type ->
             config.allContentTypeMappers().firstNotNullOfOrNull { it.suggest(type, context) }
         }
-        val inferred = FieldSuggestionEngine(config.allSuggestionRulePacks()).suggest(metadata)
+        val inferred = FieldSuggestionEngine(
+            rulePacks = config.allSuggestionRulePacks(),
+            localeAliases = localePack.semantics?.normalized.orEmpty(),
+            localeCode = localePack.code,
+        ).suggest(metadata)
         val candidates = listOfNotNull(mapped).plus(inferred).map { suggestion ->
             suggestion.copy(fillability = when {
                 suggestion.type is FillType.Unsupported -> SuggestionFillability.Unsupported
@@ -641,6 +683,7 @@ private fun <T : Any> FillKitField<T>.erase(owner: Any) = StoredField(
     target = target as FillTarget<Any>,
     generator = generator,
     overlay = overlay,
+    locale = locale,
 )
 
 private fun String.humanize(): String =

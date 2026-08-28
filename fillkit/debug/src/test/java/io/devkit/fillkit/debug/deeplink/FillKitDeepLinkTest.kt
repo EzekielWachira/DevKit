@@ -125,9 +125,21 @@ class FillKitDeepLinkTest {
     fun producesARunnableAdbCommand() {
         val uri = FillKitDeepLink.reproduceUri(scheme, FillReproductionTokenCodec.encode(spec))
         val command = FillKitDeepLink.adbCommand(uri)
-        assertTrue(command.startsWith("adb shell am start -a android.intent.action.VIEW -d \""))
-        assertTrue(command.endsWith("\""))
+        assertTrue(command.startsWith("adb shell \"am start -a android.intent.action.VIEW -d '"))
+        assertTrue(command.endsWith("'\""))
         assertTrue(command.contains(uri))
+    }
+
+    @Test
+    fun theAdbCommandProtectsQuerySeparators() {
+        // A scenario link carries `&`; without quoting, the device shell would
+        // treat everything after the first parameter as separate commands.
+        val uri = FillKitDeepLink.scenarioUri(scheme, spec.toRequest())
+        assertTrue(uri.contains("&"))
+        val command = FillKitDeepLink.adbCommand(uri)
+        val quoted = command.substringAfter("-d '").substringBeforeLast("'")
+        assertEquals(uri, quoted)
+        assertTrue("the whole am start must be one adb argument", command.startsWith("adb shell \""))
     }
 
     private fun FillReproductionSpec.toRequest() = FillActivationRequest(

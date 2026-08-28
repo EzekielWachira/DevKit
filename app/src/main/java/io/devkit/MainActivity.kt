@@ -43,7 +43,9 @@ import io.devkit.fillkit.FillKit
 import io.devkit.fillkit.FillKitConfig
 import io.devkit.fillkit.FillKitHost
 import io.devkit.fillkit.FillKitSeed
+import io.devkit.fillkit.FillContentHint
 import io.devkit.fillkit.FillLocale
+import io.devkit.fillkit.FillLocaleRegion
 import io.devkit.fillkit.FillReproductionSpec
 import io.devkit.fillkit.FillReproductionTokenCodec
 import io.devkit.fillkit.FillScenarioCatalog
@@ -240,6 +242,17 @@ private val providerScenarios = scenarioPack("provider", "Provider Onboarding", 
     ) {
         persona("international-customer")
     }
+    scenario(
+        id = "japanese-checkout",
+        name = "Japanese Customer",
+        targetForm = "checkout-address",
+        description = "Locale-specific scenario: activating it switches the form to ja-JP, " +
+            "so names, address and phone all come from the Japanese pack.",
+        category = "Checkout",
+        tags = setOf("checkout", "locale", "unicode"),
+    ) {
+        locale("ja-JP")
+    }
 }
 
 private val validationScenarios = scenarioPack("validation", "Validation", version = "3") {
@@ -283,32 +296,26 @@ private val validationScenarios = scenarioPack("validation", "Validation", versi
     }
 }
 
+// Composition rather than duplication: the Swahili variant inherits Kenya's
+// geography, phone plan and postal codes from the built-in en-KE pack and only
+// replaces the names and the localized field labels.
 private val swahiliKenya = fillLocalePack(
-    "sw-KE",
-    "Kenya — Swahili"
+    code = "sw-KE",
+    displayName = "Kenya — Kiswahili (sample)",
+    id = "sample-sw-ke",
+    version = "1",
+    region = FillLocaleRegion.Africa,
 ) {
-    firstNames(
-        "Amina",
-        "Baraka",
-        "Neema",
-        "Juma"
-    )
-    lastNames(
-        "Mwangi",
-        "Wanjiku",
-        "Otieno",
-        "Kamau"
-    )
-    cities(
-        "Nairobi",
-        "Mombasa",
-        "Kisumu"
-    )
-    phone {
-        countryCode = "+254"; formats(
-        "7########",
-        "1########"
-    )
+    extends("en-KE")
+    person {
+        givenNames("Amani", "Baraka", "Neema", "Juma", "Tumaini", "Zuri")
+        familyNames("Mwangi", "Wanjiku", "Otieno", "Kamau")
+    }
+    business { suffixes("Ltd", "Kampuni") }
+    semanticAliases {
+        "jina" mapsTo FillContentHint.FirstName
+        "barua pepe" mapsTo FillContentHint.Email
+        "simu" mapsTo FillContentHint.Phone
     }
 }
 
@@ -769,6 +776,7 @@ private data class CheckoutState(
     val city: String = "",
     val address: String = "",
     val postalCode: String = "",
+    val internationalPhone: String = "",
 )
 
 @Composable
@@ -835,6 +843,22 @@ private fun CheckoutExample(modifier: Modifier = Modifier) {
                 "postalCode",
                 FillType.PostalCode,
                 "Address"
+            )
+            // Field-level locale override: this one field always uses the UK
+            // numbering plan, whatever locale the rest of the form is on.
+            OutlinedTextField(
+                value = state.internationalPhone,
+                onValueChange = { state = state.copy(internationalPhone = it) },
+                label = { Text("International phone (en-GB)") },
+                modifier = Modifier.fillMaxWidth().fillKit(
+                    id = "internationalPhone",
+                    type = FillType.PhoneNumber(),
+                    value = state.internationalPhone,
+                    onFill = { state = state.copy(internationalPhone = it) },
+                    label = "International phone",
+                    group = "Contact",
+                    locale = FillLocale.Code("en-GB"),
+                ),
             )
         }
     }

@@ -9,6 +9,8 @@ data class FillReproductionSpec(
     val seed: Long,
     val generation: Int = 0,
     val locale: String? = null,
+    /** Resolved locale pack coordinate, e.g. `builtin-en-ke@1`. */
+    val localePack: String? = null,
     val scenarioPackId: String? = null,
     val scenarioId: String? = null,
     val personaPackId: String? = null,
@@ -40,6 +42,7 @@ data class FillReproductionSpec(
         scenarioId?.let { appendLine("scenario=${qualify(scenarioPackId, it)}") }
         appendLine("persona=${personaId?.let { qualify(personaPackId, it) } ?: "random"}")
         locale?.let { appendLine("locale=$it") }
+        localePack?.let { appendLine("localePack=$it") }
         appendLine("seed=$seed")
         appendLine("generation=$generation")
         if (fieldGenerations.isNotEmpty()) {
@@ -86,7 +89,8 @@ object FillReproductionTokenCodec {
     private const val MAX_ID_LENGTH = 96
     private const val MAX_LOCALE_LENGTH = 24
 
-    private val idPattern = Regex("[A-Za-z0-9._:-]{1,$MAX_ID_LENGTH}")
+    // `@` is allowed so pack coordinates such as `builtin-en-ke@1` round-trip.
+    private val idPattern = Regex("[A-Za-z0-9._:@-]{1,$MAX_ID_LENGTH}")
     private val localePattern = Regex("[A-Za-z0-9_-]{1,$MAX_LOCALE_LENGTH}")
     private val fieldGenerationsPattern = Regex("[A-Za-z0-9._:,-]{1,256}")
 
@@ -96,6 +100,7 @@ object FillReproductionTokenCodec {
             field("s", spec.seed.toString())
             field("g", spec.generation.toString())
             spec.locale?.let { field("l", it) }
+            spec.localePack?.let { field("lp", it) }
             spec.scenarioPackId?.let { field("sp", it) }
             spec.scenarioId?.let { field("sc", it) }
             spec.personaPackId?.let { field("pp", it) }
@@ -167,6 +172,7 @@ object FillReproductionTokenCodec {
             seed = seed,
             generation = generation,
             locale = fields["l"]?.also { validate(localePattern, it, "locale") },
+            localePack = fields["lp"]?.let { id(it, "locale pack") },
             scenarioPackId = fields["sp"]?.let { id(it, "scenario pack") },
             scenarioId = fields["sc"]?.let { id(it, "scenario") },
             personaPackId = fields["pp"]?.let { id(it, "persona pack") },

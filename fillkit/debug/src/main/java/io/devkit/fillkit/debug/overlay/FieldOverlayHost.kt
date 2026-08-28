@@ -38,6 +38,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.role
@@ -79,12 +80,21 @@ internal fun BoxScope.FieldOverlayHost(registry: FormRegistry, config: FieldOver
 
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
-    val imeInset = WindowInsets.ime.getBottom(density)
+    val windowHeight = LocalWindowInfo.current.containerSize.height
+    val windowImeInset = WindowInsets.ime.getBottom(density)
 
     val focused = registry.focusedField
     val field = focused?.field?.takeIf { it.overlayEnabled(config) }
     val fieldBounds = focused?.bounds
     val hostSize = IntSize(hostBounds.width.toInt(), hostBounds.height.toInt())
+    // The IME inset is measured against the window, so only the part of it that
+    // actually overlaps this host counts. A small host sitting above the
+    // keyboard is not obscured at all.
+    val imeInset = if (windowImeInset <= 0) {
+        0
+    } else {
+        (hostBounds.bottom - (windowHeight - windowImeInset)).coerceAtLeast(0f).toInt()
+    }
     val relativeBounds = fieldBounds?.translate(-hostBounds.left, -hostBounds.top)
     val visible = field != null && relativeBounds != null &&
         FieldOverlayPositioner.isFieldVisible(relativeBounds, hostSize, imeInset)

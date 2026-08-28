@@ -29,8 +29,16 @@ data class FakePersona(
     val age: Int,
     val address: FakeAddress,
     val company: FakeCompany,
+    /**
+     * Locale-formatted full name. Given-first with a space is only one
+     * convention, so the pack decides rather than this model.
+     */
+    val formattedFullName: String? = null,
+    /** National digits, so the same person can be rendered in any phone format. */
+    val nationalPhoneDigits: String = "",
+    val localizedCountry: String? = null,
 ) {
-    val fullName: String get() = "$firstName $lastName"
+    val fullName: String get() = formattedFullName ?: "$firstName $lastName"
 
     fun toFillPersona(id: String, name: String, localeCode: String): FillPersona = FillPersona(
         id = id,
@@ -51,6 +59,7 @@ data class FakePersona(
             "region" to FillValue.Text(address.region),
             "country" to FillValue.Text(address.country),
             "postalCode" to FillValue.Text(address.postalCode),
+            "administrativeArea" to FillValue.Text(address.region),
             "companyName" to FillValue.Text(company.name),
             "jobTitle" to FillValue.Text(company.jobTitle),
             "website" to FillValue.Text(company.website),

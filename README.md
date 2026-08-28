@@ -16,6 +16,7 @@ This is the complete documentation for the workspace and the library.
 
 - [Modules](#modules) · [Requirements](#requirements) · [Run the sample](#run-the-sample) · [Install](#install-and-release-safety)
 - Registering fields: [TextFieldState](#textfieldstate-and-one-fill-target) · [ContentType](#compose-contenttype-mapping) · [Suggestions](#field-suggestions) · [Semantics](#semantics-integration-and-discovery-boundary)
+- Locales: [Internationalization](#internationalization-and-locales) · [Fallback](#fallback) · [Custom packs](#custom-packs-and-composition) · [Precedence](#locale-precedence) · [Adding a locale](#adding-a-locale)
 - Test data: [Personas](#saved-personas) · [Locales](#locales) · [Scenarios](#scenario-packs) · [Generators](#custom-generator-dsl) · [Packs](#unified-packs) · [Precedence](#resolution-precedence)
 - Reproducibility: [Deterministic generation](#deterministic-generation) · [Generation counter](#generation-counter) · [Specs](#reproduction-specs) · [Tokens](#reproduction-tokens) · [Fingerprints](#configuration-fingerprints)
 - Field overlay: [Prefill overlay](#field-prefill-overlay) · [Placement](#placement-and-the-keyboard) · [Per-field regeneration](#per-field-regeneration)
@@ -234,22 +235,9 @@ Core persona models remain independent of Android, Compose, activities, ViewMode
 
 ## Locales
 
-Built-in packs include:
+Locale support is a first-class capability with 45 built-in packs, locale-aware names, phones and addresses, pack composition, and explicit fallback. It has its own chapter: **[Internationalization and locales](#internationalization-and-locales)**.
 
-- Africa: `en-KE`, `en-NG`, `en-UG`, `en-TZ`, `en-RW`, `en-GH`, `en-ZA`
-- International: `en-US`, `en-GB`, `en-CA`, `en-AU`
-
-Each pack is modular. Optional person, address, phone, business, and internet datasets fall back independently.
-
-Resolution is predictable:
-
-```text
-exact custom locale → exact built-in locale → English pack for the region → en-US
-```
-
-Thus `sw-KE` may extend `en-KE`, `fr-CA` uses `en-CA`, and an unknown region uses `en-US`. The resolved pack retains the requested custom pack's code and display name while filling only missing capabilities from its fallback.
-
-## Custom locale packs
+The flat DSL from earlier versions still works and populates the structured sections:
 
 ```kotlin
 val swahiliKenya = fillLocalePack("sw-KE", "Kenya — Swahili") {
@@ -401,6 +389,209 @@ One `FillValueResolver` owns all resolution rules; the panel and form registry c
 ```
 
 Scenario selection may activate a persona. Scenario values still override that persona. This order is stable and independent of registration order.
+
+## Internationalization and locales
+
+FillKit assumes nothing about English, Western names, US addresses, Latin script, or one-given-plus-one-family-name. A locale is a **pack** of optional capability sections, and adding a country means writing one — not touching the engine.
+
+```text
+FillLocalePack
+├── person      names, order, surname count, separator, Latin forms
+├── address     cities, administrative areas + their label, streets, postal codes
+├── phone       calling code, national patterns, grouping
+├── business    company suffixes, job titles
+├── internet    email domains, username style
+└── semantics   localized field-label aliases
+```
+
+Every section is optional, so a partial pack is valid and inherits the rest.
+
+### Built-in locales
+
+45 packs across seven regions:
+
+| Region | Locales |
+| --- | --- |
+| Africa | `en-KE` `sw-KE` `en-NG` `en-UG` `en-TZ` `sw-TZ` `en-RW` `en-GH` `en-ZA` `af-ZA` `fr-SN` `fr-CI` `fr-CM` |
+| Europe | `en-GB` `fr-FR` `de-DE` `es-ES` `it-IT` `pt-PT` `nl-NL` `pl-PL` `sv-SE` `nb-NO` `da-DK` `fi-FI` |
+| North America | `en-US` `en-CA` `fr-CA` `es-MX` |
+| South America | `pt-BR` `es-AR` `es-CO` `es-CL` `es-PE` |
+| Asia | `en-IN` `hi-IN` `ja-JP` `ko-KR` `zh-CN` `zh-TW` `id-ID` `ms-MY` `th-TH` `vi-VN` `fil-PH` |
+| Middle East | `ar-SA` `ar-AE` `ar-EG` `he-IL` `tr-TR` |
+| Oceania | `en-AU` `en-NZ` |
+
+Each is a representative synthetic dataset combined procedurally, not a bundled corpus. Names are common public forenames and surnames, places are public geography, and no address is real.
+
+Packs are grouped by region in `:fillkit:engine`, so splitting them into per-region artifacts later needs no public API change — the registry only ever sees a list of packs.
+
+### Names and Unicode
+
+```text
+en-KE    Amina Wanjiku
+en-US    Emily Carter
+es-ES    Lucía García López      two surnames
+ja-JP    渡辺 さくら              family name first
+ko-KR    김서준                   family first, no separator
+```
+
+Generated names keep their own script. Only the email username is normalised, using the pack's Latin forms:
+
+```text
+渡辺 さくら  →  sakura.watanabe4@example.org
+أحمد العتيبي →  ahmed.alotaibi@example.com
+```
+
+When a pack cannot transliterate a name, FillKit falls back to a deterministic synthetic handle (`user84721@example.com`) rather than emitting a malformed address. Generated mail always lands on `example.com`, `example.org` or `example.net`.
+
+### Phones
+
+A pack declares its calling code, valid national prefixes, subscriber length and display grouping. One generated number renders three ways:
+
+```kotlin
+FillType.PhoneNumber(format = FillPhoneNumberFormat.International)  // +254 712 345 678
+FillType.PhoneNumber(format = FillPhoneNumberFormat.National)       // 0712 345 678
+FillType.PhoneNumber(format = FillPhoneNumberFormat.E164)           // +254712345678
+```
+
+These are synthetic testing numbers; FillKit does not claim they are unassigned.
+
+### Addresses
+
+Addresses are modelled as `FillAddress` — lines, locality, sub-locality, administrative area, postal code, country — never street/city/state/ZIP. The regional term travels with the pack:
+
+```text
+en-KE  County        en-US  State       en-CA  Province
+en-GB  County        ja-JP  都道府県      de-DE  Bundesland
+```
+
+A locale that does not use postal codes declares that instead of inventing a format, and `FillType.PostalCode` reports it as unsupported rather than fabricating one.
+
+### Selecting a locale
+
+```kotlin
+FillKitConfig(locale = FillLocale.System)            // device locale, with fallback
+FillKitConfig(locale = FillLocale.Code("sw-KE"))     // exact tag
+FillKitConfig(locale = FillLocale.Country("KE"))     // region; FillKit picks a language
+```
+
+Locale and country are modelled separately: `en-KE` and `sw-KE` share `country = KE`, its phone plan and its geography, but differ in names and labels.
+
+### Fallback
+
+`LocaleFallbackResolver` is the only place fallback is decided, and every resolution explains itself:
+
+```text
+exact tag  →  same region, other language  →  same language, other region  →  default
+```
+
+```text
+sw-KE → sw-KE (exact locale pack)
+de-AT → de-DE (no de-AT pack; same language)
+zz-ZZ → en-US (no zz-ZZ locale pack registered)
+```
+
+The field inspector shows the reason, so unexpected data can be traced instead of debugged.
+
+### Custom packs and composition
+
+```kotlin
+val companySwahili = fillLocalePack(
+    code = "sw-KE",
+    displayName = "Kenya — Kiswahili",
+    id = "company-sw-ke",
+    version = "1",
+    region = FillLocaleRegion.Africa,
+) {
+    extends("en-KE")
+
+    person {
+        givenNames("Amani", "Baraka", "Neema", "Juma")
+        familyNames("Mwangi", "Wanjiku", "Otieno", "Kamau")
+    }
+    business { suffixes("Ltd", "Kampuni") }
+    semanticAliases {
+        "jina" mapsTo FillContentHint.FirstName
+        "barua pepe" mapsTo FillContentHint.Email
+    }
+}
+```
+
+`extends` inherits phone rules, cities, administrative areas and postal codes rather than duplicating them. Inheritance cycles and unknown parents are rejected at registry construction.
+
+Override precedence is explicit, and a pack replaces the one below it section by section rather than being merged unpredictably:
+
+```text
+built-in en-KE  →  application en-KE  →  form-scoped en-KE
+```
+
+### Locale precedence
+
+```text
+field locale  →  scenario locale  →  persona locale  →  form locale  →  system default
+```
+
+A field can pin its own locale without affecting the rest of the form:
+
+```kotlin
+Modifier.fillKit(
+    id = "internationalPhone",
+    type = FillType.PhoneNumber(),
+    value = state.internationalPhone,
+    onFill = onInternationalPhoneChanged,
+    locale = FillLocale.Code("en-GB"),
+)
+```
+
+A scenario can pin one too, and activating it switches the form:
+
+```kotlin
+scenario(id = "japanese-checkout", name = "Japanese Customer", targetForm = "checkout-address") {
+    locale("ja-JP")
+}
+```
+
+A persona carries its locale, and a saved persona keeps its identity when the panel's locale changes — only a random persona is re-drawn.
+
+### Localized field labels
+
+The 0.3 suggestion heuristics read alias tables from the active pack, so `Prénom`, `Vorname`, `Nombre` and `jina` are recognised the way `First name` is. `ContentType` remains stronger than any label, which is exactly why it matters: `ContentType.EmailAddress` maps to `FillType.Email` whether the label reads `Email`, `E-Mail`, `Correo electrónico` or `Adresse e-mail`.
+
+### Right to left
+
+`ar-SA`, `ar-AE`, `ar-EG` and `he-IL` are flagged right-to-left. The developer panel, QA launcher, field overlay and inspector use start/end rather than left/right throughout, and the overlay positioner anchors to the field's leading edge in either direction.
+
+### Locale and reproduction
+
+Locale is part of deterministic generation: the resolved pack coordinate seeds every field's stream, so the same seed under a different locale is a different — but equally stable — draw. Reproductions record both:
+
+```text
+locale=en-KE
+localePack=builtin-en-ke@1
+```
+
+If a reproduction was recorded against a different pack version, activation reports it as a warning instead of quietly producing other data.
+
+### Adding a locale
+
+Create the pack, register it, add a test. Nothing in `FillValueResolver`, `FillKitHost`, the developer UI or the QA launcher changes.
+
+```kotlin
+val poland = fillLocalePack("pl-PL", "Poland — Polish", region = FillLocaleRegion.Europe) {
+    person { givenNames("Zofia", "Jakub"); familyNames("Nowak", "Kowalski") }
+    location {
+        cities("Warszawa", "Kraków")
+        administrativeAreas("Mazowieckie", "Małopolskie")
+        administrativeAreaLabel("Województwo")
+        postalCodes("00-001", "30-001")
+        streetFormat("{street} {number}")
+    }
+    phone { countryCallingCode("+48"); pattern("5", "6", "7", subscriberDigits = 8); grouping(3, 3, 3) }
+    business { suffixes("Sp. z o.o.", "S.A.") }
+    currency("PLN")
+}
+
+FillKitConfig(localePacks = listOf(poland))
+```
 
 ## Deterministic generation
 
@@ -753,7 +944,7 @@ Links are treated as untrusted input: scheme, path, token format and version, le
 The panel's **Seed** chip opens the reproduction sheet with copyable report, token, deep link and a ready-to-run command:
 
 ```bash
-adb shell am start -a android.intent.action.VIEW -d "com.example.app.fillkit://reproduce/FK1-..."
+adb shell "am start -a android.intent.action.VIEW -d 'com.example.app.fillkit://reproduce/FK1-...'"
 ```
 
 ## QA to developer to regression test

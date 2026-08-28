@@ -92,6 +92,13 @@ class FillReproductionTest {
     }
 
     @Test
+    fun localePackCoordinatesSurviveTheToken() {
+        val withPack = spec.copy(localePack = "builtin-en-ke@1")
+        assertEquals(withPack, FillReproductionTokenCodec.decode(FillReproductionTokenCodec.encode(withPack)))
+        assertTrue(withPack.describe().contains("localePack=builtin-en-ke@1"))
+    }
+
+    @Test
     fun specAndActivationRequestRoundTrip() {
         val request = spec.toActivationRequest(FillActivationSource.DeepLink)
         assertEquals(spec.formId, request.formId)

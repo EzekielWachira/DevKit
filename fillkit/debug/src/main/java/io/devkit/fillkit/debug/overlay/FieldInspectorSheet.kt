@@ -76,7 +76,18 @@ internal fun FieldInspectorSheet(field: StoredField, registry: FormRegistry, onD
                 InspectorRow("Fill target", field.target.kind.name)
                 field.group?.let { InspectorRow("Group", it) }
                 InspectorRow("Generator", field.generator?.id ?: "Built-in resolver")
-                InspectorRow("Locale", registry.localeTag)
+                // Locale diagnostics: which locale, why, and from which pack.
+                val (localeSource, localePack) = registry.localeSourceFor(field)
+                InspectorRow("Locale", localePack.code)
+                InspectorRow("Locale source", localeSource)
+                InspectorRow("Locale pack", localePack.coordinate())
+                if (!registry.localeResolution.exact && localeSource == "Form") {
+                    InspectorRow("Locale fallback", registry.localeResolution.describe())
+                }
+                localePack.address?.let { address ->
+                    InspectorRow("Administrative area", address.administrativeAreaLabel)
+                    if (!address.postalCodeSupported) InspectorRow("Postal codes", "Not used in this locale")
+                }
                 InspectorRow("Persona", if (registry.isRandomPersona) "Random" else registry.persona.name)
                 registry.activeScenarioId?.let { InspectorRow("Scenario", it) }
                 InspectorRow("Seed", registry.masterSeed.value.toString())

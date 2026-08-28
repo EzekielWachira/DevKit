@@ -44,8 +44,9 @@ class FillKit02EngineTest {
         assertEquals("sw-KE", swahili.code)
         assertEquals(listOf("Amina"), swahili.firstNames)
         assertEquals("Kenya", swahili.country)
-        assertEquals("en-CA", registry.resolve(FillLocale.Code("fr-CA")).code)
-        assertEquals("en-US", registry.resolve(FillLocale.Code("fr-FR")).code)
+        assertEquals("fr-CA", registry.resolve(FillLocale.Code("fr-CA")).code)
+        assertEquals("fr-FR", registry.resolve(FillLocale.Code("fr-FR")).code)
+        assertEquals("en-US", registry.resolve(FillLocale.Code("zz-ZZ")).code)
     }
 
     @Test

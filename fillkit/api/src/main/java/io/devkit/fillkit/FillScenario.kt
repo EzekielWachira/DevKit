@@ -24,6 +24,8 @@ data class FillScenario(
     val description: String? = null,
     val category: String? = null,
     val tags: Set<String> = emptySet(),
+    /** Activating the scenario selects this locale; null keeps the form's own. */
+    val locale: String? = null,
 ) {
     init {
         require(id.isNotBlank()) { "scenario id cannot be blank" }
@@ -33,6 +35,7 @@ data class FillScenario(
         }
         require(targetForm == null || targetForm.isNotBlank()) { "scenario targetForm cannot be blank" }
         require(tags.none(String::isBlank)) { "scenario tags cannot be blank" }
+        require(locale == null || locale.isNotBlank()) { "scenario locale cannot be blank" }
     }
 
     /** Lowercased haystack used by QA launcher search. */
@@ -58,6 +61,13 @@ class FillScenarioBuilder internal constructor() {
     private val generators = linkedMapOf<String, FillScenarioGenerator>()
     private val includes = mutableListOf<String>()
     private var personaId: String? = null
+    private var localeCode: String? = null
+
+    /** Locale-specific scenarios pin their locale; reusable ones leave it unset. */
+    fun locale(code: String) {
+        require(code.isNotBlank()) { "scenario locale cannot be blank" }
+        localeCode = code
+    }
 
     fun text(fieldId: String, value: String) = put(fieldId, FillValue.Text(value))
     fun integer(fieldId: String, value: Int) = put(fieldId, FillValue.Integer(value))
@@ -100,7 +110,7 @@ class FillScenarioBuilder internal constructor() {
         tags: Set<String> = emptySet(),
     ) = FillScenario(
         id, name, values.toMap(), generators.toMap(), includes.toList(), personaId,
-        targetForm, description, category, tags,
+        targetForm, description, category, tags, localeCode,
     )
 }
 
@@ -174,5 +184,6 @@ fun FillType<*>.generatorId(): String = when (this) {
     is FillType.BooleanValue -> "boolean"
     is FillType.Date -> "date"
     is FillType.Selection -> "selection"
+    is FillType.CurrencyAmount -> "currency-amount"
     is FillType.Custom<*> -> key
 }

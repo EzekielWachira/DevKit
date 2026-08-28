@@ -6,6 +6,7 @@ import io.devkit.fillkit.FillGeneratorScope
 import io.devkit.fillkit.FillKitSeed
 import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.FillLocalePack
+import io.devkit.fillkit.FillPhoneFormatter
 import io.devkit.fillkit.FillSeed
 import io.devkit.fillkit.FillPersona
 import io.devkit.fillkit.FillScenario
@@ -30,6 +31,11 @@ data class FillResolutionRequest<T : Any>(
      * stream; lookups by field ID are unaffected.
      */
     val nonce: Int = 0,
+    /**
+     * Overrides the form locale for this field only. Precedence is field →
+     * scenario → persona → form → system, decided before the request is built.
+     */
+    val locale: FillLocalePack? = null,
 )
 
 /**
@@ -48,6 +54,9 @@ class FillValueResolver(
     val generation: Int = 0,
     val formId: String = "",
 ) {
+    /** Locale packs are part of the reproduction contract, so their coordinate seeds the stream. */
+    private fun localeNamespace(pack: FillLocalePack) = pack.coordinate()
+
     private val source = FillRandomSource(seed, generation)
     private val registered = linkedMapOf<String, FillGenerator<*>>().apply {
         generators.forEach { (id, generator) -> this[id] = generator }
@@ -59,12 +68,19 @@ class FillValueResolver(
         PersonaGenerator().generate(source, locale).toFillPersona(id, name, locale.code)
 
     fun <T : Any> resolve(request: FillResolutionRequest<T>, generatedPersona: FillPersona): T {
-        val field = listOf(FillRandomSource.FIELD, formId, request.fieldId, request.nonce.toString())
+        val pack = request.locale ?: locale
+        val field = listOf(
+            FillRandomSource.FIELD, formId, request.fieldId, request.nonce.toString(), localeNamespace(pack),
+        )
         request.scenario?.values?.get(request.fieldId)?.let { return checked(request.type, it.raw, "scenario value") }
         request.scenario?.generators?.get(request.fieldId)?.let {
             val namespace = field + FillRandomSource.SCENARIO
-            val scenarioPersona = personaFor(request.fieldId, request.nonce, generatedPersona)
-            return checked(request.type, scenarioValue(it, request.persona, scenarioPersona, namespace), "scenario generator")
+            val scenarioPersona = personaFor(request.fieldId, request.nonce, generatedPersona, pack)
+            return checked(
+                request.type,
+                scenarioValue(it, request.persona, scenarioPersona, namespace, pack),
+                "scenario generator",
+            )
         }
         request.fieldGenerator?.let {
             return checked(request.type, run(it, request.persona, field + FillRandomSource.GENERATOR), "field generator")
@@ -74,11 +90,15 @@ class FillValueResolver(
         // Rerolling one field draws its persona-derived values from a per-field
         // persona variant, so "another phone" cannot disturb the name already
         // filled into the form.
-        val base = personaFor(request.fieldId, request.nonce, generatedPersona)
+        val base = personaFor(request.fieldId, request.nonce, generatedPersona, pack)
         val effective = effectivePersona(base, request.persona)
         val builtInNamespace = field + listOf(FillRandomSource.VALUE, request.type.generatorId())
         if (request.persona != null && request.type !is FillType.Custom<*>) {
-            return checked(request.type, builtIn(request.type, effective, source.stream(builtInNamespace)), "persona-aware generator")
+            return checked(
+                request.type,
+                builtIn(request.type, effective, source.stream(builtInNamespace), pack),
+                "persona-aware generator",
+            )
         }
         registered[request.fieldId]?.let {
             return checked(request.type, runUntyped(it, request.persona, field + FillRandomSource.GENERATOR), "field-id generator")
@@ -86,18 +106,28 @@ class FillValueResolver(
         registered[request.type.generatorId()]?.let {
             return checked(request.type, runUntyped(it, request.persona, field + FillRandomSource.GENERATOR), "type generator")
         }
-        return checked(request.type, builtIn(request.type, effective, source.stream(builtInNamespace)), "built-in generator")
+        return checked(
+            request.type,
+            builtIn(request.type, effective, source.stream(builtInNamespace), pack),
+            "built-in generator",
+        )
     }
 
     /**
      * Nonce zero keeps every field on one coherent identity; a rerolled field
      * gets its own deterministic identity derived from the same master seed.
      */
-    private fun personaFor(fieldId: String, nonce: Int, generated: FillPersona): FillPersona {
-        if (nonce <= 0) return generated
-        return personaVariants.getOrPut("$fieldId#$nonce") {
-            PersonaGenerator().generate(source, locale, "$fieldId#$nonce")
-                .toFillPersona("generated", "Random", locale.code)
+    private fun personaFor(
+        fieldId: String,
+        nonce: Int,
+        generated: FillPersona,
+        pack: FillLocalePack,
+    ): FillPersona {
+        if (nonce <= 0 && pack.code == locale.code) return generated
+        val variant = "${pack.coordinate()}#$fieldId#$nonce"
+        return personaVariants.getOrPut(variant) {
+            PersonaGenerator().generate(source, pack, variant)
+                .toFillPersona("generated", "Random", pack.code)
         }
     }
 
@@ -106,6 +136,7 @@ class FillValueResolver(
         persona: FillPersona?,
         generated: FillPersona,
         namespace: List<String?>,
+        pack: FillLocalePack,
     ): Any = when (value) {
         is FillScenarioGenerator.Registered -> runRegistered(value.generatorId, persona, namespace)
         is FillScenarioGenerator.Inline -> runUntyped(value.generator, persona, namespace)
@@ -113,6 +144,7 @@ class FillValueResolver(
             value.type,
             effectivePersona(generated, persona),
             source.stream(namespace + value.type.generatorId()),
+            pack,
         )
     }
 
@@ -201,31 +233,38 @@ class FillValueResolver(
         return active.copy(values = values)
     }
 
-    private fun builtIn(type: FillType<*>, persona: FillPersona, random: Random): Any = when (type) {
+    private fun builtIn(
+        type: FillType<*>,
+        persona: FillPersona,
+        random: Random,
+        pack: FillLocalePack = locale,
+    ): Any = when (type) {
         FillType.FirstName -> persona.raw("firstName")
         FillType.LastName -> persona.raw("lastName")
         FillType.FullName -> persona.raw("fullName")
-        FillType.MiddleName -> persona.values["middleName"]?.raw ?: locale.firstNames.random(random)
-        FillType.NamePrefix -> listOf("Dr", "Mr", "Ms", "Mx").random(random)
-        FillType.NameSuffix -> listOf("Jr", "Sr", "II", "III").random(random)
+        FillType.MiddleName -> persona.values["middleName"]?.raw
+            ?: pack.person?.middleNames?.takeIf(List<String>::isNotEmpty)?.random(random)
+            ?: pack.firstNames.takeIf(List<String>::isNotEmpty)?.random(random)
+            ?: "Alex"
+        FillType.NamePrefix -> pack.person?.prefixes?.takeIf(List<String>::isNotEmpty)?.random(random)
+            ?: listOf("Dr", "Mr", "Ms", "Mx").random(random)
+        FillType.NameSuffix -> pack.person?.suffixes?.takeIf(List<String>::isNotEmpty)?.random(random)
+            ?: listOf("Jr", "Sr", "II", "III").random(random)
         FillType.Username -> persona.raw("username")
         FillType.DateOfBirth -> persona.raw("dateOfBirth")
         FillType.Age -> persona.raw("age")
         FillType.Email -> persona.raw("email")
-        is FillType.PhoneNumber -> type.countryCode.let { requestedCountry ->
-            if (requestedCountry == null || locale.code.endsWith(requestedCountry, true)) {
-                persona.raw("phone")
-            } else {
-                val code = callingCodes[requestedCountry.uppercase()] ?: requireNotNull(locale.phone).countryCode
-                PersonaGenerator.phone(random, code)
-            }
-        }
-        FillType.PhoneCountryCode -> requireNotNull(locale.phone).countryCode
+        is FillType.PhoneNumber -> phoneNumber(type, persona, random, pack)
+        FillType.PhoneCountryCode -> pack.phoneData?.countryCallingCode ?: "+1"
         FillType.StreetAddress -> persona.raw("streetAddress")
         FillType.City -> persona.raw("city")
         FillType.Region -> persona.raw("region")
-        FillType.Country -> persona.raw("country")
-        FillType.PostalCode -> persona.raw("postalCode")
+        FillType.Country -> pack.address?.countryName ?: persona.raw("country")
+        FillType.PostalCode -> if (pack.address?.postalCodeSupported == false) {
+            throw UnsupportedOperationException("locale ${pack.code} does not use postal codes")
+        } else {
+            persona.raw("postalCode")
+        }
         FillType.CompanyName -> persona.raw("companyName")
         FillType.JobTitle -> persona.raw("jobTitle")
         FillType.Website -> persona.raw("website")
@@ -249,7 +288,54 @@ class FillValueResolver(
         is FillType.BooleanValue -> random.nextFloat() < type.probabilityTrue
         is FillType.Date -> DateMath.fromOrdinal(random.nextInt(DateMath.ordinal(type.min), DateMath.ordinal(type.max) + 1))
         is FillType.Selection -> type.options.random(random)
+        is FillType.CurrencyAmount -> currencyAmount(type, random, pack)
         is FillType.Custom<*> -> throw IllegalArgumentException("no custom generator registered for key \"${type.key}\"")
+    }
+
+    /**
+     * Uses the persona's own number when the field wants the active locale, and
+     * generates a fresh one for that country otherwise, so an "international
+     * phone" field can differ from the rest of the form.
+     */
+    private fun phoneNumber(
+        type: FillType.PhoneNumber,
+        persona: FillPersona,
+        random: Random,
+        pack: FillLocalePack,
+    ): String {
+        val requested = type.countryCode
+        val samePack = requested == null || pack.countryCode.equals(requested, ignoreCase = true)
+        val data = pack.phoneData
+        if (samePack && type.format == io.devkit.fillkit.FillPhoneNumberFormat.International) {
+            return persona.raw("phone") as String
+        }
+        if (samePack && data != null) {
+            val digits = (persona.values["phone"] as? FillValue.Text)?.value
+                ?.removePrefix(data.countryCallingCode)?.filter(Char::isDigit)
+                ?: PersonaGenerator.nationalNumber(pack, random)
+            return FillPhoneFormatter.format(data, digits, type.format)
+        }
+        val code = callingCodes[requested?.uppercase()] ?: data?.countryCallingCode ?: "+1"
+        val digits = buildString { repeat(9) { append(random.nextInt(10)) } }
+        return FillPhoneFormatter.format(
+            io.devkit.fillkit.FillPhoneLocaleData(code, grouping = listOf(3, 3, 3)),
+            digits,
+            type.format,
+        )
+    }
+
+    /** Currency follows the region or an explicit code, never the language. */
+    private fun currencyAmount(type: FillType.CurrencyAmount, random: Random, pack: FillLocalePack): String {
+        val code = type.currencyCode ?: pack.currencyCode ?: "USD"
+        val factor = 10.0.pow(type.decimalPlaces)
+        val raw = random.nextDouble() * (type.range.endInclusive - type.range.start) + type.range.start
+        val amount = round(raw * factor) / factor
+        val text = if (type.decimalPlaces == 0) {
+            amount.toLong().toString()
+        } else {
+            String.format(java.util.Locale.ROOT, "%.${type.decimalPlaces}f", amount)
+        }
+        return "$code $text"
     }
 
     private fun FillPersona.raw(key: String): Any = requireNotNull(values[key]) { "persona value missing after fallback: $key" }.raw

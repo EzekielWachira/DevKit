@@ -11,4 +11,16 @@ sealed interface FillLocale {
             require(value.isNotBlank()) { "FillKit locale code cannot be blank" }
         }
     }
+
+    /**
+     * A region only, such as `KE`. FillKit picks an appropriate language pack
+     * for that country, which keeps locale and country from being conflated.
+     */
+    data class Country(val code: String) : FillLocale {
+        init {
+            require(code.isNotBlank()) { "FillKit country code cannot be blank" }
+        }
+
+        val normalized: String get() = code.trim().uppercase()
+    }
 }

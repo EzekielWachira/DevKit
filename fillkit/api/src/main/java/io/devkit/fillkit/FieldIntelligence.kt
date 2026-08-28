@@ -12,6 +12,9 @@ sealed interface SuggestionSource {
     data object SemanticLabel : SuggestionSource
     data object TestTag : SuggestionSource
     data object CurrentValue : SuggestionSource
+
+    /** A label recognised through the active locale pack's alias table. */
+    data class LocaleAlias(val localeCode: String) : SuggestionSource
     data class CustomRule(val id: String) : SuggestionSource
 }
 

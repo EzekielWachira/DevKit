@@ -117,15 +117,19 @@ class DeterminismTest {
     }
 
     @Test
-    fun localeChangeOnlyAffectsLocalisedGeneration() {
+    fun localeParticipatesInDerivationAndStaysDeterministicPerLocale() {
         val kenyan = resolver(locale = "en-KE")
         val british = resolver(locale = "en-GB")
         assertNotEquals(kenyan.generatedPersona().text("phone"), british.generatedPersona().text("phone"))
+
+        // The locale pack coordinate seeds every field stream, so the same seed
+        // under a different locale is a different — but still stable — draw.
         val otp = FillType.OtpCode(6)
-        assertEquals(
-            kenyan.resolve(FillResolutionRequest("otp", otp), kenyan.generatedPersona()),
-            british.resolve(FillResolutionRequest("otp", otp), british.generatedPersona()),
-        )
+        fun code(engine: FillValueResolver) =
+            engine.resolve(FillResolutionRequest("otp", otp), engine.generatedPersona())
+        assertNotEquals(code(kenyan), code(british))
+        assertEquals(code(kenyan), code(resolver(locale = "en-KE")))
+        assertEquals(code(british), code(resolver(locale = "en-GB")))
     }
 
     @Test

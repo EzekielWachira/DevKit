@@ -202,19 +202,60 @@ private fun ColumnScope.PersonaSheet(registry: FormRegistry, onDismiss: () -> Un
 
 @Composable
 private fun ColumnScope.LocaleSheet(registry: FormRegistry, onDismiss: () -> Unit) {
-    RouteHeader("Locale", "Names, addresses and phone formats follow this region.")
+    var query by remember { mutableStateOf("") }
+    val locales = registry.availableLocales
+    val resolution = registry.localeResolution
+
+    RouteHeader("Locale", "Names, addresses, phone formats and business names follow this region.")
+
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it },
+        label = { Text("Search country, language or code") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    if (!resolution.exact) {
+        Text(
+            resolution.describe(),
+            modifier = Modifier.padding(top = 8.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+    Spacer(Modifier.height(10.dp))
+
+    // Search covers country, language, code and endonym; grouping keeps 40+
+    // locales from arriving as one flat list.
+    val terms = query.trim().lowercase().split(' ').filter(String::isNotEmpty)
+    val matches = locales.filter { pack -> terms.all { term -> pack.searchText().contains(term) } }
+
+    if (matches.isEmpty()) {
+        EmptyStateCard("No locales match", "Try a country, a language, or a code such as \"sw-KE\".")
+        return
+    }
+
     LazyColumn(
         modifier = Modifier.weight(1f, fill = false).heightIn(max = ListMaxHeight),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        items(registry.availableLocales, key = { it.code }) { option ->
-            OptionRow(
-                title = option.displayName,
-                subtitle = option.country,
-                selected = registry.localeTag == option.code,
-                badge = option.code.uppercase(),
-                onClick = { registry.changeLocale(option.code); onDismiss() },
-            )
+        matches.groupBy { it.region }.forEach { (region, packs) ->
+            item(key = "region-${region.name}") {
+                SectionLabel(region.displayName, Modifier.padding(top = 8.dp, bottom = 2.dp))
+            }
+            items(packs, key = { it.code }) { pack ->
+                OptionRow(
+                    title = pack.displayName,
+                    subtitle = listOfNotNull(
+                        pack.address?.localizedCountryName?.takeIf { it != pack.address?.countryName },
+                        pack.currencyCode,
+                        "RTL".takeIf { pack.rightToLeft },
+                    ).joinToString(" · ").takeIf(String::isNotEmpty),
+                    selected = registry.localeTag == pack.code,
+                    badge = pack.code,
+                    onClick = { registry.changeLocale(pack.code); onDismiss() },
+                )
+            }
         }
     }
 }

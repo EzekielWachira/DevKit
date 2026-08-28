@@ -1,7 +1,12 @@
 package io.devkit.fillkit.engine
 
+import io.devkit.fillkit.FillAddressFormatter
 import io.devkit.fillkit.FillDate
 import io.devkit.fillkit.FillLocalePack
+import io.devkit.fillkit.FillNameFormatter
+import io.devkit.fillkit.FillPhoneFormatter
+import io.devkit.fillkit.FillPhoneNumberFormat
+import io.devkit.fillkit.FillUsernameStyle
 import kotlin.random.Random
 
 class PersonaGenerator {
@@ -20,48 +25,95 @@ class PersonaGenerator {
         }
 
     private inline fun generate(locale: FillLocalePack, stream: (String) -> Random): FakePersona {
-        val firstName = locale.firstNames.random(stream("firstName"))
-        val lastName = locale.lastNames.random(stream("lastName"))
-        val username = normalize("$firstName.$lastName")
+        val person = locale.person
+        val givenName = locale.firstNames.pick(stream("firstName"), "Alex")
+        val familyName = locale.lastNames.pick(stream("lastName"), "Doe")
+        val extraFamily = locale.lastNames.pick(stream("secondFamilyName"), familyName)
+        val familyNames = listOf(familyName, extraFamily)
+        val formattedName = FillNameFormatter.fullName(person, givenName, familyNames)
+
         val emailRandom = stream("email")
+        val style = locale.internet?.usernameStyle ?: FillUsernameStyle.DottedLatin
+        val username = FillNameFormatter.username(
+            person = person,
+            given = givenName,
+            family = familyName,
+            style = style,
+            fallbackSeed = emailRandom.nextLong(),
+        )
         val emailSuffix = emailRandom.nextInt(0, 5).takeIf { it != 0 }?.toString().orEmpty()
-        val email = "$username$emailSuffix@${safeDomains.random(emailRandom)}"
+        val domains = locale.internet?.emailDomains ?: safeDomains
+        val email = "$username$emailSuffix@${domains.pick(emailRandom, "example.com")}"
+
         val birthRandom = stream("dateOfBirth")
         val age = birthRandom.nextInt(18, 66)
         val birthYear = 2025 - age
         val birthMonth = birthRandom.nextInt(1, 13)
         val birthDay = birthRandom.nextInt(1, FillDate.daysInMonth(birthYear, birthMonth) + 1)
+
         val companyRandom = stream("company")
-        val companyPrefix = locale.companyPrefixes.random(companyRandom)
-        val companySlug = normalize(companyPrefix)
-        val phoneData = requireNotNull(locale.phone) { "locale ${locale.code} has no phone data after fallback" }
+        val companyPrefix = locale.companyPrefixes.pick(companyRandom, "Northstar")
+        val companySlug = normalize(FillNameFormatter.normalize(companyPrefix))
+
         val phoneRandom = stream("phone")
+        val nationalDigits = nationalNumber(locale, phoneRandom)
+        val phoneNumber = locale.phoneData
+            ?.let { FillPhoneFormatter.format(it, nationalDigits, FillPhoneNumberFormat.International) }
+            ?: nationalDigits
+
         val addressRandom = stream("address")
+        val address = FillAddressFormatter.build(
+            data = locale.address,
+            streetNumber = addressRandom.nextInt(1, 999).toString(),
+            streetName = locale.streetNames.pick(addressRandom, "Example Street"),
+            city = locale.cities.pick(addressRandom, "Springfield"),
+            subLocality = locale.address?.subLocalities?.pickOrNull(addressRandom),
+            administrativeArea = locale.regions.pick(addressRandom, ""),
+            postalCode = locale.postalCodes.pickOrNull(addressRandom),
+        )
+
         return FakePersona(
-            firstName = firstName,
-            lastName = lastName,
+            firstName = givenName,
+            lastName = familyName,
             email = email,
             username = username,
-            phoneNumber = phone(phoneRandom, phoneData.countryCode, phoneData.formats.random(phoneRandom)),
+            phoneNumber = phoneNumber,
             dateOfBirth = FillDate(birthYear, birthMonth, birthDay),
             age = age,
             address = FakeAddress(
-                street = "${addressRandom.nextInt(10, 999)} ${locale.streetNames.random(addressRandom)}",
-                city = locale.cities.random(addressRandom),
-                region = locale.regions.random(addressRandom),
-                country = requireNotNull(locale.country),
-                postalCode = locale.postalCodes.random(addressRandom),
+                street = address.lines.firstOrNull().orEmpty(),
+                city = address.locality.orEmpty(),
+                region = address.administrativeArea.orEmpty(),
+                country = locale.country ?: locale.countryCode,
+                postalCode = address.postalCode.orEmpty(),
             ),
             company = FakeCompany(
-                name = "$companyPrefix ${locale.companySuffixes.random(companyRandom)}",
-                jobTitle = locale.jobTitles.random(stream("jobTitle")),
-                website = "https://$companySlug.example.com",
+                name = "$companyPrefix ${locale.companySuffixes.pick(companyRandom, "Ltd")}",
+                jobTitle = locale.jobTitles.pick(stream("jobTitle"), "Software Engineer"),
+                website = "https://${companySlug.ifEmpty { "example" }}.example.com",
             ),
+            formattedFullName = formattedName,
+            nationalPhoneDigits = nationalDigits,
+            localizedCountry = locale.address?.localizedCountryName,
         )
     }
 
     companion object {
         val safeDomains = listOf("example.com", "example.org", "example.net")
+
+        /** National digits for a locale, honouring its declared prefixes and length. */
+        fun nationalNumber(locale: FillLocalePack, random: Random): String {
+            val data = locale.phoneData ?: return buildString { repeat(9) { append(random.nextInt(10)) } }
+            val pattern = data.patterns.pickOrNull(random)
+            val prefix = pattern?.prefixes?.pick(random, "").orEmpty()
+            val digits = pattern?.subscriberDigits ?: 9
+            return prefix + buildString { repeat(digits) { append(random.nextInt(10)) } }
+        }
+
+        internal fun <T> List<T>.pickOrNull(random: Random): T? = if (isEmpty()) null else random(random)
+
+        internal fun List<String>.pick(random: Random, fallback: String): String =
+            if (isEmpty()) fallback else random(random)
 
         fun normalize(value: String): String = value
             .lowercase()

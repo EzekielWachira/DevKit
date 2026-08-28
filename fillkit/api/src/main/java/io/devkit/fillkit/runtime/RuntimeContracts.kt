@@ -51,6 +51,8 @@ data class FillKitField<T : Any>(
     val target: FillTarget<T>,
     val generator: FillGenerator<T>? = null,
     val overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
+    /** Overrides the form locale for this field only. */
+    val locale: FillLocale? = null,
 ) {
     constructor(
         id: String,
@@ -79,6 +81,7 @@ data class FillKitContentTypeField(
     val mapper: ContentTypeMapper? = null,
     val generator: FillGenerator<String>? = null,
     val overlay: FieldOverlayBehavior = FieldOverlayBehavior.Default,
+    val locale: FillLocale? = null,
 )
 
 data class RegisteredSuggestion(

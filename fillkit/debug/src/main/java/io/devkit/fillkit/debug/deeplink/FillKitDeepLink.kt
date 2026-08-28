@@ -28,7 +28,7 @@ internal object FillKitDeepLink {
     private val KNOWN_PARAMETERS = setOf(
         "form", "scenario", "pack", "personaPack", "persona", "locale", "seed", "generation", "config", "token",
     )
-    private val idPattern = Regex("[A-Za-z0-9._:-]{1,96}")
+    private val idPattern = Regex("[A-Za-z0-9._:@-]{1,96}")
     private val localePattern = Regex("[A-Za-z0-9_-]{1,24}")
 
     fun scheme(applicationId: String): String = "$applicationId.fillkit"
@@ -53,9 +53,15 @@ internal object FillKitDeepLink {
         return "$scheme://$HOST_SCENARIO?$query"
     }
 
-    /** Ready-to-run reproduction command for a bug report. */
+    /**
+     * Ready-to-run reproduction command for a bug report.
+     *
+     * The whole `am start` is one argument to `adb shell`, and the URI is
+     * single-quoted inside it. Without both, the device's shell splits a
+     * scenario link on its `&` separators and only the first parameter arrives.
+     */
     fun adbCommand(uri: String): String =
-        "adb shell am start -a android.intent.action.VIEW -d \"$uri\""
+        "adb shell \"am start -a android.intent.action.VIEW -d '$uri'\""
 
     /**
      * Parses an incoming link. Deep links are treated as untrusted input even

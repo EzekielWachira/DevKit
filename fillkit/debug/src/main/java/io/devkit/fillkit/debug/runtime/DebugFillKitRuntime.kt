@@ -49,6 +49,7 @@ object DebugFillKitRuntime : FillKitRuntime {
         val initialLocale = when (val locale = config.locale) {
             FillLocale.System -> Locale.getDefault().toLanguageTag()
             is FillLocale.Code -> locale.value
+            is FillLocale.Country -> locale.normalized
         }
         val registry = remember(formId, effectiveConfig, initialLocale) {
             FormRegistry(

@@ -1,105 +1,20 @@
 package io.devkit.fillkit.engine.locale
 
 import io.devkit.fillkit.FillLocalePack
-import io.devkit.fillkit.FillPhoneData
 
-/** Curated, synthetic-safe locale modules shipped by FillKit. */
+/**
+ * Curated, synthetic-safe locale modules shipped by FillKit.
+ *
+ * Grouped by region so the datasets can move into per-region artifacts later
+ * without changing any public API: the registry only ever sees a list of packs.
+ */
 object BuiltInLocalePacks {
-    val all: List<FillLocalePack> = listOf(
-        pack("en-KE", "Kenya", "Kenya", "+254", "7########",
-            names = "Amina,Brian,Faith,Kevin,Mercy,David,Neema,Baraka",
-            surnames = "Wanjiku,Mwangi,Njeri,Otieno,Kamau,Achieng,Kiptoo,Mutua",
-            cities = "Nairobi,Mombasa,Kisumu,Nakuru,Eldoret,Thika",
-            regions = "Nairobi,Mombasa,Kisumu,Nakuru,Uasin Gishu,Kiambu",
-            postcodes = "00100,00200,20100,30100,80100"),
-        pack("en-NG", "Nigeria", "Nigeria", "+234", "8#########",
-            names = "Adaeze,Chinedu,Amina,Tunde,Yetunde,Emeka,Ifeoma,Kelechi",
-            surnames = "Okafor,Adeyemi,Balogun,Eze,Olawale,Obi,Yusuf,Nwosu",
-            cities = "Lagos,Abuja,Kano,Ibadan,Port Harcourt,Enugu",
-            regions = "Lagos,FCT,Kano,Oyo,Rivers,Enugu",
-            postcodes = "100001,900001,700001,200001,500001"),
-        pack("en-UG", "Uganda", "Uganda", "+256", "7########",
-            names = "Achan,Daniel,Esther,Isaac,Joyce,Moses,Naomi,Samuel",
-            surnames = "Okello,Namubiru,Kato,Nakato,Odongo,Nsubuga,Akello,Ssemanda",
-            cities = "Kampala,Entebbe,Jinja,Mbarara,Gulu,Fort Portal",
-            regions = "Central,Eastern,Western,Northern,Wakiso",
-            postcodes = "10001,20001,30001,40001"),
-        pack("en-TZ", "Tanzania", "Tanzania", "+255", "7########",
-            names = "Asha,Baraka,Halima,Juma,Neema,Omari,Rehema,Yusuf",
-            surnames = "Mushi,Mwinyi,Mrema,Mwakalinga,Kimaro,Msuya,Mollel,Salum",
-            cities = "Dar es Salaam,Dodoma,Arusha,Mwanza,Mbeya,Morogoro",
-            regions = "Dar es Salaam,Dodoma,Arusha,Mwanza,Mbeya",
-            postcodes = "11101,41101,23101,33101,53101"),
-        pack("en-RW", "Rwanda", "Rwanda", "+250", "7########",
-            names = "Aline,Claude,Divine,Eric,Grace,Jean,Keza,Patrick",
-            surnames = "Uwimana,Habimana,Mukamana,Niyonsenga,Ingabire,Mugisha,Kayitesi,Munyaneza",
-            cities = "Kigali,Huye,Musanze,Rubavu,Rusizi,Muhanga",
-            regions = "Kigali,Southern,Northern,Western,Eastern",
-            postcodes = "00000"),
-        pack("en-GH", "Ghana", "Ghana", "+233", "2########",
-            names = "Abena,Akosua,Ama,Kojo,Kofi,Kwame,Nana,Yaw",
-            surnames = "Mensah,Owusu,Boateng,Asante,Ofori,Adjei,Aidoo,Appiah",
-            cities = "Accra,Kumasi,Tamale,Takoradi,Cape Coast,Koforidua",
-            regions = "Greater Accra,Ashanti,Northern,Western,Central,Eastern",
-            postcodes = "GA100,AK100,NT100"),
-        pack("en-ZA", "South Africa", "South Africa", "+27", "7########",
-            names = "Amahle,Anele,Lerato,Lethabo,Neo,Thabo,Zanele,Sipho",
-            surnames = "Dlamini,Nkosi,Mokoena,Khumalo,Mthembu,Naidoo,Jacobs,Smith",
-            cities = "Johannesburg,Cape Town,Durban,Pretoria,Gqeberha,Bloemfontein",
-            regions = "Gauteng,Western Cape,KwaZulu-Natal,Eastern Cape,Free State",
-            postcodes = "2000,8001,4001,0002,6001"),
-        pack("en-US", "United States", "United States", "+1", "##########",
-            names = "Olivia,Noah,Maya,Ethan,Sofia,Liam,Avery,Jordan",
-            surnames = "Parker,Reed,Morgan,Brooks,Rivera,Bennett,Hayes,Turner",
-            cities = "Austin,Portland,Denver,Madison,Raleigh,Phoenix",
-            regions = "Texas,Oregon,Colorado,Wisconsin,North Carolina,Arizona",
-            postcodes = "10001,20001,30301,78701,97201"),
-        pack("en-GB", "United Kingdom", "United Kingdom", "+44", "7#########",
-            names = "Amelia,Oliver,Isla,George,Freya,Harry,Mia,Theo",
-            surnames = "Taylor,Davies,Evans,Wilson,Thomas,Roberts,Clark,Lewis",
-            cities = "London,Manchester,Bristol,Leeds,Edinburgh,Cardiff",
-            regions = "Greater London,Greater Manchester,Bristol,West Yorkshire,Scotland,Wales",
-            postcodes = "EC1A 1BB,M1 1AE,B1 1AA,LS1 1UR,EH1 1YZ"),
-        pack("en-CA", "Canada", "Canada", "+1", "##########",
-            names = "Emma,Liam,Charlotte,Noah,Olivia,William,Sophie,Lucas",
-            surnames = "Martin,Wilson,Tremblay,Brown,Roy,Gagnon,Lee,Clark",
-            cities = "Toronto,Vancouver,Montreal,Calgary,Ottawa,Halifax",
-            regions = "Ontario,British Columbia,Quebec,Alberta,Nova Scotia",
-            postcodes = "M5V 3A8,V6B 1A1,H2Y 1C6,T2P 1J9,K1P 1J1"),
-        pack("en-AU", "Australia", "Australia", "+61", "4########",
-            names = "Charlotte,Oliver,Amelia,Jack,Isla,Noah,Mia,Henry",
-            surnames = "Smith,Jones,Williams,Brown,Wilson,Taylor,Nguyen,Martin",
-            cities = "Sydney,Melbourne,Brisbane,Perth,Adelaide,Canberra",
-            regions = "New South Wales,Victoria,Queensland,Western Australia,South Australia,ACT",
-            postcodes = "2000,3000,4000,6000,5000,2600"),
-    )
+    val africa: List<FillLocalePack> get() = AfricaLocalePacks.all
+    val europe: List<FillLocalePack> get() = EuropeLocalePacks.all
+    val americas: List<FillLocalePack> get() = AmericasLocalePacks.all
+    val asia: List<FillLocalePack> get() = AsiaLocalePacks.all
+    val middleEast: List<FillLocalePack> get() = MiddleEastLocalePacks.all
+    val oceania: List<FillLocalePack> get() = OceaniaLocalePacks.all
 
-    private fun pack(
-        code: String,
-        displayName: String,
-        country: String,
-        callingCode: String,
-        phoneFormat: String,
-        names: String,
-        surnames: String,
-        cities: String,
-        regions: String,
-        postcodes: String,
-    ) = FillLocalePack(
-        code = code,
-        displayName = displayName,
-        firstNames = names.csv(),
-        lastNames = surnames.csv(),
-        cities = cities.csv(),
-        regions = regions.csv(),
-        country = country,
-        streetNames = listOf("Acacia Way", "Market Road", "Lake View Close", "Station Lane", "Example Avenue"),
-        postalCodes = postcodes.csv(),
-        companyPrefixes = listOf("Savanna", "Prime", "Urban", "Northstar", "Imara"),
-        companySuffixes = listOf("Works Ltd", "Services Ltd", "Studio Ltd", "Labs Ltd", "Collective Ltd"),
-        jobTitles = listOf("Software Engineer", "Product Designer", "Operations Lead", "Electrician", "Project Manager"),
-        phone = FillPhoneData(callingCode, listOf(phoneFormat)),
-    )
-
-    private fun String.csv() = split(',')
+    val all: List<FillLocalePack> = africa + europe + americas + asia + middleEast + oceania
 }
