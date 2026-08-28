@@ -7,7 +7,12 @@ sealed interface FillScenarioGenerator {
     data class Inline(val generator: FillGenerator<*>) : FillScenarioGenerator
 }
 
-/** A named workflow with composable values, generators, and an optional persona. */
+/**
+ * A named workflow with composable values, generators, and an optional persona.
+ *
+ * [targetForm] and the surrounding metadata let the QA launcher list, search and
+ * route a scenario without a second scenario system.
+ */
 data class FillScenario(
     val id: String,
     val name: String,
@@ -15,6 +20,10 @@ data class FillScenario(
     val generators: Map<String, FillScenarioGenerator> = emptyMap(),
     val includes: List<String> = emptyList(),
     val personaId: String? = null,
+    val targetForm: String? = null,
+    val description: String? = null,
+    val category: String? = null,
+    val tags: Set<String> = emptySet(),
 ) {
     init {
         require(id.isNotBlank()) { "scenario id cannot be blank" }
@@ -22,11 +31,27 @@ data class FillScenario(
         require(values.keys.intersect(generators.keys).isEmpty()) {
             "scenario field cannot declare both a value and generator"
         }
+        require(targetForm == null || targetForm.isNotBlank()) { "scenario targetForm cannot be blank" }
+        require(tags.none(String::isBlank)) { "scenario tags cannot be blank" }
     }
+
+    /** Lowercased haystack used by QA launcher search. */
+    fun searchText(packName: String? = null): String =
+        listOfNotNull(name, id, targetForm, category, description, packName)
+            .plus(tags)
+            .joinToString(" ")
+            .lowercase()
 }
 
-fun fillScenario(id: String, name: String, block: FillScenarioBuilder.() -> Unit): FillScenario =
-    FillScenarioBuilder().apply(block).build(id, name)
+fun fillScenario(
+    id: String,
+    name: String,
+    targetForm: String? = null,
+    description: String? = null,
+    category: String? = null,
+    tags: Set<String> = emptySet(),
+    block: FillScenarioBuilder.() -> Unit,
+): FillScenario = FillScenarioBuilder().apply(block).build(id, name, targetForm, description, category, tags)
 
 class FillScenarioBuilder internal constructor() {
     private val values = linkedMapOf<String, FillValue>()
@@ -66,15 +91,25 @@ class FillScenarioBuilder internal constructor() {
         require(fieldId !in generators && values.put(fieldId, value) == null) { "duplicate scenario field id: $fieldId" }
     }
 
-    internal fun build(id: String, name: String) =
-        FillScenario(id, name, values.toMap(), generators.toMap(), includes.toList(), personaId)
+    internal fun build(
+        id: String,
+        name: String,
+        targetForm: String? = null,
+        description: String? = null,
+        category: String? = null,
+        tags: Set<String> = emptySet(),
+    ) = FillScenario(
+        id, name, values.toMap(), generators.toMap(), includes.toList(), personaId,
+        targetForm, description, category, tags,
+    )
 }
 
 data class FillScenarioPack(
-    val id: String,
-    val name: String,
+    override val id: String,
+    override val name: String,
     val scenarios: List<FillScenario>,
-) {
+    override val version: String? = null,
+) : FillVersionedPack {
     init {
         require(id.isNotBlank()) { "scenario pack id cannot be blank" }
         require(name.isNotBlank()) { "scenario pack name cannot be blank" }
@@ -82,16 +117,29 @@ data class FillScenarioPack(
     }
 }
 
-fun scenarioPack(id: String, name: String, block: FillScenarioPackBuilder.() -> Unit): FillScenarioPack =
-    FillScenarioPackBuilder().apply(block).build(id, name)
+fun scenarioPack(
+    id: String,
+    name: String,
+    version: String? = null,
+    block: FillScenarioPackBuilder.() -> Unit,
+): FillScenarioPack = FillScenarioPackBuilder().apply(block).build(id, name, version)
 
 class FillScenarioPackBuilder internal constructor() {
     private val scenarios = mutableListOf<FillScenario>()
     fun scenario(value: FillScenario) { scenarios += value }
-    fun scenario(id: String, name: String, block: FillScenarioBuilder.() -> Unit) {
-        scenarios += fillScenario(id, name, block)
+    fun scenario(
+        id: String,
+        name: String,
+        targetForm: String? = null,
+        description: String? = null,
+        category: String? = null,
+        tags: Set<String> = emptySet(),
+        block: FillScenarioBuilder.() -> Unit,
+    ) {
+        scenarios += fillScenario(id, name, targetForm, description, category, tags, block)
     }
-    internal fun build(id: String, name: String) = FillScenarioPack(id, name, scenarios.toList())
+    internal fun build(id: String, name: String, version: String? = null) =
+        FillScenarioPack(id, name, scenarios.toList(), version)
 }
 
 /** Stable generator ID used when a scenario requests a built-in type. */

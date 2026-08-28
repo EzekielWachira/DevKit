@@ -27,7 +27,11 @@ data class FillLocalePack(
     val companySuffixes: List<String> = emptyList(),
     val jobTitles: List<String> = emptyList(),
     val phone: FillPhoneData? = null,
+    val version: String? = null,
 ) {
+    /** `code@version` when a version exists; used by configuration fingerprints. */
+    fun coordinate(): String = version?.let { "$code@$it" } ?: code
+
     init {
         require(code.isNotBlank()) { "locale pack code cannot be blank" }
         require(displayName.isNotBlank()) { "locale pack display name cannot be blank" }
@@ -39,8 +43,12 @@ interface FillLocaleRegistry {
     fun availableLocales(): List<FillLocalePack>
 }
 
-fun fillLocalePack(code: String, displayName: String, block: FillLocalePackBuilder.() -> Unit): FillLocalePack =
-    FillLocalePackBuilder().apply(block).build(code, displayName)
+fun fillLocalePack(
+    code: String,
+    displayName: String,
+    version: String? = null,
+    block: FillLocalePackBuilder.() -> Unit,
+): FillLocalePack = FillLocalePackBuilder().apply(block).build(code, displayName, version)
 
 class FillLocalePackBuilder internal constructor() {
     private var firstNames = emptyList<String>()
@@ -67,9 +75,9 @@ class FillLocalePackBuilder internal constructor() {
     fun jobTitles(vararg values: String) { jobTitles = clean(values) }
     fun phone(block: FillPhoneBuilder.() -> Unit) { phone = FillPhoneBuilder().apply(block).build() }
 
-    internal fun build(code: String, name: String) = FillLocalePack(
+    internal fun build(code: String, name: String, version: String? = null) = FillLocalePack(
         code, name, firstNames, lastNames, cities, regions, country, streetNames,
-        postalCodes, companyPrefixes, companySuffixes, jobTitles, phone,
+        postalCodes, companyPrefixes, companySuffixes, jobTitles, phone, version,
     )
 
     private fun clean(values: Array<out String>): List<String> = values.map { it.requireContent("locale value") }

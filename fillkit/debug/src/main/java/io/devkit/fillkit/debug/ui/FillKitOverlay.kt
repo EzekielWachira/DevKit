@@ -30,7 +30,7 @@ import io.devkit.fillkit.FillKitConfig
 import io.devkit.fillkit.debug.runtime.FormRegistry
 
 /** Secondary surfaces reachable from the main panel. */
-internal enum class PanelRoute { Persona, Locale, Scenario, Suggestions }
+internal enum class PanelRoute { Persona, Locale, Scenario, Suggestions, Reproduction, Qa }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

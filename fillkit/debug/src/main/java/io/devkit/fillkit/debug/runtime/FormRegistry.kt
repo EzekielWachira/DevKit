@@ -5,12 +5,23 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import io.devkit.fillkit.FillCatalogInput
+import io.devkit.fillkit.FillActivationRejection
+import io.devkit.fillkit.FillActivationRequest
+import io.devkit.fillkit.FillActivationResult
 import io.devkit.fillkit.FillGenerator
 import io.devkit.fillkit.FillKitConfig
+import io.devkit.fillkit.FillKitCommand
+import io.devkit.fillkit.FillKitFormSnapshot
+import io.devkit.fillkit.FillKitPack
+import io.devkit.fillkit.FillKitSeed
 import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.FillLocalePack
 import io.devkit.fillkit.FillPersona
+import io.devkit.fillkit.FillReproductionSpec
 import io.devkit.fillkit.FillScenario
+import io.devkit.fillkit.FillSeed
+import io.devkit.fillkit.configurationFingerprint
 import io.devkit.fillkit.FillTarget
 import io.devkit.fillkit.FillTargetKind
 import io.devkit.fillkit.FillType
@@ -70,6 +81,8 @@ internal class FormRegistry(
     private val config: FillKitConfig,
     private val logger: (String) -> Unit,
     private val persistence: RuntimePersonaPersistence? = null,
+    private val applicationPacks: List<FillKitPack> = emptyList(),
+    initialSeed: FillSeed = config.seed?.let(::coerceSeed) ?: FillKitSeed.random(),
 ) : FillKitRegistry, FillKitCommands {
     private val registrations = mutableStateMapOf<Any, StoredField>()
     private val registrationOrder = mutableStateListOf<Any>()
@@ -83,6 +96,21 @@ internal class FormRegistry(
     private var persistenceJob: Job? = null
     private var resolver: FillValueResolver
     private var generatedPersona: FillPersona
+
+    /**
+     * Per-field regeneration counters. They are deliberately outside the
+     * reproduction spec: applying a seed resets them, so a reproduction is exact
+     * while a single-field reroll stays a local exploration.
+     */
+    private val fieldNonces = mutableStateMapOf<String, Int>()
+
+    /** Digest of everything that can change generated data for a given seed. */
+    val configurationFingerprint: String = config.configurationFingerprint(applicationPacks)
+
+    var masterSeed by mutableStateOf(initialSeed)
+        private set
+    var generation by mutableStateOf(0)
+        private set
 
     var localePack by mutableStateOf(localeRegistry.resolve(FillLocale.Code(initialLocaleTag)))
         private set
@@ -113,6 +141,134 @@ internal class FormRegistry(
     init {
         resolver = newResolver()
         generatedPersona = resolver.generatedPersona()
+    }
+
+    // --- Reproduction --------------------------------------------------------
+
+    fun reproductionSpec() = FillReproductionSpec(
+        formId = formId,
+        seed = masterSeed.value,
+        generation = generation,
+        locale = localeTag,
+        scenarioPackId = activeScenarioId?.let(::scenarioPackIdOf),
+        scenarioId = activeScenarioId,
+        personaPackId = activePersonaId?.let(::personaPackIdOf),
+        personaId = activePersonaId,
+        configurationFingerprint = configurationFingerprint,
+    )
+
+    /** Everything the QA catalog needs from this host's effective configuration. */
+    fun catalogInput(navigableForms: Set<String>, hasNavigator: Boolean) = FillCatalogInput(
+        packs = config.packs,
+        scenarioPacks = config.scenarioPacks,
+        scenarios = config.scenarios,
+        personaIds = personas.mapTo(mutableSetOf(), FillPersona::id),
+        localeCodes = availableLocales.mapTo(mutableSetOf()) { it.code },
+        generatorIds = config.allGenerators().mapTo(mutableSetOf()) { it.first },
+        navigableForms = navigableForms,
+        hasNavigator = hasNavigator,
+    )
+
+    fun snapshot() = FillKitFormSnapshot(
+        formId = formId,
+        seed = masterSeed.value,
+        generation = generation,
+        localeTag = localeTag,
+        scenarioId = activeScenarioId,
+        personaId = activePersonaId,
+        fieldIds = fields.map(StoredField::id),
+        reproduction = reproductionSpec(),
+    )
+
+    /** Fresh master seed, generation reset to zero, form refilled. */
+    fun newSeed(): FillSeed = FillKitSeed.random().also { applySeed(it) }
+
+    fun applySeed(seed: FillSeed, generation: Int = 0, fill: Boolean = true) {
+        masterSeed = seed
+        this.generation = generation
+        fieldNonces.clear()
+        rebuildResolver()
+        if (fill) fillAll()
+    }
+
+    // --- Activation ----------------------------------------------------------
+
+    /**
+     * The single path every entry point converges on: panel, QA launcher, deep
+     * link and Compose tests all end up here with a [FillActivationRequest].
+     */
+    fun activate(request: FillActivationRequest): FillActivationResult {
+        val warnings = mutableListOf<String>()
+        request.configurationFingerprint?.let { recorded ->
+            if (recorded != configurationFingerprint) {
+                warnings += "Reproduction was recorded with configuration $recorded but this build is " +
+                    "$configurationFingerprint; the same seed may produce different values."
+            }
+        }
+        request.personaId?.let { id ->
+            if (findPersona(id) == null) {
+                return FillActivationResult.Rejected(FillActivationRejection.UnknownPersona, "unknown persona \"$id\"")
+            }
+        }
+        request.scenarioId?.let { id ->
+            if (scenarioRegistry.find(id) == null) {
+                return FillActivationResult.Rejected(FillActivationRejection.UnknownScenario, "unknown scenario \"$id\"")
+            }
+        }
+        request.locale?.let { tag ->
+            if (availableLocales.none { it.code.equals(tag, ignoreCase = true) }) {
+                warnings += "Missing locale pack \"$tag\"; FillKit fell back to the closest available locale."
+            }
+            localePack = localeRegistry.resolve(FillLocale.Code(tag))
+        }
+        fieldNonces.clear()
+        request.seed?.let { masterSeed = coerceSeed(it) }
+        generation = request.generation
+        activePersonaId = request.personaId
+        rebuildResolver()
+        request.scenarioId?.let { id ->
+            activeScenarioId = id
+            scenarioRegistry.find(id)?.let { scenario ->
+                scenario.personaId?.let { personaId -> if (findPersona(personaId) != null) activePersonaId = personaId }
+                validateScenarioFields(scenario)
+            }
+        }
+        if (request.fill) fillAll()
+        val spec = reproductionSpec()
+        return if (warnings.isEmpty()) {
+            FillActivationResult.Applied(spec)
+        } else {
+            FillActivationResult.PartiallyApplied(spec, warnings)
+        }
+    }
+
+    /** Programmatic command surface shared by the test bridge and the panel. */
+    fun execute(command: FillKitCommand): Boolean {
+        when (command) {
+            FillKitCommand.FillAll -> fillAll()
+            FillKitCommand.ClearAll -> clearAll()
+            FillKitCommand.RegenerateAll -> regenerateAll()
+            FillKitCommand.SelectRandomPersona -> selectRandomPersona()
+            is FillKitCommand.Fill -> if (field(command.fieldId) == null) return false else fill(command.fieldId)
+            is FillKitCommand.Clear -> if (field(command.fieldId) == null) return false else clear(command.fieldId)
+            is FillKitCommand.SelectPersona -> {
+                if (findPersona(command.personaId) == null) return false
+                selectPersona(command.personaId)
+            }
+            is FillKitCommand.SetLocale -> changeLocale(command.localeTag)
+            is FillKitCommand.SetSeed -> applySeed(coerceSeed(command.seed), command.generation)
+            is FillKitCommand.ApplyScenario -> {
+                if (scenarioRegistry.find(command.scenarioId) == null) return false
+                applyScenario(command.scenarioId)
+            }
+        }
+        return true
+    }
+
+    /** Rerolls one field only; reset by any seed change, so reproductions stay exact. */
+    fun regenerate(fieldId: String) {
+        fieldNonces[fieldId] = (fieldNonces[fieldId] ?: 0) + 1
+        fill(fieldId)
     }
 
     fun attachPersistence(scope: CoroutineScope) {
@@ -238,9 +394,12 @@ internal class FormRegistry(
 
     override fun fillAll() = fields.forEach(::fillResolved)
 
+    /** Randomize keeps the master seed and advances the generation counter. */
     override fun regenerateAll() {
         activePersonaId = null
-        generatedPersona = resolver.generatedPersona()
+        generation += 1
+        fieldNonces.clear()
+        rebuildResolver()
         fillAll()
     }
 
@@ -268,6 +427,17 @@ internal class FormRegistry(
         fillAll()
     }
 
+    private fun rebuildResolver() {
+        resolver = newResolver()
+        generatedPersona = resolver.generatedPersona()
+    }
+
+    private fun scenarioPackIdOf(scenarioId: String): String? =
+        config.allScenarioPacks().firstOrNull { pack -> pack.scenarios.any { it.id == scenarioId } }?.id
+
+    private fun personaPackIdOf(personaId: String): String? =
+        config.allPersonaPacks().firstOrNull { pack -> pack.personas.any { it.id == personaId } }?.id
+
     override fun selectPersona(personaId: String) {
         if (findPersona(personaId) == null) {
             problem("unknown persona \"$personaId\"")
@@ -279,8 +449,7 @@ internal class FormRegistry(
 
     fun changeLocale(tag: String) {
         localePack = localeRegistry.resolve(FillLocale.Code(tag))
-        resolver = newResolver()
-        generatedPersona = resolver.generatedPersona()
+        rebuildResolver()
         if (isRandomPersona) fillAll()
     }
 
@@ -329,7 +498,8 @@ internal class FormRegistry(
         }
     }
 
-    private fun newResolver() = FillValueResolver(localePack, config.allGenerators(), config.seed)
+    private fun newResolver() =
+        FillValueResolver(localePack, config.allGenerators(), masterSeed, generation, formId)
 
     private fun fillResolved(field: StoredField) {
         try {
@@ -341,6 +511,7 @@ internal class FormRegistry(
                     scenario = activeScenarioId?.let(scenarioRegistry::find),
                     persona = activePersonaId?.let(::findPersona),
                     fieldGenerator = field.generator as? FillGenerator<Any>,
+                    nonce = fieldNonces[field.id] ?: 0,
                 ),
                 generatedPersona,
             )
@@ -408,6 +579,10 @@ private fun <T : Any> FillKitField<T>.erase(owner: Any) = StoredField(
 
 private fun String.humanize(): String =
     replace(Regex("([a-z])([A-Z])"), "$1 $2").replace('-', ' ').replaceFirstChar(Char::uppercase)
+
+/** Keeps arbitrary configured longs inside the reproducible seed range. */
+internal fun coerceSeed(value: Long): FillSeed =
+    if (FillKitSeed.isValid(value)) FillSeed(value) else FillSeed(value.mod(FillKitSeed.MAX + 1))
 
 private fun FillType<*>.supportsTextTarget(): Boolean = when (this) {
     FillType.DateOfBirth, FillType.Age, is FillType.Integer, is FillType.Decimal,

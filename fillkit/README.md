@@ -1,6 +1,6 @@
-# FillKit 0.3
+# FillKit 0.4
 
-FillKit is debug-only tooling for filling Jetpack Compose forms with coherent synthetic data. Version 0.3 adds public Compose semantics metadata, `ContentType` mapping, explainable field suggestions, `TextFieldState` support, and one centralized fill target. It never owns application form state.
+FillKit is debug-only tooling for filling Jetpack Compose forms with coherent synthetic data. Version 0.4 turns it into a repeatable testing and QA orchestration system: Compose UI test integration, reproduce-by-seed, a QA scenario launcher, and debug-only deep-link activation — all converging on one activation request and one reproduction descriptor.
 
 ## Install and release safety
 
@@ -8,8 +8,11 @@ FillKit is debug-only tooling for filling Jetpack Compose forms with coherent sy
 dependencies {
     implementation(project(":fillkit:api"))
     debugImplementation(project(":fillkit:debug"))
+    androidTestImplementation(project(":fillkit:testing"))
 }
 ```
+
+`:fillkit:testing` is an **`androidTestImplementation`-only** artifact. It exposes Compose test rules and JUnit types; `implementation(":fillkit:testing")` is not a supported configuration.
 
 Minimum tested Compose versions are UI/Foundation `1.10.4` and Material 3 `1.4.0` (Compose BOM `2026.02.01`).
 
@@ -343,15 +346,291 @@ One `FillValueResolver` owns all resolution rules; the panel and form registry c
 
 Scenario selection may activate a persona. Scenario values still override that persona. This order is stable and independent of registration order.
 
-## Seeded reproduction
+## Deterministic generation
 
 ```kotlin
 FillKitConfig(seed = 845912L, locale = FillLocale.Code("en-KE"))
 ```
 
-The same seed, resolved locale, scenario/persona, generator registrations, and invocation order produce the same values. Generator dependencies share that deterministic random stream. `Randomize` advances it to another coherent persona.
+A single globally consumed `Random(seed)` is not reproducible enough: inserting a field shifts every later field's values. FillKit instead derives one independent stream per stable namespace.
 
-All generated email domains use `example.com`, `example.org`, or `example.net`. FillKit does not generate payment details, government identifiers, production credentials, or real private records.
+```text
+master seed + generation + form id + field id + generator/type + purpose
+        ↓
+derived stream for exactly that field
+```
+
+Given the same master seed, field ID, `FillType`, generator, locale and pack configuration, a field produces the same value **regardless of registration order**. Adding an unrelated field leaves every other value untouched. Persona attributes work the same way, and dependent values stay coherent — `Amina Wanjiku` still yields `amina.wanjiku@example.com`.
+
+Identity values (name, email, username, address) follow the persona, so the same seed describes the same person on every screen. Values with field-level randomness (OTP codes, passwords, free text, numbers, selections) are scoped to their form and field.
+
+## Generation counter
+
+`Randomize` keeps the master seed and advances a generation counter, so a reroll is still fully described by two numbers.
+
+```text
+seed 845912, generation 0  →  persona A
+seed 845912, generation 1  →  persona B   (deterministically)
+```
+
+`New Seed` picks a new master seed and resets the generation to zero. Applying a seed by hand reproduces generation zero unless a generation is given.
+
+Rerolling one field from the panel uses a per-field counter that is deliberately **not** part of a reproduction: any seed change resets it, so a reproduction stays exact while a single-field reroll remains a local exploration.
+
+## Reproduction specs
+
+```kotlin
+data class FillReproductionSpec(
+    val formId: String,
+    val seed: Long,
+    val generation: Int = 0,
+    val locale: String? = null,
+    val scenarioPackId: String? = null,
+    val scenarioId: String? = null,
+    val personaPackId: String? = null,
+    val personaId: String? = null,
+    val configurationFingerprint: String? = null,
+    val version: Int = FillReproductionSpec.VERSION,
+)
+```
+
+Pure data, free of Android types, and the single representation every entry point converges on. `spec.describe()` renders a bug-report block:
+
+```text
+FillKit Reproduction
+form=provider-onboarding
+scenario=validation/maximum-values
+persona=random
+locale=en-KE
+seed=845912
+generation=0
+config=8f2a1c4d0b73
+token=FK1-...
+```
+
+Generated field values never appear in a reproduction, a token, or a link.
+
+## Reproduction tokens
+
+```kotlin
+val token = FillReproductionTokenCodec.encode(spec)   // "FK1-…-a1b2c3d4"
+val spec = FillReproductionTokenCodec.decode(token)
+```
+
+Tokens are versioned, URL-safe, checksummed and length-limited. They are compact debug configuration, not encryption. Decoding failures raise `FillReproductionTokenException` carrying a `FillTokenError` (`MissingPrefix`, `UnsupportedVersion`, `ChecksumMismatch`, `InvalidField`, …) rather than a generic parse error.
+
+## Configuration fingerprints
+
+The same seed does not reproduce the same data forever: locale datasets, generators, scenario definitions and pack versions all change output. Packs therefore carry optional versions:
+
+```kotlin
+fillKitPack("provider-testing", "Provider Testing", version = 3) { … }
+scenarioPack("validation", "Validation", version = "3") { … }
+```
+
+`FillKitConfig.configurationFingerprint()` digests the engine algorithm version plus every pack coordinate. It is recorded in reproductions, and a mismatch is reported instead of silently producing different data:
+
+```text
+Reproduction was recorded with configuration 8f2a1c4d0b73 but this build is
+41d0c88ae215; the same seed may produce different values.
+```
+
+The activation still runs — the result is `FillActivationResult.PartiallyApplied` with that warning — unless a component genuinely no longer exists.
+
+## Compose UI testing
+
+Tests never open the developer panel. The debug runtime publishes a control node as Compose semantics, and `fillkit-testing` drives it:
+
+```text
+Compose test → fillkit-testing → FillKit semantics → FillKitHost → activation engine
+```
+
+```kotlin
+@get:Rule
+val composeRule = createAndroidComposeRule<MainActivity>()
+
+@Test
+fun providerMaximumValuesScenario() {
+    composeRule.fillKit(formId = "registration") {
+        scenario(pack = "validation", id = "maximum-values")
+        seed(845912)
+    }
+
+    composeRule.onNodeWithTag("continue").performClick()
+}
+```
+
+A chained form reads the same way:
+
+```kotlin
+composeRule.fillKit("checkout")
+    .scenario("returning-customer")
+    .seed(845912)
+    .activate()
+```
+
+Every helper waits for Compose to settle through the supported test synchronization APIs — there is no `Thread.sleep` or fixed delay anywhere in the testing artifact, so screenshot tools and CI see a stable tree.
+
+## Finding fields in tests
+
+```kotlin
+composeRule.onFillKitField("email").assertExists()
+composeRule.onFillKitField(fieldId = "email", formId = "registration").assertRegistered()
+composeRule.onFillKitField("email").assertFillKitType(FillType.Email)
+composeRule.onFillKitForm("registration").assertRegisteredFieldCount(8)
+```
+
+Finders use the 0.3 semantics metadata, never visible label text, content descriptions or tree position. Merged/unmerged tree handling lives inside the finder; consumer tests never need `useUnmergedTree = true` to reach a FillKit field.
+
+## Activating scenarios in tests
+
+```kotlin
+composeRule.fillKit("registration") {
+    useLocale("en-KE")
+    seed(845912)
+    fillAll()
+}
+
+composeRule.fillKit("registration") {
+    scenario(pack = "validation", id = "maximum-values")
+    activate()
+}
+
+fillKitScenario {
+    form("provider-onboarding")
+    scenario("validation", "maximum-values")
+    seed(94821)
+}
+```
+
+`FillKitTestDriver` also exposes `persona`, `selectRandomPersona`, `setLocale`, `setSeed`, `fillAll`, `clearAll`, `regenerateAll`, `fill(fieldId)`, `clear(fieldId)`, `snapshot()`, `currentReproduction()` and `currentReproductionToken()`.
+
+## QA scenario launcher
+
+Open the FillKit panel and tap the **QA** chip. The launcher lists the same scenarios the panel and tests use, with search over name, ID, form, tags, category and description, filters by form/pack/tag, plus Recent and Favorites.
+
+Scenarios describe themselves so a QA engineer who did not author them can choose sensibly:
+
+```kotlin
+scenario(
+    id = "maximum-values",
+    name = "Maximum Values",
+    targetForm = "provider-onboarding",
+    description = "Populates every constrained field with its largest allowed value.",
+    category = "Validation",
+    tags = setOf("validation", "edge-case"),
+) { … }
+```
+
+Before launching, the launcher shows the target form, persona, locale and seed, and lets QA pin or reroll the seed. When something is missing it says so instead of failing silently — `Missing persona: experienced-provider`, `Missing generator pack entry: business-name`, `The application navigator does not declare form "provider-onboarding"`.
+
+## Launching scenarios
+
+Every entry point builds the same request and hands it to the same engine:
+
+```text
+Developer panel · QA launcher · Compose test · Deep link · ADB
+        ↓
+FillActivationRequest  →  FillKitActivationEngine  →  FillValueResolver  →  FormRegistry
+```
+
+```kotlin
+FillKit.activate(
+    FillActivationRequest(
+        formId = "registration",
+        scenarioPackId = "validation",
+        scenarioId = "maximum-values",
+        seed = 845912L,
+    ),
+)
+```
+
+`FillKit.activate` is safe to call from shared code: without `fillkit-debug` it returns `Rejected(NoRuntime)`. Results are explicit — `Applied`, `PartiallyApplied(warnings)`, `Pending(formId, expiresAt)` or `Rejected(reason, message)` — so callers never have to read logs.
+
+## Cold start activation
+
+A scenario is often requested before its host exists:
+
+```text
+QA launcher / deep link → request queued → application navigates → FillKitHost composes → request consumed
+```
+
+Pending requests are **consume-once**, are applied one frame after the host composes (so the form's fields have registered), expire after a configurable window (5 minutes by default), and survive process death through the same debug persistence used for saved personas. An expired request is discarded with a log line rather than surprising a screen opened hours later.
+
+Explicit activation is idempotent — applying the same reproduction twice reapplies the same state. Pending activation is not: it is consumed exactly once.
+
+## Navigation integration
+
+FillKit does not know how an application navigates and is not wired to `NavController` or any route type. The application supplies an adapter:
+
+```kotlin
+FillKit.configureDebug {
+    pack(sampleTestingPack)
+    navigableForms("registration", "checkout-address")
+    navigation { request ->
+        val destination = formRoutes[request.formId] ?: return@navigation false
+        currentScreen.value = destination
+        true
+    }
+}
+```
+
+`configureDebug` is idempotent (packs are keyed by ID), safe to call from a shared source set, and read only by `fillkit-debug`. Without a navigator FillKit still queues the request and applies it when you open the screen yourself.
+
+Application-wide packs make the QA launcher useful before any screen composes. Resolution priority stays explicit: **field → form → application pack → built-in**.
+
+## Deep-link activation
+
+The deep-link entry point ships **only** in `fillkit-debug`, and its scheme is derived from the application ID so several debug builds can coexist:
+
+```text
+com.example.app.fillkit://reproduce/FK1-…
+com.example.app.fillkit://scenario?form=provider-onboarding&scenario=maximum-values&seed=845912&locale=en-KE
+```
+
+Links are treated as untrusted input: scheme, path, token format and version, length, seed and generation bounds, and identifier shape are all validated, and a malformed link logs a useful message instead of throwing a parse exception. Raw field injection (`?email=…&password=…`) is **rejected by default**; only `allowDeepLinkFieldOverrides = true` accepts extra parameters. Links carry IDs, a seed, a generation and a locale — never generated values, which would end up in ADB output and system logs.
+
+`FillKitDeepLinkActivity` validates the link, queues the activation, hands control to whatever the application's launcher activity is (resolved through the package manager, never a hard-coded `MainActivity`), and finishes without rendering anything.
+
+## ADB reproduction
+
+The panel's **Seed** chip opens the reproduction sheet with copyable report, token, deep link and a ready-to-run command:
+
+```bash
+adb shell am start -a android.intent.action.VIEW -d "com.example.app.fillkit://reproduce/FK1-..."
+```
+
+## QA to developer to regression test
+
+```text
+QA finds a bug          → launches the scenario, copies the token
+Bug report              → FillKit Reproduction / token=FK1-…
+Developer               → adb … or pastes the seed into the panel
+Fix                     → same synthetic state, reproduced
+Regression test         → composeRule.applyFillKitReproduction("FK1-…")
+CI                      → the case is verified forever
+```
+
+```kotlin
+@Test
+fun reproduceReportedIssue() {
+    composeRule.applyFillKitReproduction("FK1-...")
+
+    composeRule.onFillKitField("email").assertRegistered()
+}
+```
+
+`FillKitReproductionRule` is an optional `TestWatcher` that prints the reproduction of a failing test, so a red CI run already carries the token needed to reproduce it locally.
+
+## Reproduction guarantee
+
+> A FillKit seed is designed to reproduce generated data for the same compatible FillKit configuration.
+
+Changes to locale datasets, generators, scenario definitions, pack versions or the derivation algorithm itself can alter generated output. That is why reproduction metadata carries a configuration fingerprint and packs carry versions. FillKit does not promise deterministic output across arbitrary library versions.
+
+## Debug-only guarantees
+
+A release build contains none of: the developer panel, the QA launcher, `FillKitDeepLinkActivity`, FillKit deep-link intent filters, FillKit control semantics, the pending activation store, the activation engine, the generation engine, or `fillkit-testing`. `FillKit.activate` degrades to `Rejected(NoRuntime)` and release builds do not resolve FillKit links.
 
 ## Programmatic control
 
@@ -374,7 +653,8 @@ Controllers support filling, regenerating, clearing, applying scenarios, selecti
 ./gradlew :fillkit:engine:testDebugUnitTest
 ./gradlew :fillkit:debug:testDebugUnitTest
 ./gradlew :fillkit:debug:connectedDebugAndroidTest
+./gradlew :app:connectedDebugAndroidTest
 ./gradlew :fillkit:debug:lintDebug :app:assembleDebug :app:assembleRelease
 ```
 
-The release runtime graph must include only `:fillkit:api`; the release manifest must not contain `FillKitInitializerProvider`.
+The release runtime graph must include only `:fillkit:api`. The release manifest must not contain `FillKitInitializerProvider`, `FillKitDeepLinkActivity`, or any `*.fillkit` scheme, and the release dex must not contain `DebugFillKitRuntime`, `FillKitActivationEngine` or `FillValueResolver`.

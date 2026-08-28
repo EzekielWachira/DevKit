@@ -5,6 +5,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
+import io.devkit.fillkit.FillActivationRejection
+import io.devkit.fillkit.FillActivationRequest
+import io.devkit.fillkit.FillActivationResult
 import io.devkit.fillkit.FillKitConfig
 import io.devkit.fillkit.FillKitController
 import io.devkit.fillkit.FillGenerator
@@ -15,6 +18,15 @@ import io.devkit.fillkit.CallbackFillTarget
 import io.devkit.fillkit.FieldMetadata
 import io.devkit.fillkit.FillTypeSuggestion
 import io.devkit.fillkit.ContentTypeMapper
+
+/**
+ * Runtime SPI for scenario activation. `fillkit-debug` installs the real engine;
+ * without it every request is rejected, so an application can call
+ * [io.devkit.fillkit.FillKit.activate] from shared code.
+ */
+fun interface FillKitActivator {
+    fun activate(request: FillActivationRequest): FillActivationResult
+}
 
 /** Runtime SPI used by the separately packaged debug artifact. */
 interface FillKitRuntime {
@@ -113,9 +125,18 @@ object FillKitRuntimeProvider {
         current = runtime
     }
 
+    @Volatile
+    var activator: FillKitActivator? = null
+
     fun bind(controller: FillKitController?, commands: FillKitCommands?) {
         controller?.bind(commands)
     }
+
+    fun activate(request: FillActivationRequest): FillActivationResult =
+        activator?.activate(request) ?: FillActivationResult.Rejected(
+            FillActivationRejection.NoRuntime,
+            "FillKit activation needs the fillkit-debug runtime; this build has none.",
+        )
 }
 
 private object NoOpFillKitRuntime : FillKitRuntime {

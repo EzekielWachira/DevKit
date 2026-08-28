@@ -3,6 +3,7 @@ package io.devkit.fillkit.debug.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -62,24 +63,29 @@ internal fun FillKitRouteSheet(
         tonalElevation = 0.dp,
         dragHandle = { FillKitDragHandle() },
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(start = SheetGutter, end = SheetGutter, bottom = 12.dp),
-        ) {
-            when (route) {
-                PanelRoute.Persona -> PersonaSheet(registry, onDismiss)
-                PanelRoute.Locale -> LocaleSheet(registry, onDismiss)
-                PanelRoute.Scenario -> ScenarioSheet(registry, onDismiss)
-                PanelRoute.Suggestions -> SuggestionSheet(registry)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = maxHeight * MaxPanelHeightFraction)
+                    .navigationBarsPadding()
+                    .padding(start = SheetGutter, end = SheetGutter, bottom = 12.dp),
+            ) {
+                when (route) {
+                    PanelRoute.Persona -> PersonaSheet(registry, onDismiss)
+                    PanelRoute.Locale -> LocaleSheet(registry, onDismiss)
+                    PanelRoute.Scenario -> ScenarioSheet(registry, onDismiss)
+                    PanelRoute.Suggestions -> SuggestionSheet(registry)
+                    PanelRoute.Reproduction -> ReproductionSheet(registry, onDismiss)
+                    PanelRoute.Qa -> QaLauncherSheet(registry, onDismiss)
+                }
             }
         }
     }
 }
 
 @Composable
-private fun RouteHeader(title: String, subtitle: String) {
+internal fun RouteHeader(title: String, subtitle: String) {
     Column(Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
         Text(title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
         Text(

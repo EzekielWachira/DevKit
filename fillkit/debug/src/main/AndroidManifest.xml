@@ -6,5 +6,25 @@
             android:authorities="${applicationId}.fillkit-initializer"
             android:exported="false"
             android:initOrder="100" />
+
+        <!-- Debug-only. The scheme is derived from the application id so several
+             debug builds can be installed side by side. No release manifest ever
+             merges this activity, so release builds do not resolve FillKit links. -->
+        <activity
+            android:name=".deeplink.FillKitDeepLinkActivity"
+            android:excludeFromRecents="true"
+            android:exported="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+
+                <data android:scheme="${applicationId}.fillkit" />
+            </intent-filter>
+        </activity>
     </application>
 </manifest>

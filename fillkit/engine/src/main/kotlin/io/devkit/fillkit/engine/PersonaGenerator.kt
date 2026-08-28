@@ -5,36 +5,54 @@ import io.devkit.fillkit.FillLocalePack
 import kotlin.random.Random
 
 class PersonaGenerator {
-    fun generate(random: Random, locale: FillLocalePack): FakePersona {
-        val firstName = locale.firstNames.random(random)
-        val lastName = locale.lastNames.random(random)
+    /** Legacy single-stream generation, kept for the 0.1 [FakeDataEngine]. */
+    fun generate(random: Random, locale: FillLocalePack): FakePersona =
+        generate(locale) { random }
+
+    /**
+     * Each persona attribute draws from its own derived stream, so adding an
+     * attribute later cannot change the ones that already existed. Dependent
+     * values (username, email, website) stay derived from the chosen name.
+     */
+    fun generate(source: FillRandomSource, locale: FillLocalePack): FakePersona =
+        generate(locale) { attribute -> source.stream(FillRandomSource.PERSONA, locale.code, attribute) }
+
+    private inline fun generate(locale: FillLocalePack, stream: (String) -> Random): FakePersona {
+        val firstName = locale.firstNames.random(stream("firstName"))
+        val lastName = locale.lastNames.random(stream("lastName"))
         val username = normalize("$firstName.$lastName")
-        val emailSuffix = random.nextInt(0, 5).takeIf { it != 0 }?.toString().orEmpty()
-        val email = "$username$emailSuffix@${safeDomains.random(random)}"
-        val age = random.nextInt(18, 66)
+        val emailRandom = stream("email")
+        val emailSuffix = emailRandom.nextInt(0, 5).takeIf { it != 0 }?.toString().orEmpty()
+        val email = "$username$emailSuffix@${safeDomains.random(emailRandom)}"
+        val birthRandom = stream("dateOfBirth")
+        val age = birthRandom.nextInt(18, 66)
         val birthYear = 2025 - age
-        val birthMonth = random.nextInt(1, 13)
-        val birthDay = random.nextInt(1, FillDate.daysInMonth(birthYear, birthMonth) + 1)
-        val companySlug = normalize(locale.companyPrefixes.random(random))
+        val birthMonth = birthRandom.nextInt(1, 13)
+        val birthDay = birthRandom.nextInt(1, FillDate.daysInMonth(birthYear, birthMonth) + 1)
+        val companyRandom = stream("company")
+        val companyPrefix = locale.companyPrefixes.random(companyRandom)
+        val companySlug = normalize(companyPrefix)
         val phoneData = requireNotNull(locale.phone) { "locale ${locale.code} has no phone data after fallback" }
+        val phoneRandom = stream("phone")
+        val addressRandom = stream("address")
         return FakePersona(
             firstName = firstName,
             lastName = lastName,
             email = email,
             username = username,
-            phoneNumber = phone(random, phoneData.countryCode, phoneData.formats.random(random)),
+            phoneNumber = phone(phoneRandom, phoneData.countryCode, phoneData.formats.random(phoneRandom)),
             dateOfBirth = FillDate(birthYear, birthMonth, birthDay),
             age = age,
             address = FakeAddress(
-                street = "${random.nextInt(10, 999)} ${locale.streetNames.random(random)}",
-                city = locale.cities.random(random),
-                region = locale.regions.random(random),
+                street = "${addressRandom.nextInt(10, 999)} ${locale.streetNames.random(addressRandom)}",
+                city = locale.cities.random(addressRandom),
+                region = locale.regions.random(addressRandom),
                 country = requireNotNull(locale.country),
-                postalCode = locale.postalCodes.random(random),
+                postalCode = locale.postalCodes.random(addressRandom),
             ),
             company = FakeCompany(
-                name = "${locale.companyPrefixes.random(random)} ${locale.companySuffixes.random(random)}",
-                jobTitle = locale.jobTitles.random(random),
+                name = "$companyPrefix ${locale.companySuffixes.random(companyRandom)}",
+                jobTitle = locale.jobTitles.random(stream("jobTitle")),
                 website = "https://$companySlug.example.com",
             ),
         )

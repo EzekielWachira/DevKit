@@ -4,13 +4,18 @@ import android.content.ContentProvider
 import android.content.ContentValues
 import android.database.Cursor
 import android.net.Uri
+import io.devkit.fillkit.debug.activation.FillKitActivationEngine
 import io.devkit.fillkit.debug.runtime.DebugFillKitRuntime
+import io.devkit.fillkit.runtime.FillKitActivator
 import io.devkit.fillkit.runtime.FillKitRuntimeProvider
 
 /** Present only in debug variants that explicitly depend on fillkit-debug. */
 class FillKitInitializerProvider : ContentProvider() {
     override fun onCreate(): Boolean {
         FillKitRuntimeProvider.install(DebugFillKitRuntime)
+        FillKitRuntimeProvider.activator = FillKitActivator(FillKitActivationEngine::submit)
+        // Restores a cold-start deep link before the first screen composes.
+        context?.let(FillKitActivationEngine::attach)
         return true
     }
 

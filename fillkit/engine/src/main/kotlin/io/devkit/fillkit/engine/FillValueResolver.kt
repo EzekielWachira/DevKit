@@ -3,8 +3,10 @@ package io.devkit.fillkit.engine
 import io.devkit.fillkit.FillDate
 import io.devkit.fillkit.FillGenerator
 import io.devkit.fillkit.FillGeneratorScope
+import io.devkit.fillkit.FillKitSeed
 import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.FillLocalePack
+import io.devkit.fillkit.FillSeed
 import io.devkit.fillkit.FillPersona
 import io.devkit.fillkit.FillScenario
 import io.devkit.fillkit.FillScenarioGenerator
@@ -23,66 +25,91 @@ data class FillResolutionRequest<T : Any>(
     val scenario: FillScenario? = null,
     val persona: FillPersona? = null,
     val fieldGenerator: FillGenerator<T>? = null,
+    /**
+     * Local reroll counter for one field. It only shifts that field's random
+     * stream; lookups by field ID are unaffected.
+     */
+    val nonce: Int = 0,
 )
 
 /**
  * Central precedence engine:
  * scenario value → scenario generator → field generator → saved persona →
  * field/type registered generator → built-in type generator.
+ *
+ * Randomness is never shared: every field, generator and persona attribute draws
+ * from a stream derived from [seed], [generation] and stable identifiers, so a
+ * field's value does not depend on how many other fields registered before it.
  */
 class FillValueResolver(
     val locale: FillLocalePack,
     generators: List<Pair<String, FillGenerator<*>>> = emptyList(),
-    seed: Long? = null,
+    val seed: FillSeed = FillKitSeed.random(),
+    val generation: Int = 0,
+    val formId: String = "",
 ) {
-    private val random = Random(seed ?: Random.nextLong())
+    private val source = FillRandomSource(seed, generation)
     private val registered = linkedMapOf<String, FillGenerator<*>>().apply {
         generators.forEach { (id, generator) -> this[id] = generator }
     }.toMap()
     private val dependencyStack = ThreadLocal.withInitial { mutableListOf<String>() }
 
-    @Synchronized
     fun generatedPersona(id: String = "generated", name: String = "Random"): FillPersona =
-        PersonaGenerator().generate(random, locale).toFillPersona(id, name, locale.code)
+        PersonaGenerator().generate(source, locale).toFillPersona(id, name, locale.code)
 
-    @Synchronized
     fun <T : Any> resolve(request: FillResolutionRequest<T>, generatedPersona: FillPersona): T {
+        val field = listOf(FillRandomSource.FIELD, formId, request.fieldId, request.nonce.toString())
         request.scenario?.values?.get(request.fieldId)?.let { return checked(request.type, it.raw, "scenario value") }
         request.scenario?.generators?.get(request.fieldId)?.let {
-            return checked(request.type, scenarioValue(it, request.persona, generatedPersona), "scenario generator")
+            val namespace = field + FillRandomSource.SCENARIO
+            return checked(request.type, scenarioValue(it, request.persona, generatedPersona, namespace), "scenario generator")
         }
-        request.fieldGenerator?.let { return checked(request.type, run(it, request.persona), "field generator") }
+        request.fieldGenerator?.let {
+            return checked(request.type, run(it, request.persona, field + FillRandomSource.GENERATOR), "field generator")
+        }
         request.persona?.values?.get(request.fieldId)?.let { return checked(request.type, it.raw, "persona value") }
 
         val effective = effectivePersona(generatedPersona, request.persona)
+        val builtInNamespace = field + listOf(FillRandomSource.VALUE, request.type.generatorId())
         if (request.persona != null && request.type !is FillType.Custom<*>) {
-            return checked(request.type, builtIn(request.type, effective), "persona-aware generator")
+            return checked(request.type, builtIn(request.type, effective, source.stream(builtInNamespace)), "persona-aware generator")
         }
-        registered[request.fieldId]?.let { return checked(request.type, runUntyped(it, request.persona), "field-id generator") }
-        registered[request.type.generatorId()]?.let { return checked(request.type, runUntyped(it, request.persona), "type generator") }
-        return checked(request.type, builtIn(request.type, effective), "built-in generator")
+        registered[request.fieldId]?.let {
+            return checked(request.type, runUntyped(it, request.persona, field + FillRandomSource.GENERATOR), "field-id generator")
+        }
+        registered[request.type.generatorId()]?.let {
+            return checked(request.type, runUntyped(it, request.persona, field + FillRandomSource.GENERATOR), "type generator")
+        }
+        return checked(request.type, builtIn(request.type, effective, source.stream(builtInNamespace)), "built-in generator")
     }
 
-    private fun scenarioValue(value: FillScenarioGenerator, persona: FillPersona?, generated: FillPersona): Any = when (value) {
-        is FillScenarioGenerator.Registered -> runRegistered(value.generatorId, persona)
-        is FillScenarioGenerator.Inline -> runUntyped(value.generator, persona)
-        is FillScenarioGenerator.Type -> builtIn(value.type, effectivePersona(generated, persona))
+    private fun scenarioValue(
+        value: FillScenarioGenerator,
+        persona: FillPersona?,
+        generated: FillPersona,
+        namespace: List<String?>,
+    ): Any = when (value) {
+        is FillScenarioGenerator.Registered -> runRegistered(value.generatorId, persona, namespace)
+        is FillScenarioGenerator.Inline -> runUntyped(value.generator, persona, namespace)
+        is FillScenarioGenerator.Type -> builtIn(
+            value.type,
+            effectivePersona(generated, persona),
+            source.stream(namespace + value.type.generatorId()),
+        )
     }
 
-    private fun runRegistered(id: String, persona: FillPersona?): Any =
-        registered[id]?.let { runUntyped(it, persona) }
+    private fun runRegistered(id: String, persona: FillPersona?, namespace: List<String?>): Any =
+        registered[id]?.let { runUntyped(it, persona, namespace) }
             ?: throw IllegalArgumentException("unknown FillKit generator: $id")
 
-    private fun runUntyped(generator: FillGenerator<*>, persona: FillPersona?): Any = runWithCycle(generator.id) {
-        generator.generate(scope(persona))
-    }
+    private fun runUntyped(generator: FillGenerator<*>, persona: FillPersona?, namespace: List<String?>): Any =
+        runWithCycle(generator.id) { generator.generate(scope(persona, namespace + generator.id)) }
 
-    private fun <T : Any> run(generator: FillGenerator<T>, persona: FillPersona?): T = runWithCycle(generator.id) {
-        generator.generate(scope(persona))
-    }
+    private fun <T : Any> run(generator: FillGenerator<T>, persona: FillPersona?, namespace: List<String?>): T =
+        runWithCycle(generator.id) { generator.generate(scope(persona, namespace + generator.id)) }
 
-    private fun scope(persona: FillPersona?) = object : FillGeneratorScope {
-        override val random: Random get() = this@FillValueResolver.random
+    private fun scope(persona: FillPersona?, namespace: List<String?>) = object : FillGeneratorScope {
+        override val random: Random = source.stream(namespace)
         override val locale: FillLocalePack get() = this@FillValueResolver.locale
         override val persona: FillPersona? = persona
 
@@ -133,7 +160,7 @@ class FillValueResolver(
         }
 
         override fun <T : Any> generate(id: String, valueClass: KClass<T>): T {
-            val value = runRegistered(id, persona)
+            val value = runRegistered(id, persona, namespace + FillRandomSource.DEPENDENCY)
             require(valueClass.isInstance(value)) {
                 "generator $id returned ${value::class.simpleName}, expected ${valueClass.simpleName}"
             }
@@ -156,7 +183,7 @@ class FillValueResolver(
         return active.copy(values = values)
     }
 
-    private fun builtIn(type: FillType<*>, persona: FillPersona): Any = when (type) {
+    private fun builtIn(type: FillType<*>, persona: FillPersona, random: Random): Any = when (type) {
         FillType.FirstName -> persona.raw("firstName")
         FillType.LastName -> persona.raw("lastName")
         FillType.FullName -> persona.raw("fullName")
@@ -192,8 +219,8 @@ class FillValueResolver(
         is FillType.Unsupported -> throw UnsupportedOperationException(
             "generation for ${type.category} is unsupported by default",
         )
-        is FillType.Password -> password(type)
-        is FillType.Text -> text(type)
+        is FillType.Password -> password(type, random)
+        is FillType.Text -> text(type, random)
         is FillType.Integer -> if (type.range.first == type.range.last) type.range.first else {
             random.nextLong(type.range.first.toLong(), type.range.last.toLong() + 1L).toInt()
         }
@@ -209,7 +236,7 @@ class FillValueResolver(
 
     private fun FillPersona.raw(key: String): Any = requireNotNull(values[key]) { "persona value missing after fallback: $key" }.raw
 
-    private fun password(type: FillType.Password): String {
+    private fun password(type: FillType.Password, random: Random): String {
         val categories = buildList {
             if (type.uppercase) add("ABCDEFGHJKLMNPQRSTUVWXYZ")
             if (type.lowercase) add("abcdefghijkmnopqrstuvwxyz")
@@ -223,7 +250,7 @@ class FillValueResolver(
         return chars.joinToString("")
     }
 
-    private fun text(type: FillType.Text): String {
+    private fun text(type: FillType.Text, random: Random): String {
         if (type.maxLength == 0) return ""
         val target = if (type.minLength == type.maxLength) type.minLength else random.nextInt(type.minLength, type.maxLength + 1)
         val words = listOf("sample", "bright", "useful", "testing", "compose", "synthetic", "value")

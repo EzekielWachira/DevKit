@@ -159,5 +159,9 @@ class FillKit02EngineTest {
     }
 
     private fun resolver(generators: List<Pair<String, io.devkit.fillkit.FillGenerator<*>>>, seed: Long) =
-        FillValueResolver(DefaultFillLocaleRegistry().resolve(FillLocale.Code("en-KE")), generators, seed)
+        FillValueResolver(
+            DefaultFillLocaleRegistry().resolve(FillLocale.Code("en-KE")),
+            generators,
+            io.devkit.fillkit.FillSeed(seed),
+        )
 }

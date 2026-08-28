@@ -4,23 +4,36 @@ enum class ScenarioValidationMode { Lenient, Strict }
 
 /** A reusable collection spanning all four FillKit 0.2 systems. */
 data class FillKitPack(
-    val id: String,
-    val name: String,
+    override val id: String,
+    override val name: String,
     val localePacks: List<FillLocalePack> = emptyList(),
     val personaPacks: List<FillPersonaPack> = emptyList(),
     val scenarioPacks: List<FillScenarioPack> = emptyList(),
     val generatorPacks: List<FillGeneratorPack> = emptyList(),
     val contentTypeMappers: List<ContentTypeMapper> = emptyList(),
     val suggestionRulePacks: List<FillSuggestionRulePack> = emptyList(),
-) {
+    override val version: String? = null,
+) : FillVersionedPack {
     init {
         require(id.isNotBlank()) { "FillKit pack id cannot be blank" }
         require(name.isNotBlank()) { "FillKit pack name cannot be blank" }
     }
 }
 
-fun fillKitPack(id: String, name: String, block: FillKitPackBuilder.() -> Unit): FillKitPack =
-    FillKitPackBuilder().apply(block).build(id, name)
+fun fillKitPack(
+    id: String,
+    name: String,
+    version: String? = null,
+    block: FillKitPackBuilder.() -> Unit,
+): FillKitPack = FillKitPackBuilder().apply(block).build(id, name, version)
+
+/** Convenience for the common `version = 3` style; stored as a stable string. */
+fun fillKitPack(
+    id: String,
+    name: String,
+    version: Int,
+    block: FillKitPackBuilder.() -> Unit,
+): FillKitPack = fillKitPack(id, name, version.toString(), block)
 
 class FillKitPackBuilder internal constructor() {
     private val locales = mutableListOf<FillLocalePack>()
@@ -37,10 +50,10 @@ class FillKitPackBuilder internal constructor() {
     fun contentTypes(value: ContentTypeMapper) { contentTypes += value }
     fun suggestions(value: FillSuggestionRulePack) { suggestions += value }
 
-    internal fun build(id: String, name: String) =
+    internal fun build(id: String, name: String, version: String? = null) =
         FillKitPack(
             id, name, locales.toList(), personas.toList(), scenarios.toList(), generators.toList(),
-            contentTypes.toList(), suggestions.toList(),
+            contentTypes.toList(), suggestions.toList(), version,
         )
 }
 

@@ -78,7 +78,7 @@ internal fun FillKitPanel(
                 .navigationBarsPadding()
                 .padding(bottom = 8.dp),
         ) {
-            PanelHeader(registry.formId, fields.size, gutter)
+            PanelHeader(registry.formId, fields.size, gutter, onOpenRoute)
             Spacer(Modifier.height(16.dp))
             PrimaryActions(
                 enabled = fields.isNotEmpty(),
@@ -156,7 +156,12 @@ private fun Modifier.fadingEdges(state: LazyListState): Modifier = this
     }
 
 @Composable
-private fun PanelHeader(formId: String, fieldCount: Int, modifier: Modifier = Modifier) {
+private fun PanelHeader(
+    formId: String,
+    fieldCount: Int,
+    modifier: Modifier = Modifier,
+    onOpenRoute: (PanelRoute) -> Unit,
+) {
     Row(
         modifier = modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically,
@@ -192,7 +197,26 @@ private fun PanelHeader(formId: String, fieldCount: Int, modifier: Modifier = Mo
                 overflow = TextOverflow.Ellipsis,
             )
         }
+        HeaderAction("QA") { onOpenRoute(PanelRoute.Qa) }
         MiniBadge("$fieldCount")
+    }
+}
+
+/** Compact header entry point; keeps the scrolling context row free for state. */
+@Composable
+private fun HeaderAction(label: String, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier.clip(CircleShape).clickable(role = Role.Button, onClick = onClick),
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+    ) {
+        Text(
+            label,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+            fontWeight = FontWeight.Bold,
+        )
     }
 }
 
@@ -305,11 +329,30 @@ private fun ContextRow(registry: FormRegistry, onOpenRoute: (PanelRoute) -> Unit
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         ContextChip(
+            glyph = "#",
+            label = "Seed",
+            value = registry.masterSeed.value.toString(),
+            container = MaterialTheme.colorScheme.tertiaryContainer,
+            content = MaterialTheme.colorScheme.onTertiaryContainer,
+            onClick = { onOpenRoute(PanelRoute.Reproduction) },
+        )
+        if (suggestions.isNotEmpty()) {
+            ContextChip(
+                glyph = "!",
+                label = "Suggestions",
+                value = "${suggestions.size} detected",
+                container = MaterialTheme.colorScheme.tertiary,
+                content = MaterialTheme.colorScheme.onTertiary,
+                highlighted = true,
+                onClick = { onOpenRoute(PanelRoute.Suggestions) },
+            )
+        }
+        ContextChip(
             glyph = if (registry.isRandomPersona) "?" else persona.displayValue().take(1).uppercase(),
             label = "Persona",
             value = if (registry.isRandomPersona) "Random" else persona.displayValue(),
-            container = MaterialTheme.colorScheme.tertiaryContainer,
-            content = MaterialTheme.colorScheme.onTertiaryContainer,
+            container = MaterialTheme.colorScheme.secondaryContainer,
+            content = MaterialTheme.colorScheme.onSecondaryContainer,
             onClick = { onOpenRoute(PanelRoute.Persona) },
         )
         ContextChip(
@@ -330,17 +373,6 @@ private fun ContextRow(registry: FormRegistry, onOpenRoute: (PanelRoute) -> Unit
                 container = MaterialTheme.colorScheme.secondaryContainer,
                 content = MaterialTheme.colorScheme.onSecondaryContainer,
                 onClick = { onOpenRoute(PanelRoute.Scenario) },
-            )
-        }
-        if (suggestions.isNotEmpty()) {
-            ContextChip(
-                glyph = "✦",
-                label = "Suggestions",
-                value = "${suggestions.size} detected",
-                container = MaterialTheme.colorScheme.tertiary,
-                content = MaterialTheme.colorScheme.onTertiary,
-                highlighted = true,
-                onClick = { onOpenRoute(PanelRoute.Suggestions) },
             )
         }
     }
