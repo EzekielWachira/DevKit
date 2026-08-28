@@ -52,8 +52,10 @@ import io.devkit.fillkit.FillKitConfig
 import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.FillPersona
 import io.devkit.fillkit.FillValue
+import io.devkit.fillkit.displayName
 import io.devkit.fillkit.debug.runtime.FormRegistry
 import io.devkit.fillkit.debug.runtime.StoredField
+import io.devkit.fillkit.debug.runtime.StoredSuggestion
 
 private val SheetShape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
 private val CardShape = RoundedCornerShape(20.dp)
@@ -143,33 +145,85 @@ private fun FillKitPanel(
 ) {
     val fields = registry.fields
     Column(
-        verticalArrangement = Arrangement.spacedBy(14.dp),
         modifier = Modifier
             .fillMaxHeight(0.92f)
             .padding(start = 20.dp, end = 20.dp, bottom = 20.dp),
     ) {
         PanelHeader(registry.formId, fields.size)
-        PrimaryFillButton(fieldCount = fields.size, onClick = onFillAll)
-        SecondaryActions(
-            onRandomize = registry::regenerateAll,
-            onClear = registry::clearAll,
-        )
-        PersonaCard(registry)
-        ConfigurationSection(registry)
-        FieldsHeader(fields.size)
-
-        if (fields.isEmpty()) {
-            EmptyFieldsCard()
-        } else {
-            LazyColumn(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
+        LazyColumn(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
+            contentPadding = PaddingValues(top = 14.dp),
+        ) {
+            item { PrimaryFillButton(fieldCount = fields.size, onClick = onFillAll) }
+            item {
+                SecondaryActions(
+                    onRandomize = registry::regenerateAll,
+                    onClear = registry::clearAll,
+                )
+            }
+            item { PersonaCard(registry) }
+            item { ConfigurationSection(registry) }
+            item { SuggestionSection(registry) }
+            item { FieldsHeader(fields.size) }
+            if (fields.isEmpty()) {
+                item { EmptyFieldsCard() }
+            } else {
                 items(fields, key = { System.identityHashCode(it.owner) }) { field ->
                     FieldCard(field, config.showFieldValues, registry)
                 }
-                item { Spacer(Modifier.height(4.dp)) }
             }
+            item { Spacer(Modifier.height(4.dp)) }
+        }
+    }
+}
+
+@Composable
+private fun SuggestionSection(registry: FormRegistry) {
+    val suggestions = registry.suggestions
+    if (suggestions.isEmpty()) return
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text("Suggestions", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text("${suggestions.size} found", style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        suggestions.take(3).forEach { suggestion -> SuggestionCard(suggestion, registry) }
+    }
+}
+
+@Composable
+private fun SuggestionCard(suggestion: StoredSuggestion, registry: FormRegistry) {
+    val best = suggestion.candidates.firstOrNull()
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.55f),
+    ) {
+        Row(
+            modifier = Modifier.padding(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(suggestion.label, fontWeight = FontWeight.SemiBold)
+                Text(
+                    best?.let { "${it.type.displayName()} · ${it.confidence} · ${it.fillability}" }
+                        ?: "No confident match",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                best?.reasons?.firstOrNull()?.let {
+                    Text(it.description, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            TextButton(onClick = { registry.ignoreSuggestion(suggestion.owner) }) { Text("Ignore") }
+            FilledTonalButton(
+                enabled = best?.fillability == io.devkit.fillkit.SuggestionFillability.Fillable,
+                onClick = { registry.acceptSuggestion(suggestion.owner, best) },
+                shape = CircleShape,
+            ) { Text("Add") }
         }
     }
 }
@@ -549,6 +603,16 @@ private fun FieldCard(field: StoredField, showValue: Boolean, registry: FormRegi
                         field.label,
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        "${field.type.displayName()} · ${field.source} · ${field.confidence} · ${field.target.kind}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        "${field.generator?.id ?: "Built-in resolver"} · ${registry.persona.name}",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
                 FilledTonalButton(

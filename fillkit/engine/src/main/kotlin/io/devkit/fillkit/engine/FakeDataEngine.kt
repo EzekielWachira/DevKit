@@ -42,13 +42,17 @@ private interface TypeGenerator {
 
 private object PersonTypeGenerator : TypeGenerator {
     override fun supports(type: FillType<*>) = type === FillType.FirstName || type === FillType.LastName ||
-        type === FillType.FullName || type === FillType.DateOfBirth || type === FillType.Age
+        type === FillType.FullName || type === FillType.MiddleName || type === FillType.NamePrefix ||
+        type === FillType.NameSuffix || type === FillType.DateOfBirth || type === FillType.Age
 
     override fun generate(type: FillType<*>, persona: FakePersona, locale: FillLocalePack, random: Random): Any =
         when (type) {
             FillType.FirstName -> persona.firstName
             FillType.LastName -> persona.lastName
             FillType.FullName -> persona.fullName
+            FillType.MiddleName -> locale.firstNames.random(random)
+            FillType.NamePrefix -> listOf("Dr", "Mr", "Ms", "Mx").random(random)
+            FillType.NameSuffix -> listOf("Jr", "Sr", "II", "III").random(random)
             FillType.DateOfBirth -> persona.dateOfBirth
             FillType.Age -> persona.age
             else -> error("Unsupported person type")
@@ -57,7 +61,8 @@ private object PersonTypeGenerator : TypeGenerator {
 
 private object ContactTypeGenerator : TypeGenerator {
     override fun supports(type: FillType<*>) = type === FillType.Email || type === FillType.Username ||
-        type is FillType.PhoneNumber || type === FillType.Website || type === FillType.Url || type is FillType.Password
+        type is FillType.PhoneNumber || type === FillType.PhoneCountryCode || type === FillType.Website ||
+        type === FillType.Url || type is FillType.Password || type is FillType.OtpCode || type is FillType.Unsupported
 
     override fun generate(type: FillType<*>, persona: FakePersona, locale: FillLocalePack, random: Random): Any =
         when (type) {
@@ -71,9 +76,15 @@ private object ContactTypeGenerator : TypeGenerator {
                     ?: requireNotNull(locale.phone).countryCode
                 PersonaGenerator.phone(random, callingCode)
             }
+            FillType.PhoneCountryCode -> requireNotNull(locale.phone).countryCode
             FillType.Website -> persona.company.website
             FillType.Url -> "https://${persona.username}.example.net/profile"
             is FillType.Password -> password(type, random)
+            is FillType.OtpCode -> buildString {
+                val alphabet = if (type.numericOnly) "0123456789" else "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+                repeat(type.length) { append(alphabet.random(random)) }
+            }
+            is FillType.Unsupported -> error("generation for ${type.category} is unsupported by default")
             else -> error("Unsupported contact type")
         }
 

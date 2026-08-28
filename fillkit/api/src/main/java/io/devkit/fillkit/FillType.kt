@@ -7,11 +7,15 @@ sealed interface FillType<T : Any> {
     data object FirstName : FillType<String>
     data object LastName : FillType<String>
     data object FullName : FillType<String>
+    data object MiddleName : FillType<String>
+    data object NamePrefix : FillType<String>
+    data object NameSuffix : FillType<String>
     data object Username : FillType<String>
     data object DateOfBirth : FillType<FillDate>
     data object Age : FillType<Int>
     data object Email : FillType<String>
     data class PhoneNumber(val countryCode: String? = null) : FillType<String>
+    data object PhoneCountryCode : FillType<String>
     data object StreetAddress : FillType<String>
     data object City : FillType<String>
     data object Region : FillType<String>
@@ -21,6 +25,20 @@ sealed interface FillType<T : Any> {
     data object JobTitle : FillType<String>
     data object Website : FillType<String>
     data object Url : FillType<String>
+
+    data class OtpCode(
+        val length: Int = 6,
+        val numericOnly: Boolean = true,
+    ) : FillType<String> {
+        init {
+            require(length in 4..8) { "OTP length must be in 4..8" }
+        }
+    }
+
+    /** Recognized semantic category for which FillKit intentionally provides no generator. */
+    data class Unsupported(val category: String) : FillType<String> {
+        init { require(category.isNotBlank()) { "unsupported category cannot be blank" } }
+    }
 
     data class Password(
         val minLength: Int = 12,

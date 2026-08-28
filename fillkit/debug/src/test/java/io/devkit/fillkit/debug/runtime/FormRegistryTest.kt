@@ -1,6 +1,11 @@
 package io.devkit.fillkit.debug.runtime
 
 import io.devkit.fillkit.FillKitConfig
+import io.devkit.fillkit.CallbackFillTarget
+import io.devkit.fillkit.FieldMetadata
+import io.devkit.fillkit.FieldSuggestionMode
+import io.devkit.fillkit.SuggestionConfidence
+import androidx.compose.ui.autofill.ContentType
 import io.devkit.fillkit.FillType
 import io.devkit.fillkit.FillValue
 import io.devkit.fillkit.fillPersona
@@ -12,6 +17,8 @@ import kotlinx.coroutines.yield
 import io.devkit.fillkit.ScenarioValidationMode
 import io.devkit.fillkit.fillScenario
 import io.devkit.fillkit.runtime.FillKitField
+import io.devkit.fillkit.runtime.FillKitSuggestionCandidate
+import io.devkit.fillkit.runtime.FillKitContentTypeField
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
@@ -169,6 +176,83 @@ class FormRegistryTest {
         registry.detachPersistence()
     }
 
+    @Test
+    fun suggestModeRequiresAcceptanceThenUsesNormalResolutionPath() {
+        val registry = registry(FillKitConfig(seed = 42, suggestionMode = FieldSuggestionMode.Suggest))
+        val owner = Any()
+        var email = ""
+        registry.registerSuggestion(
+            owner,
+            FillKitSuggestionCandidate(
+                FieldMetadata(id = "email", label = "Email address"),
+                CallbackFillTarget("", { email = it }, { email = "" }),
+            ),
+        )
+        assertTrue(registry.fields.isEmpty())
+        assertEquals(SuggestionConfidence.High, registry.suggestions.single().candidates.first().confidence)
+
+        registry.acceptSuggestion(owner)
+        registry.fill("email")
+        assertTrue(email.contains("@example."))
+        registry.clear("email")
+        assertEquals("", email)
+    }
+
+    @Test
+    fun autoRegisterOnlyAcceptsExactFillableSuggestions() {
+        val exact = registry(FillKitConfig(suggestionMode = FieldSuggestionMode.AutoRegisterExact))
+        exact.registerSuggestion(
+            Any(), FillKitSuggestionCandidate(
+                FieldMetadata(id = "email"), CallbackFillTarget("", {}), ContentType.EmailAddress,
+            ),
+        )
+        assertEquals(listOf("email"), exact.fields.map { it.id })
+
+        val ambiguous = registry(FillKitConfig(suggestionMode = FieldSuggestionMode.AutoRegisterExact))
+        ambiguous.registerSuggestion(
+            Any(), FillKitSuggestionCandidate(FieldMetadata(id = "code", label = "Code"), CallbackFillTarget("", {})),
+        )
+        assertTrue(ambiguous.fields.isEmpty())
+        assertEquals(3, ambiguous.suggestions.single().candidates.size)
+    }
+
+    @Test
+    fun ignoredAndDetectionOnlySuggestionsDoNotBecomeFields() {
+        val registry = registry()
+        val owner = Any()
+        registry.registerSuggestion(owner, FillKitSuggestionCandidate(FieldMetadata(id = "city", label = "City"), null))
+        registry.acceptSuggestion(owner)
+        assertTrue(registry.fields.isEmpty())
+        registry.ignoreSuggestion(owner)
+        assertTrue(registry.suggestions.isEmpty())
+    }
+
+    @Test
+    fun disabledModeDoesNotCollectSuggestions() {
+        val registry = registry(FillKitConfig(suggestionMode = FieldSuggestionMode.Disabled))
+        registry.registerSuggestion(
+            Any(), FillKitSuggestionCandidate(FieldMetadata(id = "email", label = "Email"), CallbackFillTarget("", {})),
+        )
+        assertTrue(registry.suggestions.isEmpty())
+        assertTrue(registry.fields.isEmpty())
+    }
+
+    @Test
+    fun contentTypeStateBindingsResolveThroughOneCoherentPersona() {
+        val registry = registry(FillKitConfig(seed = 42))
+        var first = ""
+        var last = ""
+        var email = ""
+        registry.registerContentType(Any(), contentField("firstName", ContentType.PersonFirstName) { first = it })
+        registry.registerContentType(Any(), contentField("lastName", ContentType.PersonLastName) { last = it })
+        registry.registerContentType(Any(), contentField("email", ContentType.EmailAddress) { email = it })
+
+        registry.fillAll()
+
+        assertTrue(email.substringBefore('@').startsWith("${first.lowercase()}.${last.lowercase()}"))
+        assertTrue(registry.fields.all { it.source == "ContentType" && it.confidence == SuggestionConfidence.Exact })
+    }
+
     private fun registry(
         config: FillKitConfig = FillKitConfig(seed = 42),
         logs: MutableList<String> = mutableListOf(),
@@ -176,6 +260,9 @@ class FormRegistryTest {
 
     private fun textField(id: String, value: String, callback: (String) -> Unit) =
         field(id, FillType.Email, value, callback)
+
+    private fun contentField(id: String, type: ContentType, callback: (String) -> Unit) =
+        FillKitContentTypeField(id, null, null, type, CallbackFillTarget("", callback))
 
     private fun <T : Any> field(
         id: String,

@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertThrows
 import org.junit.Test
 
 class FakeDataEngineTest {
@@ -95,5 +96,20 @@ class FakeDataEngineTest {
         val persona = engine.newPersona()
         assertTrue(engine.generate(FillType.BooleanValue(1f), persona))
         assertFalse(engine.generate(FillType.BooleanValue(0f), persona))
+    }
+
+    @Test
+    fun otpHonorsLengthAndAlphabetWhileUnsupportedCategoriesNeverGenerate() {
+        val engine = FakeDataEngine(18, "en-KE")
+        val persona = engine.newPersona()
+        val numeric = engine.generate(FillType.OtpCode(5), persona)
+        val alphaNumeric = engine.generate(FillType.OtpCode(8, numericOnly = false), persona)
+        assertEquals(5, numeric.length)
+        assertTrue(numeric.all(Char::isDigit))
+        assertEquals(8, alphaNumeric.length)
+        assertTrue(alphaNumeric.all(Char::isLetterOrDigit))
+        assertThrows(IllegalStateException::class.java) {
+            engine.generate(FillType.Unsupported("payment data"), persona)
+        }
     }
 }

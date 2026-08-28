@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.NavigationBar
@@ -27,6 +29,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import io.devkit.fillkit.FillDate
@@ -36,6 +42,7 @@ import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.FillType
 import io.devkit.fillkit.fillGenerator
 import io.devkit.fillkit.fillKit
+import io.devkit.fillkit.fillKitSuggestion
 import io.devkit.fillkit.fillKitPack
 import io.devkit.fillkit.fillLocalePack
 import io.devkit.fillkit.fillPersona
@@ -167,6 +174,7 @@ private enum class SampleScreen(val title: String, val shortLabel: String) {
     Registration("Registration", "R"),
     Business("Business onboarding", "B"),
     Checkout("Checkout address", "C"),
+    SmartFields("Smart Fields", "S"),
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -192,6 +200,89 @@ private fun FillKitSampleApp() {
             SampleScreen.Registration -> RegistrationExample(Modifier.padding(padding))
             SampleScreen.Business -> BusinessExample(Modifier.padding(padding))
             SampleScreen.Checkout -> CheckoutExample(Modifier.padding(padding))
+            SampleScreen.SmartFields -> SmartFieldsExample(Modifier.padding(padding))
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SmartFieldsExample(modifier: Modifier = Modifier) {
+    val username = rememberTextFieldState()
+    val email = rememberTextFieldState()
+    val phone = rememberTextFieldState()
+    val firstName = rememberTextFieldState()
+    val city = rememberTextFieldState()
+    val ambiguousCode = rememberTextFieldState()
+    val otp = rememberTextFieldState()
+    FillKitHost(
+        "smart-fields",
+        modifier = modifier.fillMaxSize(),
+        config = FillKitConfig(
+            locale = FillLocale.Code("en-KE"),
+            suggestionMode = io.devkit.fillkit.FieldSuggestionMode.Suggest,
+        ),
+    ) {
+        FormColumn {
+            Text("Explicit TextFieldState registration")
+            OutlinedTextField(
+                state = username,
+                label = { Text("Username") },
+                modifier = Modifier.fillMaxWidth().fillKit(
+                    id = "smartUsername", type = FillType.Username, state = username,
+                    contentType = ContentType.Username,
+                ),
+            )
+            Text("ContentType-assisted registration (type inferred)")
+            OutlinedTextField(
+                state = email,
+                label = { Text("Email") },
+                modifier = Modifier.fillMaxWidth().fillKit(
+                    id = "smartEmail", state = email, contentType = ContentType.EmailAddress,
+                ),
+            )
+            Text("ContentType exact suggestion")
+            OutlinedTextField(
+                state = phone,
+                label = { Text("Phone") },
+                modifier = Modifier.fillMaxWidth().fillKitSuggestion(
+                    state = phone, id = "smartPhone", label = "Phone",
+                    contentType = ContentType.PhoneNumber,
+                ),
+            )
+            Text("Label heuristic suggestion")
+            OutlinedTextField(
+                state = firstName,
+                label = { Text("First name") },
+                modifier = Modifier.fillMaxWidth().fillKitSuggestion(
+                    state = firstName, id = "smartFirstName", label = "First name",
+                ),
+            )
+            OutlinedTextField(
+                state = city,
+                label = { Text("City or town") },
+                modifier = Modifier.fillMaxWidth().fillKitSuggestion(
+                    state = city, id = "smartCity", label = "City or town",
+                ),
+            )
+            Text("Ambiguous labels remain low confidence")
+            BasicTextField(
+                state = ambiguousCode,
+                modifier = Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(androidx.compose.material3.MaterialTheme.colorScheme.surfaceContainerHigh)
+                    .padding(16.dp)
+                    .fillKitSuggestion(state = ambiguousCode, id = "referralCode", label = "Code"),
+                decorator = { inner -> Column { Text("Referral code"); inner() } },
+            )
+            OutlinedTextField(
+                state = otp,
+                label = { Text("SMS one-time code") },
+                modifier = Modifier.fillMaxWidth().fillKit(
+                    id = "smartOtp", type = FillType.OtpCode(), state = otp,
+                    contentType = ContentType.SmsOtpCode,
+                ),
+            )
         }
     }
 }

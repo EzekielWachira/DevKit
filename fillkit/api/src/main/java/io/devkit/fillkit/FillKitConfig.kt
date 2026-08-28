@@ -10,6 +10,8 @@ data class FillKitPack(
     val personaPacks: List<FillPersonaPack> = emptyList(),
     val scenarioPacks: List<FillScenarioPack> = emptyList(),
     val generatorPacks: List<FillGeneratorPack> = emptyList(),
+    val contentTypeMappers: List<ContentTypeMapper> = emptyList(),
+    val suggestionRulePacks: List<FillSuggestionRulePack> = emptyList(),
 ) {
     init {
         require(id.isNotBlank()) { "FillKit pack id cannot be blank" }
@@ -25,14 +27,21 @@ class FillKitPackBuilder internal constructor() {
     private val personas = mutableListOf<FillPersonaPack>()
     private val scenarios = mutableListOf<FillScenarioPack>()
     private val generators = mutableListOf<FillGeneratorPack>()
+    private val contentTypes = mutableListOf<ContentTypeMapper>()
+    private val suggestions = mutableListOf<FillSuggestionRulePack>()
 
     fun locale(value: FillLocalePack) { locales += value }
     fun personas(value: FillPersonaPack) { personas += value }
     fun scenarios(value: FillScenarioPack) { scenarios += value }
     fun generators(value: FillGeneratorPack) { generators += value }
+    fun contentTypes(value: ContentTypeMapper) { contentTypes += value }
+    fun suggestions(value: FillSuggestionRulePack) { suggestions += value }
 
     internal fun build(id: String, name: String) =
-        FillKitPack(id, name, locales.toList(), personas.toList(), scenarios.toList(), generators.toList())
+        FillKitPack(
+            id, name, locales.toList(), personas.toList(), scenarios.toList(), generators.toList(),
+            contentTypes.toList(), suggestions.toList(),
+        )
 }
 
 /** Behavior and reusable test data scoped to one [FillKitHost]. */
@@ -48,7 +57,13 @@ data class FillKitConfig(
     val scenarios: List<FillScenario> = emptyList(),
     /** Compatibility shortcut; the map key explicitly overrides the generator's own ID. */
     val customGenerators: Map<String, FillGenerator<*>> = emptyMap(),
+    /** Local mappers override packed mappings; the built-in Compose mapper is the final fallback. */
+    val contentTypeMappers: List<ContentTypeMapper> = emptyList(),
+    val suggestionRulePacks: List<FillSuggestionRulePack> = emptyList(),
     val packs: List<FillKitPack> = emptyList(),
+    val suggestionMode: FieldSuggestionMode = FieldSuggestionMode.Suggest,
+    /** Enables public-API opt-in discovery through Modifier.fillKitSuggestion. */
+    val semanticDiscovery: Boolean = true,
     val showTrigger: Boolean = true,
     val showFieldValues: Boolean = true,
     val scenarioValidationMode: ScenarioValidationMode = ScenarioValidationMode.Lenient,
@@ -63,6 +78,7 @@ data class FillKitConfig(
         requireUniqueIds("local scenario", scenarios.map(FillScenario::id))
         requireUniqueIds("packed generator", allGeneratorPacks().flatMap(FillGeneratorPack::generators).map(FillGenerator<*>::id))
         requireUniqueIds("local generator", generators.map(FillGenerator<*>::id))
+        requireUniqueIds("suggestion rule pack", allSuggestionRulePacks().map(FillSuggestionRulePack::id))
     }
 
     fun allLocalePacks(): List<FillLocalePack> =
@@ -76,6 +92,10 @@ data class FillKitConfig(
     fun allGenerators(): List<Pair<String, FillGenerator<*>>> =
         allGeneratorPacks().flatMap(FillGeneratorPack::generators).map { it.id to it } +
             generators.map { it.id to it } + customGenerators.toList()
+    fun allContentTypeMappers(): List<ContentTypeMapper> =
+        contentTypeMappers.asReversed() + packs.flatMap(FillKitPack::contentTypeMappers).asReversed() + BuiltInContentTypeMapper
+    fun allSuggestionRulePacks(): List<FillSuggestionRulePack> =
+        packs.flatMap(FillKitPack::suggestionRulePacks) + suggestionRulePacks
 }
 
 private fun <T, K> overrideBy(base: List<T>, overrides: List<T>, key: (T) -> K): List<T> =

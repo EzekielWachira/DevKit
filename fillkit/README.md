@@ -1,6 +1,6 @@
-# FillKit 0.2
+# FillKit 0.3
 
-FillKit is debug-only tooling for filling Jetpack Compose forms with coherent synthetic data. It calls the same callbacks as user input and never owns application form state.
+FillKit is debug-only tooling for filling Jetpack Compose forms with coherent synthetic data. Version 0.3 adds public Compose semantics metadata, `ContentType` mapping, explainable field suggestions, `TextFieldState` support, and one centralized fill target. It never owns application form state.
 
 ## Install and release safety
 
@@ -10,6 +10,8 @@ dependencies {
     debugImplementation(project(":fillkit:debug"))
 }
 ```
+
+Minimum tested Compose versions are UI/Foundation `1.10.4` and Material 3 `1.4.0` (Compose BOM `2026.02.01`).
 
 `:fillkit:api` contains pure models, DSLs, the Compose modifier, and a no-op release runtime. `:fillkit:engine` contains locale registries, generators, scenario composition, and value resolution. `:fillkit:debug` contains the panel and local persona persistence. Because only the debug variant includes the latter two, the panel, generated data, and runtime-saved personas cannot appear in release builds.
 
@@ -34,6 +36,94 @@ FillKitHost(
 ```
 
 The data path remains `FillKit → application callback → application state → recomposition`. The modifier works with custom fields, dropdowns, checkboxes, switches, and basic text fields.
+
+## TextFieldState and one fill target
+
+State-based Material fields and `BasicTextField` use the official Foundation editing APIs. Fill replaces the text and places the cursor at the end; clear calls `clearText`. An optional normalizer is applied once before the mutation.
+
+```kotlin
+val email = rememberTextFieldState()
+
+OutlinedTextField(
+    state = email,
+    modifier = Modifier.fillKit(
+        id = "email",
+        type = FillType.Email,
+        state = email,
+        contentType = ContentType.EmailAddress,
+        normalize = String::trim,
+    ),
+)
+```
+
+Callback fields, `TextFieldState`, and public `OnFillData` semantics actions all adapt to one `FillTarget`. A FillKit command invokes exactly one target, avoiding duplicate callback/state/semantics fills. Programmatic `TextFieldState` edits follow Compose behavior and bypass `InputTransformation`; use `normalize` when application-specific normalization is required.
+
+## Compose ContentType mapping
+
+`BuiltInContentTypeMapper` maps the public Compose content vocabulary to `FillType`, including names, email, usernames/passwords, phone components, addresses, birth-date components, gender, and `SmsOtpCode`. Unknown/custom `ContentType` values are left unmapped. Payment content types are detected as `FillType.Unsupported` and are never generated.
+
+Applications can extend or override mappings without reflection:
+
+```kotlin
+val appContentTypes = contentTypeMappings {
+    map(ContentType("com.example.referral"), FillType.Custom("referral", String::class))
+}
+
+FillKitConfig(contentTypeMappers = listOf(appContentTypes))
+```
+
+Local mappers take priority over packed mappers, then the built-in mapper is used as a fallback. Mappers can also be distributed from `FillKitPack` with `contentTypes(appContentTypes)`.
+
+## Field suggestions
+
+Use `fillKitSuggestion` on fields where choosing an explicit type would be repetitive:
+
+```kotlin
+val city = rememberTextFieldState()
+
+OutlinedTextField(
+    state = city,
+    label = { Text("City or town") },
+    modifier = Modifier.fillKitSuggestion(
+        state = city,
+        id = "deliveryCity",
+        label = "City or town",
+        contentType = ContentType.AddressLocality,
+    ),
+)
+```
+
+Every candidate includes a proposed type, `Exact`/`High`/`Medium`/`Low` confidence, its source, human-readable reasons, and whether it is fillable, detection-only, or unsupported. The panel exposes Add and Ignore actions. Explicit `fillKit(type = …)` registrations always win.
+
+Suggestion modes are:
+
+- `Disabled`: no suggestions are registered or shown.
+- `Suggest` (default): the panel asks the developer to Add or Ignore.
+- `AutoRegisterExact`: only exact, supported candidates with a fill target register automatically. High/medium/low guesses never auto-register.
+
+Built-in rules recognize common labels such as email, first/last name, phone, city, postal code, password, and date of birth. An ambiguous label such as “Code” intentionally produces multiple low-confidence choices instead of guessing. Current-value shape is only medium confidence.
+
+Custom pure rules are reusable in configuration or a unified pack:
+
+```kotlin
+val commerceRules = suggestionRules("commerce", "Commerce") {
+    labelContains("referral", FillType.Custom("referral", String::class))
+}
+
+FillKitConfig(suggestionRulePacks = listOf(commerceRules))
+```
+
+The suggestion engine consumes `FieldMetadata` and has no Android or semantics-tree dependency, so its behavior is deterministic and unit-testable.
+
+## Semantics integration and discovery boundary
+
+In debug builds, registered/suggested nodes publish non-sensitive FillKit semantics keys for field ID/type/label/group, form ID, source, confidence, and target kind. They do not publish generated values, personas, scenarios, roles, click actions, or content descriptions; existing application accessibility semantics remain intact. Without `fillkit-debug`, the registry is absent and FillKit metadata is not emitted.
+
+Compose 1.10.4 exposes individual `contentType`, `fillableData`, and `onFillData` semantics publicly, but it does **not** expose a supported way for a composable host to acquire and traverse its `SemanticsOwner`. FillKit therefore does not scrape a passive semantics tree, use reflection, or depend on internal APIs. `Modifier.fillKitSuggestion` is the strongest supported integration: it is a lightweight opt-in bridge that supplies public semantic hints and, when given a state/target, supports accepting and filling the field. `semanticDiscovery = false` disables that bridge.
+
+## OTP and sensitive data
+
+`FillType.OtpCode(length = 6, numericOnly = true)` supports synthetic 4–8 character one-time codes and maps from `ContentType.SmsOtpCode`. FillKit intentionally does not generate payment card numbers, security codes, expiration data, government identifiers, production credentials, or real private records.
 
 ## Saved personas
 

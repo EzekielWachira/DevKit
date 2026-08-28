@@ -11,16 +11,26 @@ import io.devkit.fillkit.FillLocale
 import io.devkit.fillkit.FillLocalePack
 import io.devkit.fillkit.FillPersona
 import io.devkit.fillkit.FillScenario
+import io.devkit.fillkit.FillTarget
+import io.devkit.fillkit.FillTargetKind
 import io.devkit.fillkit.FillType
+import io.devkit.fillkit.FillTypeSuggestion
+import io.devkit.fillkit.FieldSuggestionContext
+import io.devkit.fillkit.FieldSuggestionMode
+import io.devkit.fillkit.SuggestionConfidence
+import io.devkit.fillkit.SuggestionFillability
 import io.devkit.fillkit.ScenarioValidationMode
 import io.devkit.fillkit.debug.persistence.RuntimePersonaPersistence
 import io.devkit.fillkit.engine.FillResolutionRequest
 import io.devkit.fillkit.engine.FillValueResolver
+import io.devkit.fillkit.engine.FieldSuggestionEngine
 import io.devkit.fillkit.engine.ScenarioRegistry
 import io.devkit.fillkit.engine.locale.DefaultFillLocaleRegistry
 import io.devkit.fillkit.runtime.FillKitCommands
 import io.devkit.fillkit.runtime.FillKitField
 import io.devkit.fillkit.runtime.FillKitRegistry
+import io.devkit.fillkit.runtime.FillKitSuggestionCandidate
+import io.devkit.fillkit.runtime.FillKitContentTypeField
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -30,22 +40,32 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
 
-internal data class StoredField(
+internal class StoredField(
     val owner: Any,
     val id: String,
     val label: String,
     val group: String?,
     val type: FillType<*>,
-    val currentValue: Any?,
-    val onFill: (Any) -> Unit,
-    val onClear: (() -> Unit)?,
+    val target: FillTarget<Any>,
     val generator: FillGenerator<*>?,
+    val source: String = "Explicit",
+    val confidence: SuggestionConfidence = SuggestionConfidence.Exact,
+) {
+    val currentValue: Any? get() = target.currentValue
+}
+
+internal data class StoredSuggestion(
+    val owner: Any,
+    val id: String,
+    val label: String,
+    val candidates: List<FillTypeSuggestion>,
+    val target: FillTarget<String>?,
 )
 
 internal data class NamedGroup<T>(val name: String, val values: List<T>)
 
 internal class FormRegistry(
-    val formId: String,
+    override val formId: String,
     private val initialLocaleTag: String,
     private val config: FillKitConfig,
     private val logger: (String) -> Unit,
@@ -53,6 +73,9 @@ internal class FormRegistry(
 ) : FillKitRegistry, FillKitCommands {
     private val registrations = mutableStateMapOf<Any, StoredField>()
     private val registrationOrder = mutableStateListOf<Any>()
+    private val suggestionRegistrations = mutableStateMapOf<Any, StoredSuggestion>()
+    private val suggestionOrder = mutableStateListOf<Any>()
+    private val ignoredSuggestions = mutableStateMapOf<Any, Boolean>()
     private val runtimePersonas = mutableStateListOf<FillPersona>()
     private val localeRegistry = DefaultFillLocaleRegistry(config.allLocalePacks())
     private val scenarioRegistry = ScenarioRegistry(config.allScenarios())
@@ -73,6 +96,8 @@ internal class FormRegistry(
     val persona: FillPersona get() = activePersonaId?.let(::findPersona) ?: generatedPersona
     val isRandomPersona: Boolean get() = activePersonaId == null
     val fields: List<StoredField> get() = registrationOrder.mapNotNull(registrations::get)
+    val suggestions: List<StoredSuggestion> get() = suggestionOrder.mapNotNull(suggestionRegistrations::get)
+        .filter { ignoredSuggestions[it.owner] != true && it.owner !in registrations }
     val availableLocales: List<FillLocalePack> get() = localeRegistry.availableLocales()
     val personas: List<FillPersona> get() = config.allPersonas() + runtimePersonas
     val savedRuntimePersonas: List<FillPersona> get() = runtimePersonas
@@ -128,6 +153,88 @@ internal class FormRegistry(
         registrations.remove(owner)
         registrationOrder.remove(owner)
     }
+
+    override fun registerContentType(owner: Any, field: FillKitContentTypeField) {
+        registrations.remove(owner)
+        val context = FieldSuggestionContext(field.id, field.label)
+        val suggestion = field.mapper?.suggest(field.contentType, context)
+            ?: config.allContentTypeMappers().firstNotNullOfOrNull { it.suggest(field.contentType, context) }
+            ?: return log("no ContentType mapping for field \"${field.id}\"")
+        val suggestedType = suggestion.type
+        if (suggestedType is FillType.Unsupported) {
+            return log("field \"${field.id}\" was detected but ${suggestedType.category} generation is unsupported")
+        }
+        if (!suggestedType.supportsTextTarget()) {
+            return log("ContentType mapping for field \"${field.id}\" does not produce text")
+        }
+        @Suppress("UNCHECKED_CAST")
+        val type = suggestedType as FillType<String>
+        if (owner !in registrationOrder) registrationOrder += owner
+        @Suppress("UNCHECKED_CAST")
+        registrations[owner] = StoredField(
+            owner, field.id, field.label ?: field.id.humanize(), field.group, type,
+            field.target as FillTarget<Any>, field.generator, "ContentType", suggestion.confidence,
+        )
+    }
+
+    override fun updateContentType(owner: Any, field: FillKitContentTypeField) = registerContentType(owner, field)
+
+    override fun registerSuggestion(owner: Any, candidate: FillKitSuggestionCandidate) {
+        if (!config.semanticDiscovery || config.suggestionMode == FieldSuggestionMode.Disabled) return
+        if (owner !in suggestionRegistrations) suggestionOrder += owner
+        val stored = candidate.toStored(owner)
+        suggestionRegistrations[owner] = stored
+        if (config.suggestionMode == FieldSuggestionMode.AutoRegisterExact) {
+            val exact = stored.candidates.firstOrNull {
+                it.confidence == SuggestionConfidence.Exact && it.fillability == SuggestionFillability.Fillable
+            }
+            if (exact != null) acceptSuggestion(owner, exact)
+        }
+    }
+
+    override fun updateSuggestion(owner: Any, candidate: FillKitSuggestionCandidate) {
+        if (owner !in suggestionRegistrations) return registerSuggestion(owner, candidate)
+        val previousType = registrations[owner]?.type
+        val stored = candidate.toStored(owner)
+        suggestionRegistrations[owner] = stored
+        val selected = stored.candidates.firstOrNull { it.type == previousType }
+        when {
+            selected != null -> acceptSuggestion(owner, selected)
+            config.suggestionMode == FieldSuggestionMode.AutoRegisterExact -> {
+                registrations.remove(owner)
+                registrationOrder.remove(owner)
+                stored.candidates.firstOrNull {
+                    it.confidence == SuggestionConfidence.Exact && it.fillability == SuggestionFillability.Fillable
+                }?.let { acceptSuggestion(owner, it) }
+            }
+        }
+    }
+
+    override fun unregisterSuggestion(owner: Any) {
+        suggestionRegistrations.remove(owner)
+        suggestionOrder.remove(owner)
+        ignoredSuggestions.remove(owner)
+        if (registrations[owner]?.source == "Suggestion") unregister(owner)
+    }
+
+    fun acceptSuggestion(owner: Any, suggestion: FillTypeSuggestion? = null) {
+        val stored = suggestionRegistrations[owner] ?: return
+        val selected = suggestion ?: stored.candidates.firstOrNull() ?: return
+        val target = stored.target ?: return log("suggestion \"${stored.id}\" is detection-only")
+        if (selected.fillability != SuggestionFillability.Fillable || !selected.type.supportsTextTarget()) {
+            return log("suggestion \"${stored.id}\" is unsupported for its fill target")
+        }
+        @Suppress("UNCHECKED_CAST")
+        val type = selected.type as FillType<String>
+        if (owner !in registrations) registrationOrder += owner
+        @Suppress("UNCHECKED_CAST")
+        registrations[owner] = StoredField(
+            owner, stored.id, stored.label, "Suggested", type,
+            target as FillTarget<Any>, null, "Suggestion", selected.confidence,
+        )
+    }
+
+    fun ignoreSuggestion(owner: Any) { ignoredSuggestions[owner] = true }
 
     override fun fillAll() = fields.forEach(::fillResolved)
 
@@ -237,7 +344,7 @@ internal class FormRegistry(
                 ),
                 generatedPersona,
             )
-            field.onFill(value)
+            field.target.fill(value)
         } catch (error: Exception) {
             problem("cannot fill field \"${field.id}\": ${error.message}")
         }
@@ -250,10 +357,10 @@ internal class FormRegistry(
     }
 
     private fun clear(field: StoredField) {
-        when {
-            field.onClear != null -> field.onClear.invoke()
-            field.currentValue is String -> field.onFill("")
-            else -> log("field \"${field.id}\" has no clear behavior")
+        val cleared = field.target.clear()
+        if (!cleared && field.currentValue is String) field.target.fill("")
+        else if (!cleared && field.currentValue !is String && field.target.kind == FillTargetKind.Callback) {
+            log("field \"${field.id}\" has no clear behavior")
         }
     }
 
@@ -268,22 +375,43 @@ internal class FormRegistry(
     private fun log(message: String) {
         if (config.loggingEnabled) logger(message)
     }
+
+    private fun FillKitSuggestionCandidate.toStored(owner: Any): StoredSuggestion {
+        val context = FieldSuggestionContext(metadata.id, metadata.label, metadata.testTag)
+        val mapped = contentType?.let { type ->
+            config.allContentTypeMappers().firstNotNullOfOrNull { it.suggest(type, context) }
+        }
+        val inferred = FieldSuggestionEngine(config.allSuggestionRulePacks()).suggest(metadata)
+        val candidates = listOfNotNull(mapped).plus(inferred).map { suggestion ->
+            suggestion.copy(fillability = when {
+                suggestion.type is FillType.Unsupported -> SuggestionFillability.Unsupported
+                target == null -> SuggestionFillability.DetectionOnly
+                !suggestion.type.supportsTextTarget() -> SuggestionFillability.Unsupported
+                else -> SuggestionFillability.Fillable
+            })
+        }.distinctBy { it.type }.sortedByDescending { it.confidence.ordinal.let { ordinal -> 4 - ordinal } }
+        val id = metadata.id ?: metadata.testTag ?: "suggested-${System.identityHashCode(owner)}"
+        return StoredSuggestion(owner, id, metadata.label ?: id.humanize(), candidates, target)
+    }
 }
 
+@Suppress("UNCHECKED_CAST")
 private fun <T : Any> FillKitField<T>.erase(owner: Any) = StoredField(
     owner = owner,
     id = id,
     label = label ?: id.humanize(),
     group = group,
     type = type,
-    currentValue = currentValue,
-    onFill = { value ->
-        @Suppress("UNCHECKED_CAST")
-        onFill(value as T)
-    },
-    onClear = onClear,
+    target = target as FillTarget<Any>,
     generator = generator,
 )
 
 private fun String.humanize(): String =
     replace(Regex("([a-z])([A-Z])"), "$1 $2").replace('-', ' ').replaceFirstChar(Char::uppercase)
+
+private fun FillType<*>.supportsTextTarget(): Boolean = when (this) {
+    FillType.DateOfBirth, FillType.Age, is FillType.Integer, is FillType.Decimal,
+    is FillType.BooleanValue, is FillType.Date, is FillType.Unsupported -> false
+    is FillType.Custom<*> -> valueClass == String::class
+    else -> true
+}

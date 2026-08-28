@@ -160,6 +160,9 @@ class FillValueResolver(
         FillType.FirstName -> persona.raw("firstName")
         FillType.LastName -> persona.raw("lastName")
         FillType.FullName -> persona.raw("fullName")
+        FillType.MiddleName -> persona.values["middleName"]?.raw ?: locale.firstNames.random(random)
+        FillType.NamePrefix -> listOf("Dr", "Mr", "Ms", "Mx").random(random)
+        FillType.NameSuffix -> listOf("Jr", "Sr", "II", "III").random(random)
         FillType.Username -> persona.raw("username")
         FillType.DateOfBirth -> persona.raw("dateOfBirth")
         FillType.Age -> persona.raw("age")
@@ -172,6 +175,7 @@ class FillValueResolver(
                 PersonaGenerator.phone(random, code)
             }
         }
+        FillType.PhoneCountryCode -> requireNotNull(locale.phone).countryCode
         FillType.StreetAddress -> persona.raw("streetAddress")
         FillType.City -> persona.raw("city")
         FillType.Region -> persona.raw("region")
@@ -181,6 +185,13 @@ class FillValueResolver(
         FillType.JobTitle -> persona.raw("jobTitle")
         FillType.Website -> persona.raw("website")
         FillType.Url -> "https://${persona.raw("username")}.example.net/profile"
+        is FillType.OtpCode -> buildString {
+            val alphabet = if (type.numericOnly) "0123456789" else "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
+            repeat(type.length) { append(alphabet.random(random)) }
+        }
+        is FillType.Unsupported -> throw UnsupportedOperationException(
+            "generation for ${type.category} is unsupported by default",
+        )
         is FillType.Password -> password(type)
         is FillType.Text -> text(type)
         is FillType.Integer -> if (type.range.first == type.range.last) type.range.first else {

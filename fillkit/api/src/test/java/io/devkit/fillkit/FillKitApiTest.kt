@@ -1,5 +1,7 @@
 package io.devkit.fillkit
 
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.ui.autofill.ContentType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertThrows
@@ -97,5 +99,49 @@ class FillKitApiTest {
         val pack = generatorPack("shared", "Shared") { generator(packed) }
         val config = FillKitConfig(generatorPacks = listOf(pack), generators = listOf(local))
         assertEquals(listOf("service", "service"), config.allGenerators().map { it.first })
+    }
+
+    @Test
+    fun composeContentTypesMapToSupportedAndExplicitlyUnsupportedFillTypes() {
+        assertEquals(FillType.Email, BuiltInContentTypeMapper.suggest(ContentType.EmailAddress, FieldSuggestionContext())?.type)
+        assertEquals(FillType.Username, BuiltInContentTypeMapper.suggest(ContentType.Username, FieldSuggestionContext())?.type)
+        assertEquals(FillType.Username, BuiltInContentTypeMapper.suggest(ContentType.NewUsername, FieldSuggestionContext())?.type)
+        assertTrue(BuiltInContentTypeMapper.suggest(ContentType.Password, FieldSuggestionContext())?.type is FillType.Password)
+        assertTrue(BuiltInContentTypeMapper.suggest(ContentType.NewPassword, FieldSuggestionContext())?.type is FillType.Password)
+        assertEquals(FillType.FirstName, BuiltInContentTypeMapper.suggest(ContentType.PersonFirstName, FieldSuggestionContext())?.type)
+        assertEquals(FillType.LastName, BuiltInContentTypeMapper.suggest(ContentType.PersonLastName, FieldSuggestionContext())?.type)
+        assertEquals(FillType.FullName, BuiltInContentTypeMapper.suggest(ContentType.PersonFullName, FieldSuggestionContext())?.type)
+        assertTrue(BuiltInContentTypeMapper.suggest(ContentType.PhoneNumber, FieldSuggestionContext())?.type is FillType.PhoneNumber)
+        assertEquals(FillType.PostalCode, BuiltInContentTypeMapper.suggest(ContentType.PostalCode, FieldSuggestionContext())?.type)
+        assertEquals(FillType.Country, BuiltInContentTypeMapper.suggest(ContentType.AddressCountry, FieldSuggestionContext())?.type)
+        assertEquals(FillType.OtpCode(), BuiltInContentTypeMapper.suggest(ContentType.SmsOtpCode, FieldSuggestionContext())?.type)
+        assertTrue(BuiltInContentTypeMapper.suggest(ContentType.CreditCardNumber, FieldSuggestionContext())?.type is FillType.Unsupported)
+        assertEquals(null, BuiltInContentTypeMapper.suggest(ContentType("app.referral"), FieldSuggestionContext()))
+    }
+
+    @Test
+    fun applicationContentTypeMapperOverridesBuiltInMapping() {
+        val mapper = contentTypeMappings { map(ContentType.EmailAddress, FillType.Username) }
+        val config = FillKitConfig(contentTypeMappers = listOf(mapper))
+        val result = config.allContentTypeMappers().firstNotNullOf { it.suggest(ContentType.EmailAddress, FieldSuggestionContext()) }
+        assertEquals(FillType.Username, result.type)
+    }
+
+    @Test
+    fun textFieldStateTargetUsesOfficialFillClearAndCursorApis() {
+        val state = TextFieldState("old")
+        val target = TextFieldStateFillTarget(state) { it.uppercase() }
+        target.fill("new value")
+        assertEquals("NEW VALUE", state.text.toString())
+        assertEquals(state.text.length, state.selection.start)
+        assertTrue(target.clear())
+        assertEquals("", state.text.toString())
+        assertEquals(0, state.selection.start)
+    }
+
+    @Test
+    fun otpConstraintsFailEarly() {
+        assertThrows(IllegalArgumentException::class.java) { FillType.OtpCode(length = 3) }
+        assertEquals(8, FillType.OtpCode(length = 8).length)
     }
 }

@@ -2,6 +2,9 @@ package io.devkit.fillkit.debug
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.input.TextFieldState
+import androidx.compose.foundation.text.input.rememberTextFieldState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -14,10 +17,17 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertContentDescriptionEquals
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import io.devkit.fillkit.FillKitConfig
 import io.devkit.fillkit.FillKitController
 import io.devkit.fillkit.FillKitHost
 import io.devkit.fillkit.FillType
+import io.devkit.fillkit.FillKitSemantics
 import io.devkit.fillkit.fillKit
 import io.devkit.fillkit.fillPersona
 import io.devkit.fillkit.personaPack
@@ -153,5 +163,57 @@ class FillKitComposeTest {
 
         compose.runOnIdle { assertEquals("returning@example.com", email) }
         compose.onNodeWithText("Returning Customer").assertIsDisplayed()
+    }
+
+    @Test
+    fun textFieldStateFillUsesLatestStateCursorAndClearBehavior() {
+        lateinit var state: TextFieldState
+        lateinit var controller: FillKitController
+        compose.setContent {
+            controller = rememberFillKitController()
+            state = rememberTextFieldState("stale")
+            FillKitHost("state", config = FillKitConfig(showTrigger = false), controller = controller) {
+                BasicTextField(
+                    state = state,
+                    modifier = Modifier.testTag("state-field").fillKit(
+                        id = "stateEmail", type = FillType.Email, state = state,
+                    ),
+                )
+            }
+        }
+        compose.runOnIdle { controller.fillAll() }
+        compose.runOnIdle {
+            assert(state.text.contains('@'))
+            assertEquals(state.text.length, state.selection.start)
+        }
+        compose.runOnIdle { controller.clearAll() }
+        compose.runOnIdle {
+            assertEquals("", state.text.toString())
+            assertEquals(0, state.selection.start)
+        }
+    }
+
+    @Test
+    fun debugMetadataCoexistsWithApplicationAccessibilitySemantics() {
+        compose.setContent {
+            FillKitHost("semantics", config = FillKitConfig(showTrigger = false)) {
+                Box(
+                    Modifier
+                        .testTag("semantic-field")
+                        .semantics { contentDescription = "Application description" }
+                        .fillKit("email", FillType.Email, "", {}),
+                )
+            }
+        }
+        compose.onNodeWithTag("semantic-field", useUnmergedTree = true)
+            .assertContentDescriptionEquals("Application description")
+        compose.onNode(
+            SemanticsMatcher.expectValue(FillKitSemantics.FieldId, "email"),
+            useUnmergedTree = true,
+        ).assertExists()
+        compose.onNode(
+            SemanticsMatcher.expectValue(FillKitSemantics.FormId, "semantics"),
+            useUnmergedTree = true,
+        ).assertExists()
     }
 }
