@@ -159,6 +159,7 @@ class FillKitComposeTest {
         }
 
         compose.onNodeWithText("⚡").performClick()
+        compose.onNodeWithText("PERSONA").performClick()
         compose.onNodeWithText("Returning Customer").performClick()
 
         compose.runOnIdle { assertEquals("returning@example.com", email) }
