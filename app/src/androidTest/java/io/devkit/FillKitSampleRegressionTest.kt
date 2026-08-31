@@ -4,8 +4,11 @@ import android.content.Intent
 import android.net.Uri
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.platform.app.InstrumentationRegistry
 import io.devkit.fillkit.FillActivationResult
 import io.devkit.fillkit.FillActivationSource
@@ -23,6 +26,7 @@ import io.devkit.fillkit.testing.fillKitScenario
 import io.devkit.fillkit.testing.onFillKitField
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 
@@ -38,8 +42,33 @@ class FillKitSampleRegressionTest {
     @get:Rule(order = 1)
     val reproduction = FillKitReproductionRule()
 
+    @Before
+    fun startFromTheDashboard() {
+        compose.runOnUiThread { resetSampleNavigation() }
+        compose.waitForIdle()
+    }
+
+    /**
+     * The sample opens on the dashboard, so a test that drives a form has to
+     * launch it first — the FillKit test driver talks to a composed host.
+     */
+    private fun openFromDashboard(destination: String) {
+        compose.onNodeWithTag(SampleTestTags.dashboardCard(destination))
+            .performScrollTo()
+            .performClick()
+        compose.waitForIdle()
+    }
+
+    private fun openFromDrawer(destination: String) {
+        compose.onNodeWithContentDescription(OpenNavigationMenu).performClick()
+        compose.onNodeWithTag(SampleTestTags.drawerItem(destination)).performClick()
+        compose.waitForIdle()
+    }
+
     @Test
     fun providerMaximumValuesScenario() {
+        openFromDashboard("Registration")
+
         compose.fillKit(formId = "registration") {
             scenario(pack = "validation", id = "maximum-values")
             seed(845912)
@@ -59,6 +88,7 @@ class FillKitSampleRegressionTest {
             scenarioId = "maximum-values",
         )
         val token = FillReproductionTokenCodec.encode(reported)
+        openFromDashboard("Registration")
 
         val result = compose.applyFillKitReproduction(token)
 
@@ -70,6 +100,8 @@ class FillKitSampleRegressionTest {
 
     @Test
     fun theSameSeedReproducesTheSameGeneratedData() {
+        openFromDashboard("Registration")
+
         compose.fillKitScenario {
             form("registration")
             scenario("provider", "experienced-provider")
@@ -86,8 +118,9 @@ class FillKitSampleRegressionTest {
 
     @Test
     fun qaLaunchNavigatesToTheTargetFormAndAppliesTheScenario() {
-        compose.onNodeWithText("Checkout").performClick()
-        compose.waitForIdle()
+        // Open a different demo first, so the assertion below proves the QA
+        // launch navigated to registration rather than never having left it.
+        openFromDashboard("Checkout")
 
         val entryRequest = io.devkit.fillkit.FillActivationRequest(
             formId = "registration",
@@ -104,6 +137,34 @@ class FillKitSampleRegressionTest {
                 .fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithText("Amina-Extremely-Long-Synthetic-First-Name").assertIsDisplayed()
+    }
+
+    @Test
+    fun theDashboardListsEveryDemoAndLaunchesOne() {
+        listOf("Registration", "Business", "Checkout", "SmartFields", "Qa", "Network")
+            .forEach {
+                compose.onNodeWithTag(SampleTestTags.dashboardCard(it))
+                    .performScrollTo()
+                    .assertIsDisplayed()
+            }
+
+        openFromDashboard("Network")
+
+        compose.onNodeWithText("NetKit demo").assertIsDisplayed()
+    }
+
+    @Test
+    fun theDrawerSwitchesBetweenDemosAndBackToTheDashboard() {
+        openFromDashboard("Registration")
+
+        openFromDrawer("Network")
+        compose.onNodeWithText("NetKit demo").assertIsDisplayed()
+
+        compose.onNodeWithContentDescription(OpenNavigationMenu).performClick()
+        compose.onNodeWithTag(SampleTestTags.DrawerDashboard).performClick()
+        compose.waitForIdle()
+
+        compose.onNodeWithTag(SampleTestTags.dashboardCard("Registration")).assertIsDisplayed()
     }
 
     @Test
