@@ -2,38 +2,63 @@ package io.devkit
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.input.rememberTextFieldState
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DrawerValue
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.LocalContentColor
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalDrawerSheet
+import androidx.compose.material3.ModalNavigationDrawer
+import androidx.compose.material3.NavigationDrawerItem
+import androidx.compose.material3.rememberDrawerState
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import io.devkit.fillkit.FillActivationResult
@@ -61,13 +86,19 @@ import io.devkit.fillkit.fillScenario
 import io.devkit.fillkit.generatorPack
 import io.devkit.fillkit.personaPack
 import io.devkit.fillkit.scenarioPack
+import io.devkit.netdemo.NetworkDemoScreen
+import io.devkit.netdemo.installDebugNetworking
 import io.devkit.ui.theme.DevKitTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         configureFillKit()
+        // Resolves to the debug or release variant of this function depending on
+        // the build type; the release one does nothing.
+        installDebugNetworking()
         setContent { DevKitTheme { FillKitSampleApp() } }
     }
 }
@@ -327,31 +358,84 @@ private val sampleTestingPack = fillKitPack("sample-testing", "Sample Testing", 
     scenarios(validationScenarios)
 }
 
+/**
+ * A toolkit demonstrated by the sample.
+ *
+ * Grouping by kit is what keeps both the dashboard and the drawer readable as
+ * DevKit grows: a new toolkit adds a section, not another peer item in a flat list.
+ */
+private enum class SampleKit(val title: String, val tagline: String) {
+    FillKit("FillKit", "Fill Compose forms with coherent synthetic data"),
+    NetKit("NetKit", "Simulate offline, latency, timeouts and HTTP errors"),
+}
+
+/** A sample destination. */
 private enum class SampleScreen(
     val title: String,
-    val shortLabel: String
+    val shortLabel: String,
+    val kit: SampleKit,
+    val summary: String,
 ) {
     Registration(
         "Registration",
-        "R"
+        "R",
+        SampleKit.FillKit,
+        "Personas, locales and scenario fills",
     ),
     Business(
         "Business onboarding",
-        "B"
+        "B",
+        SampleKit.FillKit,
+        "A longer form with mixed field types",
     ),
     Checkout(
         "Checkout address",
-        "C"
+        "C",
+        SampleKit.FillKit,
+        "Address and payment field mapping",
     ),
     SmartFields(
         "Smart Fields",
-        "S"
+        "S",
+        SampleKit.FillKit,
+        "Suggestions, ContentType and semantics",
     ),
     Qa(
         "QA and reproduction",
-        "Q"
+        "Q",
+        SampleKit.FillKit,
+        "Scenario launcher, seeds and tokens",
+    ),
+    Network(
+        "Network scenarios",
+        "N",
+        SampleKit.NetKit,
+        "Offline, latency, timeouts and HTTP overrides",
     ),
 }
+
+/** Destinations in display order, grouped by the kit they demonstrate. */
+private val destinationsByKit: Map<SampleKit, List<SampleScreen>> =
+    SampleScreen.entries.groupBy(SampleScreen::kit)
+
+/** Also used by the sample's instrumentation tests to reach the drawer. */
+internal const val OpenNavigationMenu = "Open the navigation menu"
+
+/**
+ * Stable handles for the sample's two entry points.
+ *
+ * The drawer is composed even while closed, so a destination's title matches
+ * both there and on the dashboard; tests target these instead of user-visible
+ * strings. The argument is a [SampleScreen] name, e.g. `"Registration"`.
+ */
+internal object SampleTestTags {
+    fun dashboardCard(destination: String) = "sample:dashboard:$destination"
+    fun drawerItem(destination: String) = "sample:drawer:$destination"
+    const val DrawerDashboard = "sample:drawer:dashboard"
+}
+
+/** The dashboard's own title, in the top bar and the drawer. */
+internal const val DashboardTitle = "DevKit"
 
 /** The application decides how a FillKit form id maps to one of its destinations. */
 private val formRoutes = mapOf(
@@ -361,36 +445,315 @@ private val formRoutes = mapOf(
     "smart-fields" to SampleScreen.SmartFields,
 )
 
-private val currentScreen = mutableStateOf(SampleScreen.Registration)
+/**
+ * The visible destination, or `null` for the dashboard.
+ *
+ * FillKit's QA launcher and deep links navigate the sample by writing here, so
+ * this stays a plain state holder rather than a navigation graph.
+ */
+private val currentScreen = mutableStateOf<SampleScreen?>(null)
 
+/**
+ * Returns the sample to the dashboard.
+ *
+ * [currentScreen] is process-wide because FillKit's navigation callback is
+ * configured outside composition, so it outlives an Activity — and therefore
+ * outlives a single instrumentation test. Tests call this to start from a known
+ * screen instead of inheriting wherever the previous test finished.
+ */
+internal fun resetSampleNavigation() {
+    currentScreen.value = null
+}
+
+/**
+ * The sample shell.
+ *
+ * Two ways in, because they answer different questions. The **dashboard** is the
+ * landing screen and says what each toolkit is for — it is where someone opening
+ * DevKit for the first time starts. The **drawer** is for switching once you
+ * already know, without going home first.
+ *
+ * Both write to [currentScreen], so FillKit's QA launcher and deep links keep
+ * navigating the sample exactly as before.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun FillKitSampleApp() {
     var screen by currentScreen
-    Scaffold(
-        topBar = { TopAppBar(title = { Text(screen.title) }) },
-        bottomBar = {
-            NavigationBar {
-                SampleScreen.entries.forEach { destination ->
-                    NavigationBarItem(
-                        selected = screen == destination,
-                        onClick = { screen = destination },
-                        icon = { Text(destination.shortLabel) },
-                        label = { Text(destination.title.substringBefore(' ')) },
-                    )
-                }
-            }
+    val drawerState = rememberDrawerState(DrawerValue.Closed)
+    val scope = rememberCoroutineScope()
+
+    // From a demo, back returns to the dashboard rather than leaving the app.
+    // Guarded on the drawer so its own back handling still closes it first.
+    BackHandler(enabled = screen != null && !drawerState.isOpen) { screen = null }
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+            SampleDrawerSheet(
+                selected = screen,
+                onSelect = { destination ->
+                    screen = destination
+                    scope.launch { drawerState.close() }
+                },
+            )
         },
-    ) { padding ->
-        when (screen) {
-            SampleScreen.Registration -> RegistrationExample(Modifier.padding(padding))
-            SampleScreen.Business -> BusinessExample(Modifier.padding(padding))
-            SampleScreen.Checkout -> CheckoutExample(Modifier.padding(padding))
-            SampleScreen.SmartFields -> SmartFieldsExample(Modifier.padding(padding))
-            SampleScreen.Qa -> QaReproductionExample(Modifier.padding(padding))
+    ) {
+        Scaffold(
+            topBar = {
+                TopAppBar(
+                    title = { Text(screen?.title ?: DashboardTitle) },
+                    navigationIcon = {
+                        IconButton(
+                            onClick = { scope.launch { drawerState.open() } },
+                            // The glyph is drawn, not an Icon, so it carries no
+                            // label of its own; the button has to supply one.
+                            modifier = Modifier.semantics {
+                                contentDescription = OpenNavigationMenu
+                            },
+                        ) {
+                            MenuGlyph()
+                        }
+                    },
+                )
+            },
+        ) { padding ->
+            when (screen) {
+                null -> DashboardScreen(
+                    onOpen = { destination -> screen = destination },
+                    modifier = Modifier.padding(padding),
+                )
+
+                SampleScreen.Registration -> RegistrationExample(Modifier.padding(padding))
+                SampleScreen.Business -> BusinessExample(Modifier.padding(padding))
+                SampleScreen.Checkout -> CheckoutExample(Modifier.padding(padding))
+                SampleScreen.SmartFields -> SmartFieldsExample(Modifier.padding(padding))
+                SampleScreen.Qa -> QaReproductionExample(Modifier.padding(padding))
+                SampleScreen.Network -> NetworkDemoScreen(Modifier.padding(padding))
+            }
         }
     }
 }
+
+/**
+ * The landing screen: every demo as a launchable card, grouped by toolkit.
+ *
+ * Each section leads with what the kit is for, so the dashboard doubles as the
+ * sample's table of contents rather than being a grid of bare names.
+ */
+@Composable
+private fun DashboardScreen(
+    onOpen: (SampleScreen) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    LazyColumn(
+        modifier = modifier.fillMaxSize(),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        item(key = "intro") {
+            Text(
+                text = "Debug and QA tooling samples. Pick a demo, or switch any time " +
+                    "from the menu.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+
+        destinationsByKit.forEach { (kit, destinations) ->
+            item(key = "kit-${kit.name}") {
+                Column(
+                    modifier = Modifier.padding(top = 14.dp, bottom = 2.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    Text(
+                        text = kit.title,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        text = kit.tagline,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            items(destinations, key = { it.name }) { destination ->
+                DashboardCard(destination = destination, onClick = { onOpen(destination) })
+            }
+        }
+    }
+}
+
+@Composable
+private fun DashboardCard(destination: SampleScreen, onClick: () -> Unit) {
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(CardShape)
+            .clickable(role = Role.Button, onClick = onClick)
+            .testTag(SampleTestTags.dashboardCard(destination.name)),
+        shape = CardShape,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Row(
+            modifier = Modifier.padding(14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            DestinationBadge(destination.shortLabel)
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = destination.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.Medium,
+                )
+                Text(
+                    text = destination.summary,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            ChevronGlyph()
+        }
+    }
+}
+
+/** Destinations grouped by the kit they demonstrate, plus a way back to the dashboard. */
+@Composable
+private fun SampleDrawerSheet(
+    selected: SampleScreen?,
+    onSelect: (SampleScreen?) -> Unit,
+) {
+    ModalDrawerSheet {
+        Column(
+            modifier = Modifier
+                .verticalScroll(rememberScrollState())
+                .padding(bottom = 12.dp),
+        ) {
+            Text(
+                text = DashboardTitle,
+                modifier = Modifier.padding(start = 28.dp, top = 20.dp, bottom = 4.dp),
+                style = MaterialTheme.typography.titleLarge,
+            )
+            Text(
+                text = "Debug and QA tooling samples",
+                modifier = Modifier.padding(start = 28.dp, bottom = 12.dp),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+
+            NavigationDrawerItem(
+                selected = selected == null,
+                onClick = { onSelect(null) },
+                modifier = Modifier
+                    .padding(horizontal = 12.dp)
+                    .testTag(SampleTestTags.DrawerDashboard),
+                icon = { DestinationBadge("◆") },
+                label = { Text("Dashboard") },
+            )
+            HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
+
+            destinationsByKit.entries.forEachIndexed { index, (kit, destinations) ->
+                Text(
+                    text = kit.title.uppercase(),
+                    modifier = Modifier.padding(start = 28.dp, top = 12.dp, bottom = 6.dp),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                destinations.forEach { destination ->
+                    NavigationDrawerItem(
+                        selected = destination == selected,
+                        onClick = { onSelect(destination) },
+                        modifier = Modifier
+                            .padding(horizontal = 12.dp)
+                            .testTag(SampleTestTags.drawerItem(destination.name)),
+                        icon = { DestinationBadge(destination.shortLabel) },
+                        label = {
+                            Column {
+                                Text(destination.title)
+                                Text(
+                                    text = destination.summary,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        },
+                    )
+                }
+                // Between groups only — a trailing rule under the last one
+                // would read as a section that never arrives.
+                if (index < destinationsByKit.size - 1) {
+                    HorizontalDivider(Modifier.padding(horizontal = 28.dp, vertical = 8.dp))
+                }
+            }
+        }
+    }
+}
+
+/** The single-letter marker the sample has always used for a destination. */
+@Composable
+private fun DestinationBadge(label: String) {
+    Box(
+        modifier = Modifier
+            .size(32.dp)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.secondaryContainer),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSecondaryContainer,
+        )
+    }
+}
+
+/**
+ * A drawn hamburger. The workspace does not depend on `material-icons`, so the
+ * sample keeps drawing its own marks rather than adding an artifact for one glyph.
+ */
+@Composable
+private fun MenuGlyph() {
+    val color = LocalContentColor.current
+    Canvas(Modifier.size(18.dp)) {
+        val stroke = 2.dp.toPx()
+        listOf(0f, size.height / 2f, size.height - stroke).forEach { y ->
+            drawLine(
+                color = color,
+                start = Offset(0f, y + stroke / 2f),
+                end = Offset(size.width, y + stroke / 2f),
+                strokeWidth = stroke,
+                cap = StrokeCap.Round,
+            )
+        }
+    }
+}
+
+/** Decorative "opens something" affordance; the card itself carries the label. */
+@Composable
+private fun ChevronGlyph() {
+    val color = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(Modifier.size(width = 8.dp, height = 14.dp)) {
+        val stroke = 2.dp.toPx()
+        drawLine(
+            color = color,
+            start = Offset(0f, stroke / 2f),
+            end = Offset(size.width, size.height / 2f),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+        )
+        drawLine(
+            color = color,
+            start = Offset(size.width, size.height / 2f),
+            end = Offset(0f, size.height - stroke / 2f),
+            strokeWidth = stroke,
+            cap = StrokeCap.Round,
+        )
+    }
+}
+
+private val CardShape = RoundedCornerShape(16.dp)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable

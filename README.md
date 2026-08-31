@@ -1,6 +1,11 @@
 # DevKit
 
-An Android workspace for **FillKit** — debug-only tooling that fills Jetpack Compose forms with coherent synthetic data, and turns any interesting form state into something you can reproduce, share, launch and convert into an automated regression test.
+An Android workspace for debug-only developer and QA tooling.
+
+- **FillKit** — fills Jetpack Compose forms with coherent synthetic data, and turns any interesting form state into something you can reproduce, share, launch and convert into an automated regression test. Documented below.
+- **NetKit** — simulates difficult network conditions (offline, latency, timeouts, forced HTTP responses) inside a running app, per endpoint, without touching the backend. Documented in **[netkit/README.md](netkit/README.md)**.
+
+The rest of this file is the complete FillKit documentation.
 
 FillKit 0.4 covers three audiences from one set of definitions:
 
@@ -10,7 +15,6 @@ QA          → launch a known scenario instantly
 Automation  → activate the same scenario from a Compose UI test
 ```
 
-This is the complete documentation for the workspace and the library.
 
 ## Contents
 
@@ -32,14 +36,16 @@ This is the complete documentation for the workspace and the library.
 | `:fillkit:engine` | debug | Locale registries, persona and value generation, scenario composition, deterministic random streams |
 | `:fillkit:debug` | debug | Developer panel, QA scenario launcher, activation engine, pending activations, deep-link entry point, local persistence |
 | `:fillkit:testing` | `androidTestImplementation` only | Compose test finders, assertions, `FillKitTestDriver`, reproduction helpers |
+| `:netkit` | debug | Network scenario toolkit — OkHttp interceptor, scenario engine, request history, masking, Compose console. See [netkit/README.md](netkit/README.md) |
 | `:app` | — | Sample application exercising every capability |
 
-Only `:fillkit:api` reaches a release build.
+Only `:fillkit:api` reaches a release build. `:netkit` is `debugImplementation`-only and every reference to it lives in the sample app's `src/debug` source set, so the release APK contains none of it.
 
 ## Requirements
 
 - Android Gradle Plugin 9.3.2, Gradle 9.5
 - Kotlin 2.2.10, Compose BOM 2026.02.01
+- OkHttp 5.5.0 and kotlinx-coroutines 1.11.0 (NetKit only)
 - JDK 17 or newer to run Gradle; Java 11 source/target compatibility
 - `compileSdk` 37, `minSdk` 24
 

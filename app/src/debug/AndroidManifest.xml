@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      The NetKit demo serves its "backend" from a MockWebServer on the loopback
+      interface, which is plain HTTP. Debug-only, so the release APK keeps the
+      platform's cleartext ban.
+    -->
+    <application android:usesCleartextTraffic="true" />
+
+</manifest>

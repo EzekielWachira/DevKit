@@ -38,6 +38,9 @@ android {
 dependencies {
     implementation(project(":fillkit:api"))
     debugImplementation(project(":fillkit:debug"))
+    // NetKit ships only in debug builds; src/debug holds every reference to it.
+    debugImplementation(project(":netkit"))
+    debugImplementation(libs.okhttp.mockwebserver)
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.compose.material3)
@@ -46,6 +49,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(platform(libs.okhttp.bom))
+    implementation(libs.okhttp)
+    implementation(libs.kotlinx.coroutines.android)
     testImplementation(libs.junit)
     androidTestImplementation(project(":fillkit:testing"))
     androidTestImplementation(platform(libs.androidx.compose.bom))

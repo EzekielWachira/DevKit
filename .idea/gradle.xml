@@ -13,6 +13,8 @@
             <option value="$PROJECT_DIR$/fillkit/api" />
             <option value="$PROJECT_DIR$/fillkit/debug" />
             <option value="$PROJECT_DIR$/fillkit/engine" />
+            <option value="$PROJECT_DIR$/fillkit/testing" />
+            <option value="$PROJECT_DIR$/netkit" />
           </set>
         </option>
       </GradleProjectSettings>
