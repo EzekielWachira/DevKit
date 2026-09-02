@@ -72,9 +72,11 @@ internal fun HistoryRow(
                     container = MaterialTheme.colorScheme.secondaryContainer,
                     content = MaterialTheme.colorScheme.onSecondaryContainer,
                 )
-                if (record.isSimulated) {
+                // REAL/SIMULATED and LIVE/REPLAY are independent facts, so both
+                // badges can appear at once — that is the point of showing them.
+                record.badges.forEach { badge ->
                     NetKitBadge(
-                        text = "SIMULATED",
+                        text = badge,
                         container = MaterialTheme.colorScheme.tertiaryContainer,
                         content = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
@@ -93,8 +95,18 @@ internal fun HistoryRow(
                     append(record.host)
                     append(" · ")
                     append(NetKitFormat.duration(record.durationMillis))
+                    // Scenario, then rule, then step: the three answers to
+                    // "why did this request do that", each said exactly once.
+                    record.scenarioName?.let {
+                        append(" · ")
+                        append(it)
+                    }
                     record.scenarioLabel?.let {
                         append(" · ")
+                        append(it)
+                    }
+                    record.sequenceDisplay?.let {
+                        append(" · step ")
                         append(it)
                     }
                 },

@@ -18,15 +18,25 @@ object NetKitDefaults {
     /** Upper bound on how long a simulated timeout blocks a caller. */
     const val MAX_SIMULATED_TIMEOUT_MILLIS: Long = 60_000
 
-    /** Body returned by an [io.devkit.netkit.scenario.NetworkAction.HttpError] with no body. */
+    /** Body returned by a failing [io.devkit.netkit.scenario.NetworkAction.ReturnResponse] with no body. */
     const val DEFAULT_ERROR_BODY: String =
         """{"error":"Simulated by NetKit","message":"This response did not come from your backend."}"""
+
+    /** Body returned by a successful [io.devkit.netkit.scenario.NetworkAction.ReturnResponse] with no body. */
+    const val DEFAULT_SUCCESS_BODY: String =
+        """{"simulatedBy":"NetKit","message":"This response did not come from your backend."}"""
 
     /** Header stamped on every synthetic response so proxies and logs can spot it. */
     const val SIMULATED_HEADER: String = "X-NetKit-Simulated"
 
     /** Header carrying the id of the rule that produced a synthetic response. */
     const val SIMULATED_RULE_HEADER: String = "X-NetKit-Rule"
+
+    /** Header stamped on a replayed request so a backend log can spot one. */
+    const val REPLAY_HEADER: String = "X-NetKit-Replay"
+
+    /** File extension for exported scenarios and packs. */
+    const val EXPORT_FILE_EXTENSION: String = ".netkit.json"
 
     /** Latency presets offered by the debug UI, in milliseconds. */
     val LATENCY_PRESETS: List<Long> = listOf(0, 500, 1_000, 2_500, 5_000)
@@ -38,7 +48,10 @@ object NetKitDefaults {
     val COMMON_STATUS_CODES: List<Int> =
         listOf(400, 401, 403, 404, 409, 422, 429, 500, 502, 503, 504)
 
-    /** Content types offered as one-tap choices for a simulated error body. */
+    /** Statuses offered when the simulated response is a success. */
+    val COMMON_SUCCESS_CODES: List<Int> = listOf(200, 201, 202, 204)
+
+    /** Content types offered as one-tap choices for a simulated response body. */
     val COMMON_CONTENT_TYPES: List<String> = listOf(
         "application/json",
         "text/plain",

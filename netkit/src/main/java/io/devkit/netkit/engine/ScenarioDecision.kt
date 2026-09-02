@@ -1,6 +1,8 @@
 package io.devkit.netkit.engine
 
+import io.devkit.netkit.scenario.ResponseHeader
 import io.devkit.netkit.scenario.TimeoutType
+import io.devkit.netkit.scenario.runtime.RuleSource
 
 /**
  * What the interceptor must do with one request.
@@ -10,15 +12,21 @@ import io.devkit.netkit.scenario.TimeoutType
  * to carry one out with OkHttp. A future Ktor or WebSocket binding reuses every
  * decision by writing a new executor.
  *
- * @property origin who produced the decision, used for the history badge.
- * @property scenarioLabel human description of the responsible scenario.
+ * @property origin which layer of the configuration produced the decision.
+ * @property source whether a temporary override or a saved scenario was
+ *   responsible, captured now because the scenario may be edited or deleted
+ *   before anyone reads the history row.
+ * @property scenarioLabel human description of the responsible behaviour.
  * @property ruleId id of the responsible endpoint rule, when there was one.
+ * @property sequence which step of a response sequence ran, when one did.
  */
 sealed interface ScenarioDecision {
 
     val origin: DecisionOrigin
+    val source: RuleSource?
     val scenarioLabel: String?
     val ruleId: String?
+    val sequence: SequenceStepInfo?
 
     /** True when the application will see something NetKit invented. */
     val isSimulated: Boolean get() = false
@@ -28,6 +36,8 @@ sealed interface ScenarioDecision {
         override val origin: DecisionOrigin = DecisionOrigin.NONE,
         override val scenarioLabel: String? = null,
         override val ruleId: String? = null,
+        override val source: RuleSource? = null,
+        override val sequence: SequenceStepInfo? = null,
     ) : ScenarioDecision
 
     /** Sleep [delayMillis], then send the request to the real server. */
@@ -36,6 +46,8 @@ sealed interface ScenarioDecision {
         override val origin: DecisionOrigin,
         override val scenarioLabel: String?,
         override val ruleId: String? = null,
+        override val source: RuleSource? = null,
+        override val sequence: SequenceStepInfo? = null,
     ) : ScenarioDecision {
         init {
             require(delayMillis >= 0) { "NetKit delay cannot be negative (was $delayMillis)" }
@@ -45,6 +57,9 @@ sealed interface ScenarioDecision {
     /**
      * Sleep [delayMillis], then return a synthetic response. The request never
      * leaves the device.
+     *
+     * @param malformed true when the payload is deliberately unparseable, so the
+     *   history row can say so instead of reading as an ordinary `200`.
      */
     data class RespondWith(
         val statusCode: Int,
@@ -54,6 +69,10 @@ sealed interface ScenarioDecision {
         override val origin: DecisionOrigin,
         override val scenarioLabel: String?,
         override val ruleId: String? = null,
+        val headers: List<ResponseHeader> = emptyList(),
+        val malformed: Boolean = false,
+        override val source: RuleSource? = null,
+        override val sequence: SequenceStepInfo? = null,
     ) : ScenarioDecision {
         override val isSimulated: Boolean get() = true
     }
@@ -63,6 +82,8 @@ sealed interface ScenarioDecision {
         override val origin: DecisionOrigin,
         override val scenarioLabel: String?,
         override val ruleId: String? = null,
+        override val source: RuleSource? = null,
+        override val sequence: SequenceStepInfo? = null,
     ) : ScenarioDecision {
         override val isSimulated: Boolean get() = true
     }
@@ -73,19 +94,39 @@ sealed interface ScenarioDecision {
         override val origin: DecisionOrigin,
         override val scenarioLabel: String?,
         override val ruleId: String? = null,
+        override val source: RuleSource? = null,
+        override val sequence: SequenceStepInfo? = null,
     ) : ScenarioDecision {
         override val isSimulated: Boolean get() = true
     }
 }
 
-/** Which layer of the scenario produced a [ScenarioDecision]. */
+/** Which step of a response sequence produced a decision. */
+data class SequenceStepInfo(
+    /** 1-based step number. */
+    val step: Int,
+    /** How many steps the sequence has. */
+    val stepCount: Int,
+) {
+    /** `2 / 3` */
+    val display: String get() = "$step / $stepCount"
+}
+
+/** Which layer of the configuration produced a [ScenarioDecision]. */
 enum class DecisionOrigin {
-    /** Nothing applied — NetKit is disabled or the scenario is idle. */
+    /** Nothing applied — NetKit is disabled or the configuration is idle. */
     NONE,
 
     /** A matching [io.devkit.netkit.scenario.EndpointRule] applied. */
     ENDPOINT_RULE,
 
-    /** The global network configuration applied. */
+    /** A global network configuration applied. */
     GLOBAL,
+    ;
+
+    val label: String get() = when (this) {
+        NONE -> "None"
+        ENDPOINT_RULE -> "Endpoint rule"
+        GLOBAL -> "Global"
+    }
 }

@@ -9,12 +9,17 @@ import io.devkit.netkit.scenario.GlobalNetworkConfig
 import io.devkit.netkit.scenario.GlobalNetworkMode
 import io.devkit.netkit.scenario.HttpMethod
 import io.devkit.netkit.scenario.NetworkAction
-import io.devkit.netkit.scenario.NetworkScenario
 import io.devkit.netkit.scenario.TimeoutType
+import io.devkit.netkit.scenario.runtime.ActiveNetworkConfiguration
 import io.devkit.netkit.state.DefaultNetKitController
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.runTest
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -24,17 +29,31 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
+/**
+ * The temporary-override layer: NetKit 0.1's controller behaviour, unchanged.
+ *
+ * Saved scenarios have their own suite. These tests are the regression net that
+ * proves 0.2's extra layers did not disturb what 0.1 consumers already rely on.
+ */
 class NetKitControllerTest {
 
-    private fun controller(scenario: NetworkScenario = NetworkScenario.Default) =
-        DefaultNetKitController(InMemoryNetworkHistoryStore(NetKitDefaults.MAX_HISTORY_ENTRIES), scenario)
+    private val scope = CoroutineScope(Dispatchers.Unconfined + SupervisorJob())
+
+    @After
+    fun tearDown() {
+        scope.cancel()
+    }
+
+    private fun controller(
+        configuration: ActiveNetworkConfiguration = ActiveNetworkConfiguration.Default,
+    ): DefaultNetKitController = Fixtures.controller(scope, initial = configuration)
 
     private fun rule(path: String = "/api/v1/bookings") =
-        EndpointRule.forPath(path, HttpMethod.GET, NetworkAction.HttpError(500))
+        EndpointRule.forPath(path, HttpMethod.GET, NetworkAction.ReturnResponse(500))
 
     @Test
     fun `the initial scenario is published`() {
-        val initial = NetworkScenario(global = GlobalNetworkConfig(latencyMillis = 250))
+        val initial = ActiveNetworkConfiguration(global = GlobalNetworkConfig(latencyMillis = 250))
 
         val state = controller(initial).state.value
 
@@ -187,17 +206,17 @@ class NetKitControllerTest {
     }
 
     @Test
-    fun `applyScenario replaces everything atomically`() {
+    fun `applyConfiguration replaces the temporary layer atomically`() {
         val controller = controller()
-        val replacement = NetworkScenario(
+        val replacement = ActiveNetworkConfiguration(
             enabled = false,
             global = GlobalNetworkConfig(mode = GlobalNetworkMode.Offline),
             rules = listOf(rule()),
         )
 
-        controller.applyScenario(replacement)
+        controller.applyConfiguration(replacement)
 
-        assertEquals(replacement, controller.state.value.scenario)
+        assertEquals(replacement, controller.state.value.configuration)
     }
 
     @Test
@@ -221,7 +240,7 @@ class NetKitControllerTest {
     @Test
     fun `reset keeps history and clearHistory keeps the scenario`() {
         val store = InMemoryNetworkHistoryStore(10)
-        val controller = DefaultNetKitController(store)
+        val controller = Fixtures.controller(scope, history = store)
         store.record(
             NetworkRecord(
                 id = store.nextRecordId(),

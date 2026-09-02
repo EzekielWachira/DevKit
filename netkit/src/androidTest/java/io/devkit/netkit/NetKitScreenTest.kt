@@ -22,10 +22,25 @@ import io.devkit.netkit.scenario.EndpointRule
 import io.devkit.netkit.scenario.GlobalNetworkMode
 import io.devkit.netkit.scenario.HttpMethod
 import io.devkit.netkit.scenario.NetworkAction
+import io.devkit.netkit.replay.ReplayEligibility
+import io.devkit.netkit.replay.ReplayOverride
+import io.devkit.netkit.replay.ReplayResult
+import io.devkit.netkit.replay.ReplaySnapshotStore
+import io.devkit.netkit.replay.ReplayUnavailableReason
+import io.devkit.netkit.replay.RequestReplayer
+import io.devkit.netkit.scenario.persistence.InMemoryScenarioStorage
+import io.devkit.netkit.scenario.persistence.JsonScenarioRepository
+import io.devkit.netkit.scenario.runtime.ScenarioManager
+import io.devkit.netkit.scenario.serialization.JsonScenarioSerializer
 import io.devkit.netkit.state.DefaultNetKitController
 import io.devkit.netkit.state.NetKitController
 import io.devkit.netkit.ui.NetKitScreen
 import io.devkit.netkit.ui.NetKitTestTags
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -46,8 +61,25 @@ class NetKitScreenTest {
     @get:Rule
     val compose = createComposeRule()
 
+    private val scope = CoroutineScope(Dispatchers.Main.immediate + SupervisorJob())
     private val history = InMemoryNetworkHistoryStore(NetKitConfig().maxHistoryEntries)
-    private val controller: NetKitController = DefaultNetKitController(history)
+    private val manager = ScenarioManager(
+        repository = JsonScenarioRepository(InMemoryScenarioStorage()),
+        serializer = JsonScenarioSerializer(),
+        scope = scope,
+    )
+    private val controller: NetKitController = DefaultNetKitController(
+        historyStore = history,
+        manager = manager,
+        replayer = NoOpUiReplayer,
+        replaySnapshots = ReplaySnapshotStore(),
+        scope = scope,
+    )
+
+    @After
+    fun tearDown() {
+        scope.cancel()
+    }
 
     private fun setContent() {
         compose.setContent {
@@ -147,7 +179,7 @@ class NetKitScreenTest {
         val rule = controller.state.value.rules.single()
         assertEquals(HttpMethod.GET, rule.method)
         assertEquals("/api/v1/bookings", rule.matcher.label)
-        assertEquals(500, (rule.action as NetworkAction.HttpError).statusCode)
+        assertEquals(500, (rule.action as NetworkAction.ReturnResponse).statusCode)
     }
 
     @Test
@@ -162,7 +194,7 @@ class NetKitScreenTest {
 
     @Test
     fun ruleCanBeToggled() {
-        val rule = EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.HttpError(500))
+        val rule = EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.ReturnResponse(500))
         controller.addRule(rule)
         setContent()
 
@@ -175,7 +207,7 @@ class NetKitScreenTest {
 
     @Test
     fun ruleCanBeDeleted() {
-        val rule = EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.HttpError(500))
+        val rule = EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.ReturnResponse(500))
         controller.addRule(rule)
         setContent()
 
@@ -236,4 +268,16 @@ class NetKitScreenTest {
         assertEquals(0L, state.global.latencyMillis)
         assertFalse(state.isSimulating)
     }
+}
+
+/** The console's own suites never exercise replay; this keeps them honest about it. */
+private object NoOpUiReplayer : RequestReplayer {
+    override fun eligibility(recordId: Long): ReplayEligibility =
+        ReplayEligibility.Unavailable(ReplayUnavailableReason.NO_SNAPSHOT)
+
+    override suspend fun replay(
+        recordId: Long,
+        override: ReplayOverride,
+        bypassNetKit: Boolean,
+    ): ReplayResult = ReplayResult.Unavailable(ReplayUnavailableReason.NO_SNAPSHOT)
 }

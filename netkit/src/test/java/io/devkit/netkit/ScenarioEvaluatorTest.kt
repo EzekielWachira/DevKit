@@ -10,8 +10,9 @@ import io.devkit.netkit.scenario.GlobalNetworkConfig
 import io.devkit.netkit.scenario.GlobalNetworkMode
 import io.devkit.netkit.scenario.HttpMethod
 import io.devkit.netkit.scenario.NetworkAction
-import io.devkit.netkit.scenario.NetworkScenario
 import io.devkit.netkit.scenario.RequestTarget
+import io.devkit.netkit.scenario.runtime.ActiveNetworkConfiguration
+import io.devkit.netkit.scenario.runtime.DefaultScenarioExecutionState
 import io.devkit.netkit.scenario.TimeoutType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -19,7 +20,13 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-/** Covers the full precedence table documented on [ScenarioEvaluator]. */
+/**
+ * Covers the full precedence table documented on [ScenarioEvaluator].
+ *
+ * Every case here is the *temporary* layer, which is NetKit 0.1's behaviour
+ * unchanged. Saved-scenario precedence and response sequences have their own
+ * suites; keeping them apart is what makes a 0.1 regression obvious.
+ */
 class ScenarioEvaluatorTest {
 
     private fun target(method: String = "GET", path: String = "/api/v1/bookings") = RequestTarget(
@@ -30,17 +37,25 @@ class ScenarioEvaluatorTest {
         path = path,
     )
 
+    private val executionState = DefaultScenarioExecutionState()
+
+    /** Every case here goes through the same seam the engine uses. */
+    private fun evaluate(
+        configuration: ActiveNetworkConfiguration,
+        target: RequestTarget,
+    ): ScenarioDecision = ScenarioEvaluator.evaluate(configuration, target, executionState)
+
     private fun rule(
         path: String = "/api/v1/bookings",
         method: HttpMethod = HttpMethod.ANY,
-        action: NetworkAction = NetworkAction.HttpError(500),
+        action: NetworkAction = NetworkAction.ReturnResponse(500),
         enabled: Boolean = true,
         name: String? = null,
     ) = EndpointRule.forPath(path, method, action, name, enabled)
 
     @Test
     fun `no rules and normal global passes through`() {
-        val decision = ScenarioEvaluator.evaluate(NetworkScenario(), target())
+        val decision = evaluate(ActiveNetworkConfiguration(), target())
 
         assertTrue(decision is ScenarioDecision.PassThrough)
         assertEquals(DecisionOrigin.NONE, decision.origin)
@@ -49,13 +64,13 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `disabled netkit ignores every rule and the global mode`() {
-        val scenario = NetworkScenario(
+        val scenario = ActiveNetworkConfiguration(
             enabled = false,
             global = GlobalNetworkConfig(mode = GlobalNetworkMode.Offline, latencyMillis = 5_000),
             rules = listOf(rule()),
         )
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target())
+        val decision = evaluate(scenario, target())
 
         assertTrue(decision is ScenarioDecision.PassThrough)
         assertEquals(DecisionOrigin.NONE, decision.origin)
@@ -63,9 +78,9 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `exact path matches`() {
-        val scenario = NetworkScenario(rules = listOf(rule(path = "/api/v1/bookings")))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(rule(path = "/api/v1/bookings")))
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target(path = "/api/v1/bookings"))
+        val decision = evaluate(scenario, target(path = "/api/v1/bookings"))
 
         assertTrue(decision is ScenarioDecision.RespondWith)
         assertEquals(500, (decision as ScenarioDecision.RespondWith).statusCode)
@@ -74,56 +89,56 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `a different path does not match`() {
-        val scenario = NetworkScenario(rules = listOf(rule(path = "/api/v1/bookings")))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(rule(path = "/api/v1/bookings")))
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target(path = "/api/v1/profile"))
+        val decision = evaluate(scenario, target(path = "/api/v1/profile"))
 
         assertTrue(decision is ScenarioDecision.PassThrough)
     }
 
     @Test
     fun `trailing slashes and missing leading slashes describe the same endpoint`() {
-        val scenario = NetworkScenario(rules = listOf(rule(path = "api/v1/bookings/")))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(rule(path = "api/v1/bookings/")))
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target(path = "/api/v1/bookings"))
+        val decision = evaluate(scenario, target(path = "/api/v1/bookings"))
 
         assertTrue(decision is ScenarioDecision.RespondWith)
     }
 
     @Test
     fun `method matching claims the right verb`() {
-        val scenario = NetworkScenario(rules = listOf(rule(method = HttpMethod.POST)))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(rule(method = HttpMethod.POST)))
 
-        val matched = ScenarioEvaluator.evaluate(scenario, target(method = "POST"))
+        val matched = evaluate(scenario, target(method = "POST"))
         assertTrue(matched is ScenarioDecision.RespondWith)
     }
 
     @Test
     fun `a rule scoped to another verb does not match`() {
-        val scenario = NetworkScenario(rules = listOf(rule(method = HttpMethod.POST)))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(rule(method = HttpMethod.POST)))
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target(method = "GET"))
+        val decision = evaluate(scenario, target(method = "GET"))
 
         assertTrue(decision is ScenarioDecision.PassThrough)
     }
 
     @Test
     fun `method matching is case insensitive`() {
-        val scenario = NetworkScenario(rules = listOf(rule(method = HttpMethod.DELETE)))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(rule(method = HttpMethod.DELETE)))
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target(method = "delete"))
+        val decision = evaluate(scenario, target(method = "delete"))
 
         assertTrue(decision is ScenarioDecision.RespondWith)
     }
 
     @Test
     fun `ANY claims every verb`() {
-        val scenario = NetworkScenario(rules = listOf(rule(method = HttpMethod.ANY)))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(rule(method = HttpMethod.ANY)))
 
         listOf("GET", "POST", "PATCH", "OPTIONS").forEach { method ->
             assertTrue(
                 "expected $method to match",
-                ScenarioEvaluator.evaluate(scenario, target(method = method))
+                evaluate(scenario, target(method = method))
                     is ScenarioDecision.RespondWith,
             )
         }
@@ -131,12 +146,12 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `a disabled rule is ignored and the global mode applies instead`() {
-        val scenario = NetworkScenario(
+        val scenario = ActiveNetworkConfiguration(
             global = GlobalNetworkConfig(mode = GlobalNetworkMode.Offline),
             rules = listOf(rule(enabled = false)),
         )
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target())
+        val decision = evaluate(scenario, target())
 
         assertTrue(decision is ScenarioDecision.FailOffline)
         assertEquals(DecisionOrigin.GLOBAL, decision.origin)
@@ -144,14 +159,14 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `the first matching rule wins`() {
-        val scenario = NetworkScenario(
+        val scenario = ActiveNetworkConfiguration(
             rules = listOf(
-                rule(action = NetworkAction.HttpError(503), name = "first"),
-                rule(action = NetworkAction.HttpError(500), name = "second"),
+                rule(action = NetworkAction.ReturnResponse(503), name = "first"),
+                rule(action = NetworkAction.ReturnResponse(500), name = "second"),
             ),
         )
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target()) as ScenarioDecision.RespondWith
+        val decision = evaluate(scenario, target()) as ScenarioDecision.RespondWith
 
         assertEquals(503, decision.statusCode)
         assertEquals("first", decision.scenarioLabel)
@@ -159,12 +174,12 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `an endpoint rule replaces the global mode rather than composing with it`() {
-        val scenario = NetworkScenario(
+        val scenario = ActiveNetworkConfiguration(
             global = GlobalNetworkConfig(mode = GlobalNetworkMode.Offline, latencyMillis = 5_000),
             rules = listOf(rule(action = NetworkAction.Delay(100))),
         )
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target())
+        val decision = evaluate(scenario, target())
 
         assertTrue(decision is ScenarioDecision.Delay)
         assertEquals(100L, (decision as ScenarioDecision.Delay).delayMillis)
@@ -173,13 +188,13 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `a pass-through rule exempts an endpoint from global offline`() {
-        val scenario = NetworkScenario(
+        val scenario = ActiveNetworkConfiguration(
             global = GlobalNetworkConfig(mode = GlobalNetworkMode.Offline),
             rules = listOf(rule(path = "/api/v1/profile", action = NetworkAction.PassThrough)),
         )
 
-        val exempt = ScenarioEvaluator.evaluate(scenario, target(path = "/api/v1/profile"))
-        val other = ScenarioEvaluator.evaluate(scenario, target(path = "/api/v1/bookings"))
+        val exempt = evaluate(scenario, target(path = "/api/v1/profile"))
+        val other = evaluate(scenario, target(path = "/api/v1/bookings"))
 
         assertTrue(exempt is ScenarioDecision.PassThrough)
         assertEquals(DecisionOrigin.ENDPOINT_RULE, exempt.origin)
@@ -188,9 +203,9 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `global offline fails every unclaimed request`() {
-        val scenario = NetworkScenario(global = GlobalNetworkConfig(mode = GlobalNetworkMode.Offline))
+        val scenario = ActiveNetworkConfiguration(global = GlobalNetworkConfig(mode = GlobalNetworkMode.Offline))
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target())
+        val decision = evaluate(scenario, target())
 
         assertTrue(decision is ScenarioDecision.FailOffline)
         assertTrue(decision.isSimulated)
@@ -198,21 +213,21 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `endpoint offline fails only the claimed endpoint`() {
-        val scenario = NetworkScenario(rules = listOf(rule(action = NetworkAction.Offline)))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(rule(action = NetworkAction.Offline)))
 
-        assertTrue(ScenarioEvaluator.evaluate(scenario, target()) is ScenarioDecision.FailOffline)
+        assertTrue(evaluate(scenario, target()) is ScenarioDecision.FailOffline)
         assertTrue(
-            ScenarioEvaluator.evaluate(scenario, target(path = "/other")) is ScenarioDecision.PassThrough,
+            evaluate(scenario, target(path = "/other")) is ScenarioDecision.PassThrough,
         )
     }
 
     @Test
     fun `global timeout carries the configured type`() {
-        val scenario = NetworkScenario(
+        val scenario = ActiveNetworkConfiguration(
             global = GlobalNetworkConfig(mode = GlobalNetworkMode.Timeout(TimeoutType.CONNECT)),
         )
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target()) as ScenarioDecision.FailTimeout
+        val decision = evaluate(scenario, target()) as ScenarioDecision.FailTimeout
 
         assertEquals(TimeoutType.CONNECT, decision.type)
         assertEquals(DecisionOrigin.GLOBAL, decision.origin)
@@ -220,11 +235,11 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `endpoint timeout carries the configured type`() {
-        val scenario = NetworkScenario(
+        val scenario = ActiveNetworkConfiguration(
             rules = listOf(rule(action = NetworkAction.Timeout(TimeoutType.READ))),
         )
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target()) as ScenarioDecision.FailTimeout
+        val decision = evaluate(scenario, target()) as ScenarioDecision.FailTimeout
 
         assertEquals(TimeoutType.READ, decision.type)
         assertEquals(DecisionOrigin.ENDPOINT_RULE, decision.origin)
@@ -232,9 +247,9 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `global latency becomes a delay decision`() {
-        val scenario = NetworkScenario(global = GlobalNetworkConfig(latencyMillis = 2_500))
+        val scenario = ActiveNetworkConfiguration(global = GlobalNetworkConfig(latencyMillis = 2_500))
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target()) as ScenarioDecision.Delay
+        val decision = evaluate(scenario, target()) as ScenarioDecision.Delay
 
         assertEquals(2_500L, decision.delayMillis)
         assertEquals(DecisionOrigin.GLOBAL, decision.origin)
@@ -243,9 +258,9 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `a zero-millisecond endpoint delay collapses to pass through`() {
-        val scenario = NetworkScenario(rules = listOf(rule(action = NetworkAction.Delay(0))))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(rule(action = NetworkAction.Delay(0))))
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target())
+        val decision = evaluate(scenario, target())
 
         assertTrue(decision is ScenarioDecision.PassThrough)
         assertEquals(DecisionOrigin.ENDPOINT_RULE, decision.origin)
@@ -253,9 +268,9 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `an http error without a body gets the default envelope`() {
-        val scenario = NetworkScenario(rules = listOf(rule(action = NetworkAction.HttpError(404))))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(rule(action = NetworkAction.ReturnResponse(404))))
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target()) as ScenarioDecision.RespondWith
+        val decision = evaluate(scenario, target()) as ScenarioDecision.RespondWith
 
         assertEquals(NetKitDefaults.DEFAULT_ERROR_BODY, decision.body)
         assertEquals("application/json", decision.contentType)
@@ -263,10 +278,10 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `a custom body and content type are carried through`() {
-        val scenario = NetworkScenario(
+        val scenario = ActiveNetworkConfiguration(
             rules = listOf(
                 rule(
-                    action = NetworkAction.HttpError(
+                    action = NetworkAction.ReturnResponse(
                         statusCode = 503,
                         body = """{"message":"Bookings service temporarily unavailable"}""",
                         contentType = "application/problem+json",
@@ -277,7 +292,7 @@ class ScenarioEvaluatorTest {
             ),
         )
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target()) as ScenarioDecision.RespondWith
+        val decision = evaluate(scenario, target()) as ScenarioDecision.RespondWith
 
         assertEquals(503, decision.statusCode)
         assertEquals("""{"message":"Bookings service temporarily unavailable"}""", decision.body)
@@ -290,16 +305,16 @@ class ScenarioEvaluatorTest {
     @Test
     fun `the responsible rule id travels with the decision`() {
         val configured = rule()
-        val scenario = NetworkScenario(rules = listOf(configured))
+        val scenario = ActiveNetworkConfiguration(rules = listOf(configured))
 
-        val decision = ScenarioEvaluator.evaluate(scenario, target())
+        val decision = evaluate(scenario, target())
 
         assertEquals(configured.id, decision.ruleId)
     }
 
     @Test
     fun `a pass-through decision from an idle scenario names no scenario`() {
-        val decision = ScenarioEvaluator.evaluate(NetworkScenario(), target())
+        val decision = evaluate(ActiveNetworkConfiguration(), target())
 
         assertNull(decision.scenarioLabel)
         assertNull(decision.ruleId)
@@ -307,13 +322,13 @@ class ScenarioEvaluatorTest {
 
     @Test
     fun `idle is true only when nothing can affect a request`() {
-        assertTrue(NetworkScenario().isIdle)
-        assertTrue(NetworkScenario(enabled = false, rules = listOf(rule())).isIdle)
-        assertTrue(NetworkScenario(rules = listOf(rule(enabled = false))).isIdle)
-        assertFalse(NetworkScenario(rules = listOf(rule())).isIdle)
-        assertFalse(NetworkScenario(global = GlobalNetworkConfig(latencyMillis = 1)).isIdle)
+        assertTrue(ActiveNetworkConfiguration().isIdle)
+        assertTrue(ActiveNetworkConfiguration(enabled = false, rules = listOf(rule())).isIdle)
+        assertTrue(ActiveNetworkConfiguration(rules = listOf(rule(enabled = false))).isIdle)
+        assertFalse(ActiveNetworkConfiguration(rules = listOf(rule())).isIdle)
+        assertFalse(ActiveNetworkConfiguration(global = GlobalNetworkConfig(latencyMillis = 1)).isIdle)
         assertFalse(
-            NetworkScenario(global = GlobalNetworkConfig(mode = GlobalNetworkMode.Offline)).isIdle,
+            ActiveNetworkConfiguration(global = GlobalNetworkConfig(mode = GlobalNetworkMode.Offline)).isIdle,
         )
     }
 
@@ -323,14 +338,14 @@ class ScenarioEvaluatorTest {
             override val label = "/api/v1/*"
             override fun matches(target: RequestTarget) = target.path.startsWith("/api/v1/")
         }
-        val scenario = NetworkScenario(
+        val scenario = ActiveNetworkConfiguration(
             rules = listOf(
-                EndpointRule(matcher = prefixMatcher, action = NetworkAction.HttpError(429)),
+                EndpointRule(matcher = prefixMatcher, action = NetworkAction.ReturnResponse(429)),
             ),
         )
 
-        val matched = ScenarioEvaluator.evaluate(scenario, target(path = "/api/v1/anything"))
-        val unmatched = ScenarioEvaluator.evaluate(scenario, target(path = "/api/v2/anything"))
+        val matched = evaluate(scenario, target(path = "/api/v1/anything"))
+        val unmatched = evaluate(scenario, target(path = "/api/v2/anything"))
 
         assertTrue(matched is ScenarioDecision.RespondWith)
         assertTrue(unmatched is ScenarioDecision.PassThrough)
@@ -338,7 +353,7 @@ class ScenarioEvaluatorTest {
 
     @Test(expected = IllegalArgumentException::class)
     fun `an out-of-range status is rejected at construction`() {
-        NetworkAction.HttpError(999)
+        NetworkAction.ReturnResponse(999)
     }
 
     @Test(expected = IllegalArgumentException::class)

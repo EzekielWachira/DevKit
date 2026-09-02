@@ -43,10 +43,16 @@ import io.devkit.netkit.ui.NetKitTestTags
 import io.devkit.netkit.ui.components.NetKitChoiceChip
 import io.devkit.netkit.ui.components.NetKitGutter
 import io.devkit.netkit.ui.components.NetKitMonoStyle
+import io.devkit.netkit.ui.components.NetKitRowAction
 import io.devkit.netkit.ui.components.NetKitSectionLabel
 
 /**
- * Create or edit one endpoint override.
+ * Create or edit one endpoint rule.
+ *
+ * The **same** sheet serves temporary overrides and rules inside a saved
+ * scenario — a rule is a rule, and a second editor would mean two places to fix
+ * every validation bug. Only the wording of the title and the save button
+ * changes, via [title] and [saveLabel].
  *
  * Behaviour-specific fields appear only for the selected behaviour, so the form
  * never shows a field that cannot affect the result. Every picker is a chip row
@@ -60,6 +66,8 @@ internal fun RuleEditorSheet(
     onSave: (EndpointRule) -> Unit,
     onDelete: (String) -> Unit,
     onDismiss: () -> Unit,
+    title: String? = null,
+    saveLabel: String? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var form by remember(initial.ruleId) { mutableStateOf(initial) }
@@ -80,7 +88,8 @@ internal fun RuleEditorSheet(
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
             Text(
-                text = if (form.isEditing) "Edit endpoint override" else "New endpoint override",
+                text = title
+                    ?: if (form.isEditing) "Edit endpoint rule" else "New endpoint rule",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
             )
@@ -101,8 +110,8 @@ internal fun RuleEditorSheet(
             }
 
             if (form.matcherOverride != null) {
-                // A rule created in code with a custom matcher: NetKit 0.1 cannot
-                // edit it without silently downgrading it to an exact path.
+                // A rule created in code with a custom matcher: the editor cannot
+                // express it without silently downgrading it to an exact path.
                 NetKitSectionLabel("Match")
                 Text(
                     text = form.matcherOverride?.label.orEmpty(),
@@ -145,7 +154,17 @@ internal fun RuleEditorSheet(
                     NetKitChoiceChip(
                         label = behavior.label,
                         selected = form.behavior == behavior,
-                        onClick = { form = form.copy(behavior = behavior) },
+                        onClick = {
+                            form = form.copy(behavior = behavior).let { next ->
+                                // Switching to a sequence with no steps yet would
+                                // show an error before the user has done anything.
+                                if (behavior == RuleBehavior.SEQUENCE && next.steps.isEmpty()) {
+                                    next.withNewStep()
+                                } else {
+                                    next
+                                }
+                            }
+                        },
                         modifier = Modifier.testTag(
                             NetKitTestTags.EDITOR_BEHAVIOR_PREFIX + behavior.name,
                         ),
@@ -163,55 +182,9 @@ internal fun RuleEditorSheet(
 
                 RuleBehavior.DELAY -> DelayField(form) { form = it }
 
-                RuleBehavior.HTTP_ERROR -> {
-                    NetKitSectionLabel("Status")
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        RuleEditorState.statusChips.forEach { status ->
-                            NetKitChoiceChip(
-                                label = status.toString(),
-                                selected = form.statusText.trim() == status.toString(),
-                                onClick = { form = form.copy(statusText = status.toString()) },
-                            )
-                        }
-                    }
-                    OutlinedTextField(
-                        value = form.statusText,
-                        onValueChange = { form = form.copy(statusText = it) },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag(NetKitTestTags.EDITOR_STATUS),
-                        label = { Text("HTTP status") },
-                        singleLine = true,
-                        isError = form.statusError != null,
-                        supportingText = {
-                            Text(
-                                form.statusError
-                                    ?: NetKitDefaults.statusLabel(
-                                        form.statusText.trim().toIntOrNull() ?: 500,
-                                    ),
-                            )
-                        },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Number,
-                            imeAction = ImeAction.Next,
-                        ),
-                    )
-                    NetKitSectionLabel("Content type")
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        NetKitDefaults.COMMON_CONTENT_TYPES.forEach { type ->
-                            NetKitChoiceChip(
-                                label = type,
-                                selected = form.contentType == type,
-                                onClick = { form = form.copy(contentType = type) },
-                            )
-                        }
-                    }
+                RuleBehavior.RESPONSE -> {
+                    StatusField(form) { form = it }
+                    ContentTypeField(form) { form = it }
                     OutlinedTextField(
                         value = form.bodyText,
                         onValueChange = { form = form.copy(bodyText = it) },
@@ -220,12 +193,34 @@ internal fun RuleEditorSheet(
                             .heightIn(min = 110.dp)
                             .testTag(NetKitTestTags.EDITOR_BODY),
                         label = { Text("Response body (optional)") },
-                        placeholder = { Text("{\"message\":\"Service unavailable\"}") },
+                        placeholder = { Text("{\"data\":[]}") },
                         textStyle = NetKitMonoStyle,
-                        supportingText = { Text("Left empty, NetKit returns a default JSON envelope.") },
+                        isError = form.bodyError != null,
+                        supportingText = {
+                            Text(
+                                form.bodyError
+                                    ?: "Left empty, NetKit returns a minimal JSON envelope.",
+                            )
+                        },
                     )
+                    ResponseHeadersEditor(form) { form = it }
                     DelayField(form) { form = it }
                 }
+
+                RuleBehavior.MALFORMED -> {
+                    NetKitSectionLabel("Malformed payload")
+                    MalformedPicker(
+                        selected = form.malformedType,
+                        onSelect = { form = form.copy(malformedType = it) },
+                    )
+                    StatusField(form) { form = it }
+                    DelayField(form) { form = it }
+                }
+
+                RuleBehavior.SEQUENCE -> SequenceEditor(
+                    form = form,
+                    onChange = { form = it },
+                )
 
                 RuleBehavior.OFFLINE -> Text(
                     text = "Requests to this endpoint fail with an UnknownHostException, " +
@@ -264,7 +259,7 @@ internal fun RuleEditorSheet(
                 label = { Text("Name (optional)") },
                 placeholder = { Text("Bookings failure") },
                 singleLine = true,
-                supportingText = { Text("Shown in history as the scenario responsible.") },
+                supportingText = { Text("Shown in history as the rule responsible.") },
             )
 
             Row(
@@ -300,11 +295,144 @@ internal fun RuleEditorSheet(
                         .testTag(NetKitTestTags.EDITOR_SAVE),
                     enabled = form.isValid,
                 ) {
-                    Text(if (form.isEditing) "Save changes" else "Add override")
+                    Text(saveLabel ?: if (form.isEditing) "Save changes" else "Add rule")
                 }
             }
         }
     }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun StatusField(form: RuleEditorState, onChange: (RuleEditorState) -> Unit) {
+    NetKitSectionLabel("Status")
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        RuleEditorState.statusChips.forEach { status ->
+            NetKitChoiceChip(
+                label = status.toString(),
+                selected = form.statusText.trim() == status.toString(),
+                onClick = { onChange(form.copy(statusText = status.toString())) },
+            )
+        }
+    }
+    OutlinedTextField(
+        value = form.statusText,
+        onValueChange = { onChange(form.copy(statusText = it)) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(NetKitTestTags.EDITOR_STATUS),
+        label = { Text("HTTP status") },
+        singleLine = true,
+        isError = form.statusError != null,
+        supportingText = {
+            Text(
+                form.statusError
+                    ?: NetKitDefaults.statusLabel(form.statusText.trim().toIntOrNull() ?: 500),
+            )
+        },
+        keyboardOptions = KeyboardOptions(
+            keyboardType = KeyboardType.Number,
+            imeAction = ImeAction.Next,
+        ),
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ContentTypeField(form: RuleEditorState, onChange: (RuleEditorState) -> Unit) {
+    NetKitSectionLabel("Content type")
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        NetKitDefaults.COMMON_CONTENT_TYPES.forEach { type ->
+            NetKitChoiceChip(
+                label = type,
+                selected = form.contentType == type,
+                onClick = { onChange(form.copy(contentType = type)) },
+            )
+        }
+    }
+}
+
+/**
+ * Custom response headers.
+ *
+ * Worth the extra rows: `Retry-After`, `X-RateLimit-Remaining` and
+ * `Content-Language` are the difference between "the error screen shows" and
+ * "the retry-with-backoff path actually runs".
+ */
+@Composable
+private fun ResponseHeadersEditor(form: RuleEditorState, onChange: (RuleEditorState) -> Unit) {
+    NetKitSectionLabel(
+        label = "Response headers",
+        trailing = if (form.headers.isEmpty()) "none" else "${form.headers.size}",
+    )
+    form.headers.forEachIndexed { index, header ->
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            OutlinedTextField(
+                value = header.name,
+                onValueChange = { value ->
+                    onChange(form.copy(headers = form.headers.replaced(index, header.copy(name = value))))
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(NetKitTestTags.EDITOR_HEADER_NAME_PREFIX + index),
+                label = { Text("Name") },
+                placeholder = { Text("Retry-After") },
+                singleLine = true,
+                textStyle = NetKitMonoStyle,
+                isError = header.error != null,
+            )
+            OutlinedTextField(
+                value = header.value,
+                onValueChange = { value ->
+                    onChange(form.copy(headers = form.headers.replaced(index, header.copy(value = value))))
+                },
+                modifier = Modifier
+                    .weight(1f)
+                    .testTag(NetKitTestTags.EDITOR_HEADER_VALUE_PREFIX + index),
+                label = { Text("Value") },
+                placeholder = { Text("60") },
+                singleLine = true,
+                textStyle = NetKitMonoStyle,
+            )
+            NetKitRowAction(
+                label = "Remove",
+                onClick = {
+                    onChange(form.copy(headers = form.headers.filterIndexed { i, _ -> i != index }))
+                },
+                contentDescription = "Remove header ${index + 1}",
+            )
+        }
+    }
+    form.headerError?.let { error ->
+        Text(
+            text = error,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+    OutlinedButton(
+        onClick = { onChange(form.copy(headers = form.headers + HeaderForm())) },
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag(NetKitTestTags.EDITOR_HEADER_ADD),
+    ) {
+        Text("Add header")
+    }
+    Text(
+        text = "Credential-bearing headers are removed when a scenario is exported.",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
 }
 
 @Composable
@@ -328,3 +456,6 @@ private fun DelayField(form: RuleEditorState, onChange: (RuleEditorState) -> Uni
         ),
     )
 }
+
+private fun <T> List<T>.replaced(index: Int, value: T): List<T> =
+    if (index !in indices) this else toMutableList().apply { set(index, value) }

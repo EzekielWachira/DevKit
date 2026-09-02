@@ -15,6 +15,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -26,6 +27,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.devkit.netkit.history.NetworkOutcome
+import io.devkit.netkit.replay.ReplayEligibility
 import io.devkit.netkit.history.NetworkRecord
 import io.devkit.netkit.masking.MaskedHeader
 import io.devkit.netkit.ui.NetKitFormat
@@ -49,6 +51,8 @@ import io.devkit.netkit.ui.components.NetKitSectionLabel
 @Composable
 internal fun RecordDetailSheet(
     record: NetworkRecord,
+    replayEligibility: ReplayEligibility,
+    onReplay: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -84,9 +88,9 @@ internal fun RecordDetailSheet(
                     style = MaterialTheme.typography.titleSmall,
                     fontWeight = FontWeight.Bold,
                 )
-                if (record.isSimulated) {
+                record.badges.forEach { badge ->
                     NetKitBadge(
-                        text = "SIMULATED",
+                        text = badge,
                         container = MaterialTheme.colorScheme.tertiaryContainer,
                         content = MaterialTheme.colorScheme.onTertiaryContainer,
                     )
@@ -123,7 +127,20 @@ internal fun RecordDetailSheet(
                     label = "Source",
                     value = if (record.isSimulated) "Simulated by NetKit" else "Real server",
                 )
-                record.scenarioLabel?.let { NetKitKeyValueRow(label = "Scenario", value = it) }
+                NetKitKeyValueRow(label = "Kind", value = record.kind.label)
+                record.replayOfRecordId?.let {
+                    NetKitKeyValueRow(label = "Replay of", value = "request #$it")
+                }
+                record.scenarioLabel?.let { NetKitKeyValueRow(label = "Rule", value = it) }
+                record.ruleSource?.let {
+                    NetKitKeyValueRow(
+                        label = "Applied by",
+                        value = NetKitFormat.ruleSourceLabel(it),
+                    )
+                }
+                record.sequenceDisplay?.let {
+                    NetKitKeyValueRow(label = "Sequence step", value = it)
+                }
             }
 
             NetKitDivider()
@@ -158,6 +175,14 @@ internal fun RecordDetailSheet(
                 )
             }
 
+            NetKitDivider()
+
+            ReplaySection(
+                record = record,
+                eligibility = replayEligibility,
+                onReplay = onReplay,
+            )
+
             OutlinedButton(
                 onClick = { copyToClipboard(context, NetKitFormat.recordAsText(record)) },
                 modifier = Modifier
@@ -167,6 +192,56 @@ internal fun RecordDetailSheet(
                 Text("Copy details (masked)")
             }
         }
+    }
+}
+
+/**
+ * The Replay entry point.
+ *
+ * Replay is offered as a button, not hidden behind a long-press: it is the whole
+ * reason a developer opens this sheet after a failure. When it is unavailable —
+ * an evicted snapshot, a one-shot body, replay switched off — the sheet says why
+ * instead of showing a button that does nothing.
+ */
+@Composable
+private fun ReplaySection(
+    record: NetworkRecord,
+    eligibility: ReplayEligibility,
+    onReplay: () -> Unit,
+) {
+    NetKitSectionLabel("Replay")
+    when (eligibility) {
+        is ReplayEligibility.Eligible -> {
+            Button(
+                onClick = onReplay,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag(NetKitTestTags.DETAIL_REPLAY),
+            ) {
+                Text("Replay this request")
+            }
+            Text(
+                text = if (eligibility.snapshot.isSideEffectful) {
+                    "${record.method} can create or modify real backend data. " +
+                        "NetKit asks you to confirm before sending it."
+                } else {
+                    "Sends the request again through NetKit. The result is recorded in " +
+                        "history and is not returned to the screen that made the original call."
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (eligibility.snapshot.isSideEffectful) {
+                    MaterialTheme.colorScheme.error
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+
+        is ReplayEligibility.Unavailable -> Text(
+            text = eligibility.reason.message,
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
 }
 

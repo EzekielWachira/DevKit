@@ -51,6 +51,7 @@ class NetKitInterceptorTest {
 
     @After
     fun tearDown() {
+        netKit.shutdown()
         server.shutdown()
     }
 
@@ -75,7 +76,7 @@ class NetKitInterceptorTest {
     @Test
     fun `a disabled netkit passes through even with rules configured`() {
         netKit.controller.addRule(
-            EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.HttpError(500)),
+            EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.ReturnResponse(500)),
         )
         netKit.controller.disable()
         server.enqueue(MockResponse().setResponseCode(200))
@@ -89,7 +90,7 @@ class NetKitInterceptorTest {
     @Test
     fun `a simulated response never reaches the server`() {
         netKit.controller.addRule(
-            EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.HttpError(500)),
+            EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.ReturnResponse(500)),
         )
 
         client.newCall(get()).execute().use { response ->
@@ -105,7 +106,7 @@ class NetKitInterceptorTest {
             EndpointRule.forPath(
                 path = "/api/v1/bookings",
                 method = HttpMethod.GET,
-                action = NetworkAction.HttpError(
+                action = NetworkAction.ReturnResponse(
                     statusCode = 503,
                     body = """{"message":"Bookings service temporarily unavailable"}""",
                     contentType = "application/json",
@@ -128,7 +129,7 @@ class NetKitInterceptorTest {
     @Test
     fun `an override with no body returns the default envelope`() {
         netKit.controller.addRule(
-            EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.HttpError(429)),
+            EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.ReturnResponse(429)),
         )
 
         client.newCall(get()).execute().use { response ->
@@ -140,7 +141,7 @@ class NetKitInterceptorTest {
     @Test
     fun `other endpoints keep reaching the real backend while one is overridden`() {
         netKit.controller.addRule(
-            EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.HttpError(500)),
+            EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.ReturnResponse(500)),
         )
         server.enqueue(MockResponse().setResponseCode(200).setBody("profile"))
 
@@ -276,7 +277,7 @@ class NetKitInterceptorTest {
     fun `a simulated request is recorded as SIMULATED with the responsible scenario`() {
         val rule = EndpointRule.forPath(
             path = "/api/v1/bookings",
-            action = NetworkAction.HttpError(500),
+            action = NetworkAction.ReturnResponse(500),
             name = "Bookings Failure",
         )
         netKit.controller.addRule(rule)
@@ -387,7 +388,7 @@ class NetKitInterceptorTest {
     fun `reset restores normal networking and keeps history`() {
         netKit.controller.setOffline(true)
         netKit.controller.addRule(
-            EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.HttpError(500)),
+            EndpointRule.forPath("/api/v1/bookings", action = NetworkAction.ReturnResponse(500)),
         )
         runCatching { client.newCall(get("/api/v1/profile")).execute() }
         server.enqueue(MockResponse().setResponseCode(200))

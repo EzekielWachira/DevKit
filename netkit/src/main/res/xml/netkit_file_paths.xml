@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    NetKit only ever shares files it wrote itself, into one cache subdirectory.
+    Nothing else in the app's storage is reachable through this provider.
+-->
+<paths>
+    <cache-path
+        name="netkit-exports"
+        path="netkit-exports/" />
+</paths>
