@@ -1,10 +1,15 @@
 package io.devkit.netkit.ui
 
+import android.content.Context
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -12,8 +17,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
@@ -21,29 +30,48 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.VerticalDivider
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import io.devkit.netkit.android.ScenarioFileResult
+import io.devkit.netkit.android.ScenarioFiles
 import io.devkit.netkit.history.NetworkRecord
+import io.devkit.netkit.replay.ReplayResult
+import io.devkit.netkit.scenario.model.NetworkScenario
+import io.devkit.netkit.scenario.model.ScenarioMetadata
+import io.devkit.netkit.scenario.persistence.ScenarioWriteResult
+import io.devkit.netkit.scenario.runtime.ScenarioImportOutcome
 import io.devkit.netkit.state.NetKitController
 import io.devkit.netkit.state.NetKitState
 import io.devkit.netkit.ui.components.NetKitBadge
 import io.devkit.netkit.ui.components.NetKitDivider
 import io.devkit.netkit.ui.components.NetKitGutter
+import io.devkit.netkit.ui.console.ConsoleTab
 import io.devkit.netkit.ui.details.RecordDetailSheet
 import io.devkit.netkit.ui.history.HistoryTab
+import io.devkit.netkit.ui.replay.ReplaySheet
+import io.devkit.netkit.ui.scenarioeditor.ScenarioEditorSheet
+import io.devkit.netkit.ui.scenariolist.ImportPreviewSheet
+import io.devkit.netkit.ui.scenariolist.ScenarioDetailSheet
+import io.devkit.netkit.ui.scenariolist.ScenarioListTab
 import io.devkit.netkit.ui.scenarios.RuleEditorSheet
 import io.devkit.netkit.ui.scenarios.RuleEditorState
-import io.devkit.netkit.ui.scenarios.ScenariosTab
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * The NetKit debugging console.
@@ -59,12 +87,15 @@ import io.devkit.netkit.ui.scenarios.ScenariosTab
  * }
  * ```
  *
+ * Three surfaces, in the order a session uses them: **Console** is the network
+ * right now, **Scenarios** is what you have saved, **History** is what happened.
+ *
  * The screen talks only to [NetKitController]; it never touches the interceptor.
  * That boundary is what lets a future Android Studio bridge drive the same
  * runtime.
  *
- * Layout adapts to width: compact screens get tabs, wide ones show scenarios and
- * history side by side.
+ * Layout adapts to width: compact screens get tabs, wide ones show the console
+ * and history side by side.
  *
  * @param controller the runtime this console drives.
  * @param onClose invoked when the user dismisses the console. Pass `null` when
@@ -78,51 +109,358 @@ fun NetKitScreen(
 ) {
     val state by controller.state.collectAsState()
     val history by controller.history.collectAsState()
+    val scenarios by controller.scenarios.scenarios.collectAsState()
+    val packs by controller.scenarios.packContents.collectAsState()
+    val activeId by controller.scenarios.activeScenarioId.collectAsState()
+    val activeScenario by controller.scenarios.activeScenario.collectAsState()
+    val sequenceProgress by controller.scenarios.sequenceProgress.collectAsState()
+    val persistenceError by controller.scenarios.lastError.collectAsState()
+
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     var route by remember { mutableStateOf(NetKitRoute()) }
+
+    val importPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        // Off the main thread: the picked document can be several megabytes and
+        // may come from a cloud provider, and reading plus parsing it is more
+        // than a frame's worth of work.
+        scope.launch {
+            val preview = withContext(Dispatchers.IO) {
+                ScenarioFiles.read(context, uri)?.let(controller.scenarios::preview)
+            }
+            route = if (preview == null) {
+                route.copy(message = "Could not read that file.")
+            } else {
+                // Parsed and validated, but not saved: the preview sheet is the
+                // confirmation step, so a picked file never changes anything by itself.
+                route.copy(
+                    pendingImport = PendingImport(
+                        result = preview,
+                        fileName = uri.lastPathSegment?.substringAfterLast('/'),
+                    ),
+                )
+            }
+        }
+    }
+
+    // A failed write is not something to discover later by noticing a scenario
+    // did not stick.
+    LaunchedEffect(persistenceError) {
+        persistenceError?.let { route = route.copy(message = it.message) }
+    }
 
     NetKitScaffold(
         state = state,
         history = history,
+        scenarios = scenarios,
+        packs = packs,
+        activeScenario = activeScenario,
+        sequenceProgress = sequenceProgress,
         route = route,
         onRouteChange = { route = it },
         onClose = onClose,
         controller = controller,
+        onImport = { importPicker.launch(ScenarioFiles.IMPORT_MIME_TYPES) },
         modifier = modifier,
     )
 
-    route.editor?.let { editor ->
+    NetKitSheets(
+        controller = controller,
+        context = context,
+        route = route,
+        onRouteChange = { route = it },
+        activeId = activeId,
+        scenarios = scenarios,
+        packs = packs,
+        sequenceProgress = sequenceProgress,
+        scope = { block -> scope.launch { block() } },
+    )
+
+    route.message?.let { message ->
+        // Dismissed on its own as well as by hand: an import result is worth
+        // reading, and worth getting out of the way of the list afterwards.
+        LaunchedEffect(message) {
+            delay(MessageDurationMillis)
+            if (route.message == message) route = route.copy(message = null)
+        }
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.BottomCenter) {
+            Snackbar(
+                modifier = Modifier.padding(NetKitGutter),
+                action = {
+                    TextButton(onClick = { route = route.copy(message = null) }) { Text("Dismiss") }
+                },
+            ) {
+                Text(message)
+            }
+        }
+    }
+}
+
+/**
+ * Every sheet and dialog the console can show.
+ *
+ * Split out of the scaffold so the layout code stays about layout: this function
+ * is a flat list of "if this route field is set, show that sheet", which is the
+ * easiest possible shape to check for a missing dismissal.
+ */
+@Composable
+private fun NetKitSheets(
+    controller: NetKitController,
+    context: Context,
+    route: NetKitRoute,
+    onRouteChange: (NetKitRoute) -> Unit,
+    activeId: io.devkit.netkit.scenario.model.ScenarioId?,
+    scenarios: List<NetworkScenario>,
+    packs: List<io.devkit.netkit.scenario.model.ScenarioPackContents>,
+    sequenceProgress: Map<String, io.devkit.netkit.scenario.runtime.SequenceProgress>,
+    scope: (suspend () -> Unit) -> Unit,
+) {
+    route.ruleEditor?.let { editor ->
         RuleEditorSheet(
             initial = editor,
             onSave = { rule ->
                 if (editor.isEditing) controller.updateRule(rule) else controller.addRule(rule)
-                route = route.copy(editor = null)
+                onRouteChange(route.copy(ruleEditor = null))
             },
             onDelete = { id ->
                 controller.removeRule(id)
-                route = route.copy(editor = null)
+                onRouteChange(route.copy(ruleEditor = null))
             },
-            onDismiss = { route = route.copy(editor = null) },
+            onDismiss = { onRouteChange(route.copy(ruleEditor = null)) },
         )
     }
 
     route.detail?.let { record ->
         RecordDetailSheet(
             record = record,
-            onDismiss = { route = route.copy(detail = null) },
+            replayEligibility = controller.replayer.eligibility(record.id),
+            onReplay = { onRouteChange(route.copy(detail = null, replay = record)) },
+            onDismiss = { onRouteChange(route.copy(detail = null)) },
+        )
+    }
+
+    route.replay?.let { record ->
+        ReplaySheet(
+            record = record,
+            eligibility = controller.replayer.eligibility(record.id),
+            onReplay = { override, bypass ->
+                onRouteChange(route.copy(replay = null))
+                scope {
+                    val message = when (val result =
+                        controller.replayer.replay(record.id, override, bypass)) {
+                        is ReplayResult.Success ->
+                            "Replayed ${record.method} ${record.path} → ${result.statusCode}" +
+                                if (result.simulated) " (simulated)" else ""
+
+                        is ReplayResult.Failed -> "Replay failed: ${result.error.message}"
+                        is ReplayResult.Unavailable -> result.reason.message
+                    }
+                    onRouteChange(route.copy(replay = null, message = message))
+                }
+            },
+            onDismiss = { onRouteChange(route.copy(replay = null)) },
+        )
+    }
+
+    route.scenarioDetail?.let { stale ->
+        // Re-read from the live list so the sheet reflects an edit made underneath it.
+        val scenario = scenarios.firstOrNull { it.id == stale.id } ?: stale
+        ScenarioDetailSheet(
+            scenario = scenario,
+            isActive = scenario.id == activeId,
+            packName = packs.firstOrNull { it.pack.id == scenario.metadata.packId }?.pack?.name,
+            sequenceProgress = sequenceProgress,
+            onActivate = {
+                scope { controller.scenarios.activate(scenario.id) }
+                onRouteChange(route.copy(scenarioDetail = null))
+            },
+            onDeactivate = {
+                scope { controller.scenarios.deactivate() }
+                onRouteChange(route.copy(scenarioDetail = null))
+            },
+            onEdit = {
+                onRouteChange(route.copy(scenarioDetail = null, scenarioEditor = scenario))
+            },
+            onDuplicate = {
+                scope {
+                    val result = controller.scenarios.duplicate(scenario.id)
+                    onRouteChange(
+                        route.copy(
+                            scenarioDetail = null,
+                            message = when (result) {
+                                is ScenarioWriteResult.Success ->
+                                    "Saved \"${result.scenario.name}\""
+
+                                is ScenarioWriteResult.Failure -> result.error.message
+                            },
+                        ),
+                    )
+                }
+            },
+            onExport = {
+                onRouteChange(route.copy(scenarioDetail = null))
+                scope {
+                    // Serialising and writing the file is disk work; only the
+                    // share sheet has to be started from the main thread.
+                    val export = controller.scenarios.export(scenario.id)
+                    val message = if (export == null) {
+                        "Could not export \"${scenario.name}\"."
+                    } else {
+                        when (val written = ScenarioFiles.share(context, export)) {
+                            is ScenarioFileResult.Ready -> buildString {
+                                append("Exported ${export.suggestedFileName}")
+                                if (export.warnings.isNotEmpty()) {
+                                    append(" · ${export.warnings.size} header removed for safety")
+                                }
+                            }
+
+                            is ScenarioFileResult.Failed -> written.message
+                        }
+                    }
+                    onRouteChange(route.copy(scenarioDetail = null, message = message))
+                }
+            },
+            onDelete = {
+                scope { controller.scenarios.delete(scenario.id) }
+                onRouteChange(
+                    route.copy(scenarioDetail = null, message = "Deleted \"${scenario.name}\""),
+                )
+            },
+            onResetSequence = controller.scenarios::resetSequence,
+            onResetAllSequences = controller.scenarios::resetAllSequences,
+            onDismiss = { onRouteChange(route.copy(scenarioDetail = null)) },
+        )
+    }
+
+    route.scenarioEditor?.let { scenario ->
+        ScenarioEditorSheet(
+            initial = scenario,
+            packs = packs.map { it.pack },
+            onSave = { edited ->
+                scope {
+                    val result = controller.scenarios.save(edited)
+                    onRouteChange(
+                        route.copy(
+                            scenarioEditor = null,
+                            message = when (result) {
+                                is ScenarioWriteResult.Success -> "Saved \"${edited.name}\""
+                                is ScenarioWriteResult.Failure -> result.error.message
+                            },
+                        ),
+                    )
+                }
+            },
+            onDismiss = { onRouteChange(route.copy(scenarioEditor = null)) },
+        )
+    }
+
+    route.pendingImport?.let { pending ->
+        ImportPreviewSheet(
+            result = pending.result,
+            fileName = pending.fileName,
+            onConfirm = {
+                scope {
+                    val message = when (val outcome =
+                        controller.scenarios.commitImport(pending.result)) {
+                        is ScenarioImportOutcome.Imported -> "Imported ${outcome.summary}"
+                        is ScenarioImportOutcome.Rejected -> outcome.reason
+                        is ScenarioImportOutcome.Failed -> outcome.error.message
+                    }
+                    onRouteChange(route.copy(pendingImport = null, message = message))
+                }
+            },
+            onDismiss = { onRouteChange(route.copy(pendingImport = null)) },
+        )
+    }
+
+    route.saveSetup?.let { prompt ->
+        SaveSetupDialog(
+            prompt = prompt,
+            onChange = { onRouteChange(route.copy(saveSetup = it)) },
+            onConfirm = {
+                scope {
+                    val result = controller.scenarios.saveCurrentSetupAsScenario(
+                        name = prompt.name.trim(),
+                        description = prompt.description.trim().takeIf(String::isNotEmpty),
+                    )
+                    onRouteChange(
+                        route.copy(
+                            saveSetup = null,
+                            message = when (result) {
+                                is ScenarioWriteResult.Success ->
+                                    "Saved \"${result.scenario.name}\" · overrides cleared"
+
+                                is ScenarioWriteResult.Failure -> result.error.message
+                            },
+                        ),
+                    )
+                }
+            },
+            onDismiss = { onRouteChange(route.copy(saveSetup = null)) },
         )
     }
 }
 
 @Composable
+private fun SaveSetupDialog(
+    prompt: SaveSetupPrompt,
+    onChange: (SaveSetupPrompt) -> Unit,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Save current setup") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = "Turns the console's global setting and every temporary override " +
+                        "into a reusable scenario, then clears them.",
+                    style = MaterialTheme.typography.bodySmall,
+                )
+                OutlinedTextField(
+                    value = prompt.name,
+                    onValueChange = { onChange(prompt.copy(name = it)) },
+                    label = { Text("Name") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                OutlinedTextField(
+                    value = prompt.description,
+                    onValueChange = { onChange(prompt.copy(description = it)) },
+                    label = { Text("Description (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onConfirm, enabled = prompt.isValid) { Text("Save") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 private fun NetKitScaffold(
     state: NetKitState,
     history: List<NetworkRecord>,
+    scenarios: List<NetworkScenario>,
+    packs: List<io.devkit.netkit.scenario.model.ScenarioPackContents>,
+    activeScenario: NetworkScenario?,
+    sequenceProgress: Map<String, io.devkit.netkit.scenario.runtime.SequenceProgress>,
     route: NetKitRoute,
     onRouteChange: (NetKitRoute) -> Unit,
     onClose: (() -> Unit)?,
     controller: NetKitController,
+    onImport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val scope = rememberCoroutineScope()
+
     Surface(
         modifier = modifier
             .fillMaxSize()
@@ -146,11 +484,35 @@ private fun NetKitScaffold(
                 if (twoPane) {
                     Row(Modifier.fillMaxSize()) {
                         Box(Modifier.weight(1f)) {
-                            Scenarios(state, controller, onRouteChange, route)
+                            Column(Modifier.fillMaxSize()) {
+                                PrimaryTabRow(selectedTabIndex = route.tab.leftPaneIndex) {
+                                    LeftPaneTabs.forEach { tab ->
+                                        Tab(
+                                            selected = route.tab == tab,
+                                            onClick = { onRouteChange(route.copy(tab = tab)) },
+                                            modifier = Modifier.testTag(tab.testTag),
+                                            text = { Text(tab.label) },
+                                        )
+                                    }
+                                }
+                                LeftPane(
+                                    tab = route.tab,
+                                    state = state,
+                                    scenarios = scenarios,
+                                    packs = packs,
+                                    activeScenario = activeScenario,
+                                    sequenceProgress = sequenceProgress,
+                                    route = route,
+                                    onRouteChange = onRouteChange,
+                                    controller = controller,
+                                    onImport = onImport,
+                                    launch = { block -> scope.launch { block() } },
+                                )
+                            }
                         }
                         VerticalDivider(Modifier.fillMaxHeight())
                         Box(Modifier.weight(1f)) {
-                            History(history, onRouteChange, route)
+                            History(history, route, onRouteChange)
                         }
                     }
                 } else {
@@ -164,21 +526,35 @@ private fun NetKitScaffold(
                                     text = {
                                         Text(
                                             text = when (tab) {
-                                                NetKitTab.SCENARIOS -> tab.label
                                                 NetKitTab.HISTORY -> if (history.isEmpty()) {
                                                     tab.label
                                                 } else {
                                                     "${tab.label} (${history.size})"
                                                 }
+
+                                                else -> tab.label
                                             },
                                         )
                                     },
                                 )
                             }
                         }
-                        when (route.tab) {
-                            NetKitTab.SCENARIOS -> Scenarios(state, controller, onRouteChange, route)
-                            NetKitTab.HISTORY -> History(history, onRouteChange, route)
+                        if (route.tab == NetKitTab.HISTORY) {
+                            History(history, route, onRouteChange)
+                        } else {
+                            LeftPane(
+                                tab = route.tab,
+                                state = state,
+                                scenarios = scenarios,
+                                packs = packs,
+                                activeScenario = activeScenario,
+                                sequenceProgress = sequenceProgress,
+                                route = route,
+                                onRouteChange = onRouteChange,
+                                controller = controller,
+                                onImport = onImport,
+                                launch = { block -> scope.launch { block() } },
+                            )
                         }
                     }
                 }
@@ -188,33 +564,81 @@ private fun NetKitScaffold(
 }
 
 @Composable
-private fun Scenarios(
+private fun LeftPane(
+    tab: NetKitTab,
     state: NetKitState,
-    controller: NetKitController,
-    onRouteChange: (NetKitRoute) -> Unit,
+    scenarios: List<NetworkScenario>,
+    packs: List<io.devkit.netkit.scenario.model.ScenarioPackContents>,
+    activeScenario: NetworkScenario?,
+    sequenceProgress: Map<String, io.devkit.netkit.scenario.runtime.SequenceProgress>,
     route: NetKitRoute,
+    onRouteChange: (NetKitRoute) -> Unit,
+    controller: NetKitController,
+    onImport: () -> Unit,
+    launch: (suspend () -> Unit) -> Unit,
 ) {
-    ScenariosTab(
-        state = state,
-        onModeChange = controller::setGlobalMode,
-        onLatencyChange = controller::setGlobalLatency,
-        onRuleToggle = controller::setRuleEnabled,
-        onEditRule = { rule -> onRouteChange(route.copy(editor = RuleEditorState.from(rule))) },
-        onAddRule = { onRouteChange(route.copy(editor = RuleEditorState.new())) },
-        onReset = controller::reset,
-        onClearHistory = controller::clearHistory,
-        contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
-    )
+    when (tab) {
+        NetKitTab.CONSOLE -> ConsoleTab(
+            state = state,
+            activeScenario = activeScenario,
+            sequenceProgress = sequenceProgress,
+            onModeChange = controller::setGlobalMode,
+            onLatencyChange = controller::setGlobalLatency,
+            onRuleToggle = controller::setRuleEnabled,
+            onEditRule = { rule ->
+                onRouteChange(route.copy(ruleEditor = RuleEditorState.from(rule)))
+            },
+            onAddRule = { onRouteChange(route.copy(ruleEditor = RuleEditorState.new())) },
+            onOpenActiveScenario = {
+                activeScenario?.let { onRouteChange(route.copy(scenarioDetail = it)) }
+            },
+            onDeactivateScenario = { launch { controller.scenarios.deactivate() } },
+            onReset = controller::reset,
+            onResetEverything = controller::resetEverything,
+            onResetSequences = controller::resetAllSequences,
+            onClearHistory = controller::clearHistory,
+            contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
+        )
+
+        NetKitTab.SCENARIOS -> ScenarioListTab(
+            scenarios = scenarios,
+            packs = packs,
+            activeId = activeScenario?.id,
+            sequenceProgress = sequenceProgress,
+            search = route.scenarioSearch,
+            onSearchChange = { onRouteChange(route.copy(scenarioSearch = it)) },
+            onOpen = { onRouteChange(route.copy(scenarioDetail = it)) },
+            onToggleActive = { scenario -> launch { controller.scenarios.toggleActive(scenario.id) } },
+            onNew = {
+                onRouteChange(
+                    route.copy(
+                        scenarioEditor = NetworkScenario(
+                            name = "",
+                            metadata = ScenarioMetadata(),
+                        ),
+                    ),
+                )
+            },
+            onImport = onImport,
+            onSaveCurrentSetup = { onRouteChange(route.copy(saveSetup = SaveSetupPrompt())) },
+            canSaveCurrentSetup = !state.global.isNormal || state.rules.isNotEmpty(),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
+        )
+
+        NetKitTab.HISTORY -> Unit
+    }
 }
 
 @Composable
 private fun History(
     history: List<NetworkRecord>,
-    onRouteChange: (NetKitRoute) -> Unit,
     route: NetKitRoute,
+    onRouteChange: (NetKitRoute) -> Unit,
 ) {
     HistoryTab(
         records = history,
+        filter = route.historyFilter,
+        onFilterChange = { onRouteChange(route.copy(historyFilter = it)) },
         onSelect = { record -> onRouteChange(route.copy(detail = record)) },
         contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
     )
@@ -227,6 +651,7 @@ private fun History(
  * engineer whether what they are looking at came from the backend or from
  * NetKit, and it is a word rather than a colour.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun NetKitHeader(
     state: NetKitState,
@@ -275,13 +700,23 @@ private fun NetKitHeader(
                 !state.enabled -> "Disabled — every request goes to the real backend."
                 state.isSimulating ->
                     "${state.activeSummary} — what you see may not come from your backend."
-                else -> "Normal — no scenario is changing your network."
+
+                else -> "Normal — nothing is changing your network."
             },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
+
+/** How long a result message stays up before dismissing itself. */
+private const val MessageDurationMillis = 6_000L
+
+/** In the two-pane layout history has its own column, so it is not a left tab. */
+private val LeftPaneTabs = listOf(NetKitTab.CONSOLE, NetKitTab.SCENARIOS)
+
+private val NetKitTab.leftPaneIndex: Int
+    get() = LeftPaneTabs.indexOf(this).coerceAtLeast(0)
 
 /** Width at which the console switches from tabs to a two-pane layout. */
 private val TwoPaneBreakpoint = 720.dp

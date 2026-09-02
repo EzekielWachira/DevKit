@@ -1,6 +1,6 @@
 package io.devkit.netkit.scenario
 
-import java.util.concurrent.atomic.AtomicLong
+import java.util.UUID
 
 /**
  * A runtime override scoped to one endpoint.
@@ -40,10 +40,18 @@ data class EndpointRule(
         method.matches(target.method) && matcher.matches(target)
 
     companion object {
-        private val counter = AtomicLong(0)
 
-        /** Process-unique rule id. Not persisted — NetKit 0.1 keeps rules in memory. */
-        fun nextId(): String = "netkit-rule-${counter.incrementAndGet()}"
+        /**
+         * A globally unique rule id.
+         *
+         * Deliberately a UUID rather than a counter. Rule ids are **persisted**
+         * inside saved scenarios and are the key sequence cursors are stored
+         * under, so a counter that restarts at 1 with each process would let a
+         * rule created today collide with one saved yesterday — and two rules
+         * sharing a cursor means a `500 → 500 → 200` sequence firing on the
+         * wrong request.
+         */
+        fun nextId(): String = "netkit-rule-${UUID.randomUUID()}"
 
         /**
          * Convenience factory for the common "one exact path" rule.

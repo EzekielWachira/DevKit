@@ -98,7 +98,7 @@ class MainActivity : ComponentActivity() {
         configureFillKit()
         // Resolves to the debug or release variant of this function depending on
         // the build type; the release one does nothing.
-        installDebugNetworking()
+        installDebugNetworking(this)
         setContent { DevKitTheme { FillKitSampleApp() } }
     }
 }

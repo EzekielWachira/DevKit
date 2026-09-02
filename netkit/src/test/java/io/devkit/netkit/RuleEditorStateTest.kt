@@ -3,7 +3,11 @@ package io.devkit.netkit
 import io.devkit.netkit.scenario.EndpointMatcher
 import io.devkit.netkit.scenario.EndpointRule
 import io.devkit.netkit.scenario.HttpMethod
+import io.devkit.netkit.scenario.MalformedResponseType
 import io.devkit.netkit.scenario.NetworkAction
+import io.devkit.netkit.scenario.ResponseHeader
+import io.devkit.netkit.scenario.SequenceCompletionBehavior
+import io.devkit.netkit.scenario.SequenceStep
 import io.devkit.netkit.scenario.RequestTarget
 import io.devkit.netkit.scenario.TimeoutType
 import io.devkit.netkit.ui.scenarios.RuleBehavior
@@ -49,7 +53,7 @@ class RuleEditorStateTest {
         val form = RuleEditorState.new().copy(
             method = HttpMethod.GET,
             pathText = "/api/v1/bookings",
-            behavior = RuleBehavior.HTTP_ERROR,
+            behavior = RuleBehavior.RESPONSE,
             statusText = "500",
             bodyText = """{"message":"boom"}""",
             name = "Bookings Failure",
@@ -60,7 +64,7 @@ class RuleEditorStateTest {
         assertEquals(HttpMethod.GET, rule.method)
         assertEquals("/api/v1/bookings", rule.matcher.label)
         assertEquals("Bookings Failure", rule.name)
-        val action = rule.action as NetworkAction.HttpError
+        val action = rule.action as NetworkAction.ReturnResponse
         assertEquals(500, action.statusCode)
         assertEquals("""{"message":"boom"}""", action.body)
     }
@@ -121,7 +125,7 @@ class RuleEditorStateTest {
     fun `a blank body means the default envelope`() {
         val form = RuleEditorState.new().copy(pathText = "/x", bodyText = "   ")
 
-        assertNull((form.toRule()?.action as NetworkAction.HttpError).body)
+        assertNull((form.toRule()?.action as NetworkAction.ReturnResponse).body)
     }
 
     @Test
@@ -157,7 +161,25 @@ class RuleEditorStateTest {
         val actions = listOf(
             NetworkAction.PassThrough,
             NetworkAction.Delay(1_500),
-            NetworkAction.HttpError(422, """{"a":1}""", "application/json", 100),
+            NetworkAction.ReturnResponse(
+                statusCode = 422,
+                body = """{"a":1}""",
+                contentType = "application/json",
+                delayMillis = 100,
+            ),
+            NetworkAction.ReturnResponse(
+                statusCode = 429,
+                headers = listOf(ResponseHeader("Retry-After", "60")),
+            ),
+            NetworkAction.Malformed(MalformedResponseType.TruncatedJson),
+            NetworkAction.Sequence(
+                steps = listOf(
+                    SequenceStep(NetworkAction.ReturnResponse(500)),
+                    SequenceStep(NetworkAction.Timeout(TimeoutType.READ)),
+                    SequenceStep(NetworkAction.ReturnResponse(200, """{"ok":true}""")),
+                ),
+                completion = SequenceCompletionBehavior.PASS_THROUGH,
+            ),
             NetworkAction.Offline,
             NetworkAction.Timeout(TimeoutType.READ),
         )

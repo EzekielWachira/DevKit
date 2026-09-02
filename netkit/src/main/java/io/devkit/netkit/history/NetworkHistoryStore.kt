@@ -56,17 +56,22 @@ class InMemoryNetworkHistoryStore(
     override fun nextRecordId(): Long = ids.incrementAndGet()
 
     override fun record(record: NetworkRecord) {
-        val snapshot = synchronized(lock) {
+        // Publishing inside the lock, not after it: two OkHttp threads that both
+        // built a snapshot and then raced to publish could otherwise drop the
+        // newer one, and a publish that lost a race with `clear()` could bring
+        // cleared rows back after their replay snapshots were dropped.
+        synchronized(lock) {
             buffer.addFirst(record)
             while (buffer.size > maxEntries) buffer.removeLast()
-            buffer.toList()
+            _records.value = buffer.toList()
         }
-        _records.value = snapshot
     }
 
     override fun clear() {
-        synchronized(lock) { buffer.clear() }
-        _records.value = emptyList()
+        synchronized(lock) {
+            buffer.clear()
+            _records.value = emptyList()
+        }
     }
 }
 

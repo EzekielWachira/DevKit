@@ -1,2 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest />
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+
+        <!--
+            Lets NetKit hand an exported .netkit.json to the share sheet without
+            the consuming app adding anything to its own manifest. The authority
+            is namespaced under the application id so two apps on one device
+            never collide, and it is exported="false" with grantUriPermissions,
+            so only the app the user picks in the share sheet can read the file.
+        -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.netkit.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/netkit_file_paths" />
+        </provider>
+    </application>
+</manifest>

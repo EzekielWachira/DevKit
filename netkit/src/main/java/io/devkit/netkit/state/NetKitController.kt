@@ -1,10 +1,11 @@
 package io.devkit.netkit.state
 
 import io.devkit.netkit.history.NetworkRecord
+import io.devkit.netkit.replay.RequestReplayer
 import io.devkit.netkit.scenario.EndpointRule
 import io.devkit.netkit.scenario.GlobalNetworkMode
-import io.devkit.netkit.scenario.NetworkScenario
 import io.devkit.netkit.scenario.TimeoutType
+import io.devkit.netkit.scenario.runtime.ActiveNetworkConfiguration
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -15,21 +16,24 @@ import kotlinx.coroutines.flow.StateFlow
  * ```text
  * Compose UI ───────┐
  *                   │
- * Android Studio ───┼──→ NetKitController ──→ scenario state ──→ engine ──→ interceptor
- *                   │
- * Automation API ───┘
+ * Android Studio ───┼──→ NetKitController ──→ configuration ──→ engine ──→ interceptor
+ *                   │           │
+ * Automation API ───┘           ├──→ ScenarioController  (saved scenarios, packs)
+ *                               └──→ RequestReplayer     (replay from history)
  * ```
  *
  * Deliberately free of Compose, Android and OkHttp types so a future IDE bridge
  * or instrumentation API can issue the same commands remotely. The UI never
  * touches the interceptor, and the interceptor never knows a UI exists.
  *
+ * The methods on this interface are the **temporary** layer: the global switch,
+ * global connectivity and ad-hoc endpoint overrides, none of which are saved.
+ * Saved scenarios live behind [scenarios]; the two compose according to the
+ * precedence table on [ActiveNetworkConfiguration].
+ *
  * **Thread safety.** Implementations must accept calls from any thread and apply
  * them atomically; the debug UI mutates state on the main thread while OkHttp
  * reads it from its dispatcher pool.
- *
- * **Lifetime.** NetKit 0.1 keeps state in memory only. It resets when the
- * process dies; persistent scenario packs are 0.2 work.
  */
 interface NetKitController {
 
@@ -38,6 +42,12 @@ interface NetKitController {
 
     /** Captured requests, newest first. */
     val history: StateFlow<List<NetworkRecord>>
+
+    /** Saved scenarios, packs, activation, import and export. */
+    val scenarios: ScenarioController
+
+    /** Replays a recorded request. */
+    val replayer: RequestReplayer
 
     // ---- master switch ----------------------------------------------------
 
@@ -52,7 +62,13 @@ interface NetKitController {
 
     // ---- global network ---------------------------------------------------
 
-    /** Replaces the global connectivity mode. */
+    /**
+     * Replaces the console's own global connectivity mode.
+     *
+     * An active scenario that sets its own global configuration takes
+     * precedence; the console then shows which layer is in force via
+     * [NetKitState.effectiveGlobal].
+     */
     fun setGlobalMode(mode: GlobalNetworkMode)
 
     /** Switches between [GlobalNetworkMode.Offline] and [GlobalNetworkMode.Normal]. */
@@ -70,7 +86,7 @@ interface NetKitController {
      */
     fun setGlobalLatency(milliseconds: Long)
 
-    // ---- endpoint rules ---------------------------------------------------
+    // ---- temporary endpoint overrides --------------------------------------
 
     /** Appends [rule] and returns its id. Rules are matched in insertion order. */
     fun addRule(rule: EndpointRule): String
@@ -90,22 +106,39 @@ interface NetKitController {
     /** Shorthand for `setRuleEnabled(id, false)`. */
     fun disableRule(id: String) = setRuleEnabled(id, false)
 
-    /** Replaces the entire scenario in one atomic update. */
-    fun applyScenario(scenario: NetworkScenario)
+    /**
+     * Replaces the entire temporary configuration in one atomic update.
+     *
+     * The active scenario is preserved: this is the temporary layer only.
+     */
+    fun applyConfiguration(configuration: ActiveNetworkConfiguration)
 
-    // ---- lifecycle --------------------------------------------------------
+    // ---- reset -------------------------------------------------------------
 
     /**
      * Restores normal networking: NetKit enabled, global mode normal, latency
-     * `0` and **all endpoint rules removed**.
+     * `0` and **all temporary endpoint overrides removed**.
      *
-     * Rules are removed rather than disabled because 0.1 rules are temporary
-     * runtime state with no way to save them; leaving a list of disabled rules
-     * behind would only be clutter. History is deliberately untouched — use
-     * [clearHistory] for that.
+     * The active scenario and every saved scenario are untouched — use
+     * [ScenarioController.deactivate] for the former. Response-sequence progress
+     * is reset, because a half-run sequence after a reset is exactly the kind of
+     * leftover state that makes a bug look intermittent. History is deliberately
+     * kept; use [clearHistory] for that.
      */
     fun reset()
 
-    /** Drops every history record. Scenario configuration is untouched. */
+    /**
+     * Everything [reset] does, plus deactivating the active scenario and
+     * clearing replay snapshots.
+     *
+     * **Saved scenarios and history are kept.** A reset button that silently
+     * deleted a QA engineer's saved reproductions would be unforgivable.
+     */
+    fun resetEverything()
+
+    /** Restarts every response sequence without changing anything else. */
+    fun resetAllSequences()
+
+    /** Drops every history record and every replay snapshot. */
     fun clearHistory()
 }

@@ -22,6 +22,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import io.devkit.netkit.scenario.EndpointRule
+import io.devkit.netkit.scenario.runtime.SequenceProgress
 import io.devkit.netkit.ui.NetKitFormat
 import io.devkit.netkit.ui.NetKitTestTags
 import io.devkit.netkit.ui.components.NetKitBadge
@@ -35,6 +36,9 @@ import io.devkit.netkit.ui.components.NetKitMonoStyle
  * The row reads top-down as method → path → behaviour, which is the order a QA
  * engineer scans for. A disabled rule stays in place but is dimmed *and*
  * labelled `OFF`, so its state never depends on colour alone.
+ *
+ * A rule running a response sequence shows its live position (`2 / 3`) as a
+ * badge, so the next result is predictable without opening the rule.
  */
 @Composable
 internal fun EndpointRuleRow(
@@ -42,6 +46,7 @@ internal fun EndpointRuleRow(
     onToggle: (Boolean) -> Unit,
     onEdit: () -> Unit,
     modifier: Modifier = Modifier,
+    progress: SequenceProgress? = null,
 ) {
     val contentAlpha = if (rule.enabled) 1f else 0.55f
     Row(
@@ -78,6 +83,7 @@ internal fun EndpointRuleRow(
                     maxLines = 1,
                     overflow = TextOverflow.MiddleEllipsis,
                 )
+                if (progress != null) NetKitBadge(text = progress.display)
                 if (!rule.enabled) {
                     NetKitBadge(text = "OFF")
                 }

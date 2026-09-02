@@ -64,15 +64,25 @@ internal class NetworkRecordMapper(private val config: NetKitConfig) {
             val buffer = Buffer()
             body.writeTo(buffer)
             val bytes = buffer.size
+            if (bytes > config.maxBodyPreviewBytes) {
+                // A body that reports no content length (chunked, or a writer that
+                // cannot say) gets past the declared-size check, so the real size
+                // has to be checked again after writing.
+                BodyPreview(SKIPPED_TOO_LARGE, truncated = true, byteCount = bytes)
+            } else {
+                BodyPreview(text = buffer.readString(charset), truncated = false, byteCount = bytes)
+            }
+        } catch (error: Throwable) {
+            // `writeTo` is application code — a Moshi adapter, a protobuf writer,
+            // a hand-rolled body — and it can throw anything at all. Capturing a
+            // preview is a NetKit convenience; letting it escape would turn a
+            // successful request into a crash on an OkHttp thread and leak the
+            // response that was about to be returned.
             BodyPreview(
-                text = buffer.readString(charset),
+                SKIPPED_UNREADABLE,
                 truncated = false,
-                byteCount = bytes,
+                byteCount = declaredLength.coerceAtLeast(0),
             )
-        } catch (error: IOException) {
-            // A body that cannot be re-serialised is a NetKit-only problem; the real
-            // request must still go out untouched.
-            BodyPreview(SKIPPED_UNREADABLE, truncated = false, byteCount = declaredLength.coerceAtLeast(0))
         }
     }
 
@@ -92,7 +102,9 @@ internal class NetworkRecordMapper(private val config: NetKitConfig) {
                 truncated = bytes.size.toLong() >= config.maxBodyPreviewBytes,
                 byteCount = if (declared >= 0) declared else bytes.size.toLong(),
             )
-        } catch (error: IOException) {
+        } catch (error: Throwable) {
+            // Same reasoning as the request side: a peek that fails must cost a
+            // preview, never the response.
             null
         }
     }
@@ -108,7 +120,7 @@ internal class NetworkRecordMapper(private val config: NetKitConfig) {
 
     private fun safeContentLength(body: RequestBody): Long = try {
         body.contentLength()
-    } catch (error: IOException) {
+    } catch (error: Throwable) {
         -1L
     }
 

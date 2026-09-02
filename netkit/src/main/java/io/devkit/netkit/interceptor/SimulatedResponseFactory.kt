@@ -15,8 +15,14 @@ import okhttp3.ResponseBody.Companion.toResponseBody
  * The response carries every field OkHttp and typical clients expect — protocol,
  * originating request, reason phrase, content type, `Content-Length`, and the
  * request/response timestamps — so Retrofit converters, caching layers and error
- * handlers treat it exactly like a real one. Two extra headers make the
- * simulation traceable from a log or a proxy without inspecting NetKit state.
+ * handlers treat it exactly like a real one. Extra headers make the simulation
+ * traceable from a log or a proxy without inspecting NetKit state.
+ *
+ * A scenario's own headers are applied **last** and may overwrite the ones
+ * NetKit derived, because "return `Content-Length: 0` on a body that has one" is
+ * a legitimate thing to want to test. The two `X-NetKit-*` markers are added
+ * afterwards and cannot be overwritten, so a simulated response is always
+ * identifiable as one.
  */
 internal object SimulatedResponseFactory {
 
@@ -35,12 +41,16 @@ internal object SimulatedResponseFactory {
             .message(NetKitDefaults.statusMessage(decision.statusCode))
             .addHeader("Content-Type", decision.contentType)
             .addHeader("Content-Length", body.contentLength().toString())
-            .addHeader(NetKitDefaults.SIMULATED_HEADER, "true")
             .sentRequestAtMillis(sentAtMillis)
             .receivedResponseAtMillis(receivedAtMillis)
             .body(body)
 
-        decision.ruleId?.let { builder.addHeader(NetKitDefaults.SIMULATED_RULE_HEADER, it) }
+        // Scenario headers win over the derived ones: `header` replaces rather
+        // than appends, so a rule that sets Content-Type gets exactly that.
+        decision.headers.forEach { header -> builder.header(header.name, header.value) }
+
+        builder.header(NetKitDefaults.SIMULATED_HEADER, "true")
+        decision.ruleId?.let { builder.header(NetKitDefaults.SIMULATED_RULE_HEADER, it) }
 
         // A HEAD response must not carry a body; returning one makes OkHttp throw.
         if (request.method.equals("HEAD", ignoreCase = true)) {

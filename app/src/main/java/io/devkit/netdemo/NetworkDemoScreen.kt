@@ -73,7 +73,8 @@ fun NetworkDemoScreen(modifier: Modifier = Modifier) {
                     Text(
                         if (DebugNetworking.isAvailable) {
                             "These calls go through the NetKit interceptor to a local demo " +
-                                "backend. Open the console, change a scenario, and call them again."
+                                "backend. Open the console, activate a scenario, and call them " +
+                                "again."
                         } else {
                             "NetKit is not on this build's classpath, so every call goes " +
                                 "straight to the backend. That is what a release build looks like."
@@ -88,9 +89,16 @@ fun NetworkDemoScreen(modifier: Modifier = Modifier) {
                 item {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            "SCENARIO PRESETS",
+                            "TEMPORARY OVERRIDES",
                             style = MaterialTheme.typography.labelSmall,
                             fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Text(
+                            "One-tap ad-hoc changes. For saved, shareable setups open the " +
+                                "console and look at the Scenarios tab — this build registers " +
+                                "two packs from application code.",
+                            style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                         FlowRow(
@@ -114,6 +122,7 @@ fun NetworkDemoScreen(modifier: Modifier = Modifier) {
                         ) {
                             Text("Open NetKit console")
                         }
+                        DemoWalkthrough()
                     }
                 }
             }
@@ -209,7 +218,48 @@ private fun ResultLine(result: DemoResult) {
     )
 }
 
-/** The canned QA scenarios the demo can apply with one tap. */
+/**
+ * What to try, in the order that shows NetKit 0.2 off best.
+ *
+ * The demo is also the manual test plan for the toolkit, so this list doubles as
+ * a checklist: each line exercises one 0.2 capability end to end.
+ */
+@Composable
+private fun DemoWalkthrough() {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            "TRY THIS",
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        listOf(
+            "Scenarios → activate \"Retry eventually succeeds\", then call " +
+                "GET /bookings three times and watch the sequence go 500 → 500 → 200.",
+            "Scenarios → \"Malformed JSON\" returns a 200 the parser cannot read.",
+            "Scenarios → \"Rate limited\" adds Retry-After and X-RateLimit-Remaining headers.",
+            "History → open any request and press Replay. A POST warns before it sends.",
+            "Scenarios → open one and press Export to share a .netkit.json, " +
+                "then Import it back.",
+            "Console → set a global delay, add an override, then Save current setup.",
+        ).forEach { line ->
+            Text(
+                text = "• $line",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+    }
+}
+
+/** The ad-hoc overrides the demo can apply with one tap. */
 object DemoScenarioPresets {
     data class Preset(val id: String, val label: String)
 

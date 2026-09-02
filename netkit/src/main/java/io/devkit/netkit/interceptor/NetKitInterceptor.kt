@@ -8,9 +8,13 @@ import io.devkit.netkit.history.BodyPreview
 import io.devkit.netkit.history.NetworkHistoryStore
 import io.devkit.netkit.history.NetworkOutcome
 import io.devkit.netkit.history.NetworkRecord
+import io.devkit.netkit.history.NetworkRecordKind
 import io.devkit.netkit.history.NetworkRecordMapper
 import io.devkit.netkit.history.NetworkRecordSource
 import io.devkit.netkit.masking.MaskedHeader
+import io.devkit.netkit.replay.ReplaySnapshotStore
+import io.devkit.netkit.replay.ReplayTag
+import io.devkit.netkit.replay.ReplayUnavailableReason
 import io.devkit.netkit.scenario.TimeoutType
 import io.devkit.netkit.util.NetKitClock
 import io.devkit.netkit.util.Sleeper
@@ -47,6 +51,7 @@ class NetKitInterceptor internal constructor(
     private val engine: NetworkScenarioEngine,
     private val history: NetworkHistoryStore,
     private val config: NetKitConfig,
+    private val replaySnapshots: ReplaySnapshotStore? = null,
     private val mapper: NetworkRecordMapper = NetworkRecordMapper(config),
     private val clock: NetKitClock = NetKitClock.System,
     private val sleeper: Sleeper = Sleeper.Thread,
@@ -54,25 +59,24 @@ class NetKitInterceptor internal constructor(
 
     override fun intercept(chain: Interceptor.Chain): Response {
         val request = chain.request()
-        val decision = decide(request)
+        val replayTag = request.tag(ReplayTag::class.java)
+        val decision = decide(request, bypass = replayTag?.bypass == true)
 
         // Fast path: nothing to simulate and nothing to record.
         if (!config.historyEnabled && decision is ScenarioDecision.PassThrough) {
             return chain.proceed(request)
         }
-        return executeAndRecord(chain, request, decision)
+        return executeAndRecord(chain, request, decision, replayTag)
     }
 
     /**
      * A scenario that cannot be evaluated must never take the application's
      * network down with it, so any unexpected failure degrades to pass-through.
      */
-    private fun decide(request: Request): ScenarioDecision = try {
-        if (engine.isIdle) {
-            IDLE_DECISION
-        } else {
-            engine.evaluate(mapper.toTarget(request))
-        }
+    private fun decide(request: Request, bypass: Boolean): ScenarioDecision = try {
+        // `evaluate` reads the configuration once and short-circuits internally,
+        // so this path never sees two different snapshots for one request.
+        if (bypass) IDLE_DECISION else engine.evaluate(mapper.toTarget(request))
     } catch (error: RuntimeException) {
         IDLE_DECISION
     }
@@ -81,10 +85,11 @@ class NetKitInterceptor internal constructor(
         chain: Interceptor.Chain,
         request: Request,
         decision: ScenarioDecision,
+        replayTag: ReplayTag?,
     ): Response {
         val startedAtMillis = clock.nowMillis()
         val startedAtNanos = clock.elapsedNanos()
-        val recorder = Recorder(request, decision, startedAtMillis)
+        val recorder = Recorder(request, decision, startedAtMillis, replayTag)
 
         try {
             return when (decision) {
@@ -168,6 +173,7 @@ class NetKitInterceptor internal constructor(
         private val request: Request,
         private val decision: ScenarioDecision,
         private val startedAtMillis: Long,
+        private val replayTag: ReplayTag?,
     ) {
         fun recordRealResponse(response: Response, durationMillis: Long) {
             if (!config.historyEnabled) return
@@ -192,6 +198,7 @@ class NetKitInterceptor internal constructor(
                 responseHeaders = mapper.maskHeaders(response.headers),
                 responseBody = mapper.simulatedBodyPreview(decision.body),
                 source = NetworkRecordSource.SIMULATED,
+                malformed = decision.malformed,
             )
         }
 
@@ -219,11 +226,22 @@ class NetKitInterceptor internal constructor(
             responseHeaders: List<MaskedHeader>,
             responseBody: BodyPreview?,
             source: NetworkRecordSource,
+            malformed: Boolean = false,
         ) {
             val url = request.url
+            val recordId = history.nextRecordId()
+
+            // The unmasked request is kept only here, in memory, and only long
+            // enough to stay replayable; the record itself never sees it.
+            val replayUnavailable = if (replaySnapshots == null) {
+                ReplayUnavailableReason.DISABLED
+            } else {
+                replaySnapshots.capture(recordId, request)
+            }
+
             history.record(
                 NetworkRecord(
-                    id = history.nextRecordId(),
+                    id = recordId,
                     startedAtMillis = startedAtMillis,
                     durationMillis = durationMillis,
                     method = request.method,
@@ -237,8 +255,19 @@ class NetKitInterceptor internal constructor(
                     responseHeaders = responseHeaders,
                     responseBody = responseBody,
                     source = source,
+                    kind = if (replayTag != null) {
+                        NetworkRecordKind.REPLAY
+                    } else {
+                        NetworkRecordKind.LIVE
+                    },
                     scenarioLabel = decision.scenarioLabel,
                     ruleId = decision.ruleId,
+                    ruleSource = decision.source,
+                    sequenceStep = decision.sequence?.step,
+                    sequenceStepCount = decision.sequence?.stepCount,
+                    malformed = malformed,
+                    replayOfRecordId = replayTag?.sourceRecordId,
+                    replayUnavailableReason = replayUnavailable,
                 ),
             )
         }

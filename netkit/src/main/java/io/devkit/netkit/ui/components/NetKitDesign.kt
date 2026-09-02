@@ -2,10 +2,12 @@ package io.devkit.netkit.ui.components
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,21 +15,27 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.devkit.netkit.ui.NetKitTestTags
 
 /**
  * Shared tokens and primitives for every NetKit surface.
@@ -252,4 +260,144 @@ internal fun NetKitEmptyState(
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
+}
+
+/**
+ * A small, low-emphasis action button used inside rows — reset a sequence,
+ * delete a step, move a step.
+ *
+ * A text button rather than an icon button: NetKit does not depend on an icon
+ * artifact, and a word is unambiguous to a QA engineer who has never seen this
+ * screen before.
+ */
+@Composable
+internal fun NetKitRowAction(
+    label: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    contentDescription: String? = null,
+) {
+    Box(
+        modifier = modifier
+            .sizeIn(minWidth = 36.dp, minHeight = 36.dp)
+            .clip(NetKitBadgeShape)
+            .then(
+                if (enabled) {
+                    Modifier.clickable(role = Role.Button, onClick = onClick)
+                } else {
+                    Modifier
+                },
+            )
+            .then(
+                if (contentDescription == null) {
+                    Modifier
+                } else {
+                    Modifier.semantics { this.contentDescription = contentDescription }
+                },
+            )
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Medium,
+            color = if (enabled) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+            },
+            maxLines = 1,
+        )
+    }
+}
+
+/**
+ * A card surface used by scenario rows and the active-scenario indicator.
+ *
+ * [emphasised] gives the active scenario a distinct container *and* the caller
+ * always adds a word — the card never carries meaning by colour alone.
+ */
+@Composable
+internal fun NetKitCard(
+    modifier: Modifier = Modifier,
+    emphasised: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(NetKitCardShape)
+            .background(
+                if (emphasised) {
+                    MaterialTheme.colorScheme.tertiaryContainer
+                } else {
+                    MaterialTheme.colorScheme.surfaceContainerLow
+                },
+            )
+            .then(
+                if (onClick == null) {
+                    Modifier
+                } else {
+                    Modifier.clickable(role = Role.Button, onClick = onClick)
+                },
+            )
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+        content = content,
+    )
+}
+
+/**
+ * A destructive or otherwise consequential confirmation.
+ *
+ * NetKit asks before anything a person would not want to happen by accident:
+ * replaying a `POST` at a real backend, deleting a saved reproduction, or
+ * discarding the active scenario.
+ */
+@Composable
+internal fun NetKitConfirmDialog(
+    title: String,
+    message: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+    modifier: Modifier = Modifier,
+    detail: String? = null,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = modifier.testTag(NetKitTestTags.CONFIRM_DIALOG),
+        title = { Text(title) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(message, style = MaterialTheme.typography.bodyMedium)
+                detail?.let {
+                    Text(
+                        text = it,
+                        style = NetKitMonoStyle,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = onConfirm,
+                modifier = Modifier.testTag(NetKitTestTags.CONFIRM_ACCEPT),
+            ) {
+                Text(confirmLabel)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                modifier = Modifier.testTag(NetKitTestTags.CONFIRM_DISMISS),
+            ) {
+                Text("Cancel")
+            }
+        },
+    )
 }
