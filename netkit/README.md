@@ -69,14 +69,31 @@ NetKit is intended for development and QA builds and its safety model is Gradle 
 
 ```kotlin
 dependencies {
-    debugImplementation(project(":netkit"))
+    debugImplementation("io.github.ezekielwachira.devkit:netkit:0.3.0")
 }
 ```
 
-or, once published:
+NetKit is one artifact and installs on its own — it pulls no FillKit and no
+other kit, only `core` (version metadata, no dependencies of its own). If you
+would rather not name versions, use the BOM:
 
 ```kotlin
-debugImplementation("io.devkit:netkit:0.2.0")
+dependencies {
+    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.1.0"))
+    debugImplementation("io.github.ezekielwachira.devkit:netkit")
+}
+```
+
+Or take every DevKit developer tool at once — NetKit plus the FillKit panel:
+
+```kotlin
+debugImplementation("io.github.ezekielwachira.devkit:devkit-debug:0.1.0")
+```
+
+Inside this repository, as a project dependency:
+
+```kotlin
+debugImplementation(project(":netkit"))
 ```
 
 Because the whole module is debug-scoped, `src/main` cannot reference it — including the code that builds your `OkHttpClient`. Use a per-build-type source set for the wiring. The sample app does exactly this:

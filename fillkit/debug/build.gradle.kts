@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.compose)
+    id("devkit.publish")
 }
 
 android {
@@ -38,4 +39,15 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+devKitPublishing {
+    artifactId.set("fillkit-debug")
+    displayName.set("FillKit Debug")
+    description.set(
+        "FillKit's developer panel and QA scenario launcher: form field discovery, one-tap " +
+            "test data, saved personas, deep-link activation and local persistence. " +
+            "debugImplementation only.",
+    )
+    versionKey.set("fillkit")
 }

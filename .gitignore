@@ -16,3 +16,4 @@
 /.idea/appInsightsSettings.xml
 /.idea/deploymentTargetSelector.xml
 local.properties
+consumer-test/local.properties
