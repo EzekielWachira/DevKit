@@ -69,9 +69,16 @@ NetKit is intended for development and QA builds and its safety model is Gradle 
 
 ```kotlin
 dependencies {
-    debugImplementation("io.github.ezekielwachira.devkit:netkit:0.3.0")
+    debugImplementation("io.github.ezekielwachira.devkit:netkit:0.1.0")
 }
 ```
+
+> **On version numbers.** The published artifact starts at `0.1.0`. The `0.1`,
+> `0.2` and `0.3` that appear throughout this document are *development
+> milestones* — three rounds of capability that all landed before NetKit was
+> ever published — not release versions anyone could depend on. `0.1.0` is the
+> first version with a Maven coordinate, and it contains everything the 0.3
+> milestone describes.
 
 NetKit is one artifact and installs on its own — it pulls no FillKit and no
 other kit, only `core` (version metadata, no dependencies of its own). If you

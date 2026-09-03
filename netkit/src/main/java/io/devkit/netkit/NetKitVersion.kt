@@ -16,10 +16,10 @@ import io.devkit.core.DevKitTool
  */
 object NetKitVersion {
 
-    /** `0.3.0` */
-    const val NAME: String = "0.3.0"
+    /** `0.1.0` */
+    const val NAME: String = "0.1.0"
 
-    /** `netkit/0.3.0` — the value written into an exported file. */
+    /** `netkit/0.1.0` — the value written into an exported file. */
     const val GENERATOR: String = "netkit/$NAME"
 
     /**

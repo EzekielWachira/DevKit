@@ -18,8 +18,8 @@ import io.devkit.core.DevKitTool
  */
 object FillKitVersion {
 
-    /** `0.5.0` */
-    const val NAME: String = "0.5.0"
+    /** `0.1.0` */
+    const val NAME: String = "0.1.0"
 
     /** The release-safe modifier and model API. Belongs in `implementation`. */
     val api: DevKitTool = DevKitTool(

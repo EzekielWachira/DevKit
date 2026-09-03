@@ -87,7 +87,7 @@ not ask for. Pick whichever of the four models fits.
 
 ```kotlin
 dependencies {
-    debugImplementation("io.github.ezekielwachira.devkit:netkit:0.3.0")
+    debugImplementation("io.github.ezekielwachira.devkit:netkit:0.1.0")
 }
 ```
 
@@ -96,13 +96,13 @@ dependencies {
 ```kotlin
 dependencies {
     // FillKit's release-safe half — production code annotates fields with it
-    implementation("io.github.ezekielwachira.devkit:fillkit-api:0.5.0")
+    implementation("io.github.ezekielwachira.devkit:fillkit-api:0.1.0")
 
     // The panel and the network console, debug builds only
-    debugImplementation("io.github.ezekielwachira.devkit:fillkit-debug:0.5.0")
-    debugImplementation("io.github.ezekielwachira.devkit:netkit:0.3.0")
+    debugImplementation("io.github.ezekielwachira.devkit:fillkit-debug:0.1.0")
+    debugImplementation("io.github.ezekielwachira.devkit:netkit:0.1.0")
 
-    androidTestImplementation("io.github.ezekielwachira.devkit:fillkit-testing:0.5.0")
+    androidTestImplementation("io.github.ezekielwachira.devkit:fillkit-testing:0.1.0")
 }
 ```
 
@@ -147,11 +147,11 @@ debug panel to production.
 | Artifact | Ships in | Version | Contents |
 | --- | --- | --- | --- |
 | `core` | release + debug | `0.1.0` | Ecosystem version metadata and the runtime/debug/test classification. Arrives transitively; you rarely add it yourself |
-| `fillkit-api` | release + debug | `0.5.0` | Models, DSLs, the Compose modifier, semantics keys, reproduction specs, and a no-op release runtime |
-| `fillkit-engine` | debug | `0.5.0` | Locale registries, persona and value generation, deterministic random streams |
-| `fillkit-debug` | debug | `0.5.0` | Developer panel, QA scenario launcher, deep links, local persistence |
-| `fillkit-testing` | `androidTestImplementation` only | `0.5.0` | Compose finders, assertions, `FillKitTestDriver` |
-| `netkit` | debug | `0.3.0` | Network scenario toolkit — see [netkit/README.md](netkit/README.md) |
+| `fillkit-api` | release + debug | `0.1.0` | Models, DSLs, the Compose modifier, semantics keys, reproduction specs, and a no-op release runtime |
+| `fillkit-engine` | debug | `0.1.0` | Locale registries, persona and value generation, deterministic random streams |
+| `fillkit-debug` | debug | `0.1.0` | Developer panel, QA scenario launcher, deep links, local persistence |
+| `fillkit-testing` | `androidTestImplementation` only | `0.1.0` | Compose finders, assertions, `FillKitTestDriver` |
+| `netkit` | debug | `0.1.0` | Network scenario toolkit — see [netkit/README.md](netkit/README.md) |
 | `devkit` | release + debug | `0.1.0` | Umbrella: `core` + `fillkit-api` |
 | `devkit-debug` | debug | `0.1.0` | Umbrella: `fillkit-debug` + `netkit` |
 | `devkit-bom` | — | `0.1.0` | Version alignment for all of the above |
@@ -172,19 +172,20 @@ DevKit BOM **`0.1.0`** pins this tested set:
 Artifact          Version
 -------------------------
 core              0.1.0
-fillkit-api       0.5.0
-fillkit-engine    0.5.0
-fillkit-debug     0.5.0
-fillkit-testing   0.5.0
-netkit            0.3.0
+fillkit-api       0.1.0
+fillkit-engine    0.1.0
+fillkit-debug     0.1.0
+fillkit-testing   0.1.0
+netkit            0.1.0
 devkit            0.1.0
 devkit-debug      0.1.0
 ```
 
-Kits version independently — NetKit reaching `0.4.0` does not oblige FillKit to
-move. The BOM and umbrella version names a compatible *combination*, not the
-maturity of any one kit, which is why `devkit 0.1.0` contains `fillkit-api
-0.5.0`. See [docs/PUBLISHING.md](docs/PUBLISHING.md).
+Every kit starts its published line at `0.1.0`, and from there versions move
+independently — NetKit reaching `0.2.0` does not oblige FillKit to follow. The
+BOM and umbrella version names a compatible *combination* rather than the
+maturity of any one kit, so those columns will diverge as soon as any kit moves.
+See [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
 ### Building from source
 

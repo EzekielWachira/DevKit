@@ -45,11 +45,11 @@ Group: **`io.github.ezekielwachira.devkit`**
 | Gradle module | Artifact | Purpose | Version | Class |
 | --- | --- | --- | --- | --- |
 | `:core` | `core` | Ecosystem version metadata and the distribution classification | `0.1.0` | runtime |
-| `:fillkit:api` | `fillkit-api` | FillKit's Compose modifier, models, DSLs and no-op release runtime | `0.5.0` | runtime |
-| `:fillkit:engine` | `fillkit-engine` | FillKit's data generation engine | `0.5.0` | debug |
-| `:fillkit:debug` | `fillkit-debug` | FillKit's developer panel and QA launcher | `0.5.0` | debug |
-| `:fillkit:testing` | `fillkit-testing` | FillKit's Compose test support | `0.5.0` | test |
-| `:netkit` | `netkit` | Network scenario and failure simulation toolkit | `0.3.0` | debug |
+| `:fillkit:api` | `fillkit-api` | FillKit's Compose modifier, models, DSLs and no-op release runtime | `0.1.0` | runtime |
+| `:fillkit:engine` | `fillkit-engine` | FillKit's data generation engine | `0.1.0` | debug |
+| `:fillkit:debug` | `fillkit-debug` | FillKit's developer panel and QA launcher | `0.1.0` | debug |
+| `:fillkit:testing` | `fillkit-testing` | FillKit's Compose test support | `0.1.0` | test |
+| `:netkit` | `netkit` | Network scenario and failure simulation toolkit | `0.1.0` | debug |
 | `:devkit` | `devkit` | Umbrella: every release-safe library | `0.1.0` | runtime |
 | `:devkit-debug` | `devkit-debug` | Umbrella: every developer and QA tool | `0.1.0` | debug |
 | `:devkit-bom` | `devkit-bom` | Version alignment | `0.1.0` | — |
@@ -99,14 +99,14 @@ someone asks it to — which the consumer verification build asserts on every ru
 
 Two independent tracks.
 
-**Kits version independently.** NetKit reaching `0.4.0` does not oblige FillKit
-to move. FillKit's four artifacts share one version because they are one library
+**Kits version independently.** Every kit starts its published line at `0.1.0`,
+and from there NetKit reaching `0.2.0` does not oblige FillKit to move. FillKit's four artifacts share one version because they are one library
 split by scope, and a mismatched pair would not compile against each other.
 
 **The ecosystem versions as a set.** `devkit`, `devkit-debug` and `devkit-bom`
 share `devkit.version.ecosystem`. That number names a *tested compatible
 combination* of kit versions, not the maturity of any one kit — which is why
-`devkit 0.1.0` can contain `fillkit-api 0.5.0`.
+`devkit` and `fillkit-api` can diverge as soon as either moves.
 
 Everything lives in `gradle.properties`:
 
@@ -114,8 +114,8 @@ Everything lives in `gradle.properties`:
 devkit.group=io.github.ezekielwachira.devkit
 
 devkit.version.core=0.1.0
-devkit.version.fillkit=0.5.0
-devkit.version.netkit=0.3.0
+devkit.version.fillkit=0.1.0
+devkit.version.netkit=0.1.0
 
 devkit.version.ecosystem=0.1.0
 ```

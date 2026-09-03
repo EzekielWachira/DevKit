@@ -15,11 +15,16 @@ The full documentation lives in the repository README: **[../README.md](../READM
 
 ```kotlin
 dependencies {
-    implementation("io.github.ezekielwachira.devkit:fillkit-api:0.5.0")
-    debugImplementation("io.github.ezekielwachira.devkit:fillkit-debug:0.5.0")
-    androidTestImplementation("io.github.ezekielwachira.devkit:fillkit-testing:0.5.0")
+    implementation("io.github.ezekielwachira.devkit:fillkit-api:0.1.0")
+    debugImplementation("io.github.ezekielwachira.devkit:fillkit-debug:0.1.0")
+    androidTestImplementation("io.github.ezekielwachira.devkit:fillkit-testing:0.1.0")
 }
 ```
+
+The published artifacts start at `0.1.0`. The milestone numbers in the
+repository history (FillKit 0.2 through 0.4) predate publication and were never
+release versions; `0.1.0` is the first with a Maven coordinate and contains all
+of that work.
 
 FillKit is four artifacts because its pieces have genuinely different
 consumption scopes. `fillkit-api` is the only one that reaches a release build —
