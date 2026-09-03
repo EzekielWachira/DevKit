@@ -18,7 +18,7 @@ Automation  → activate the same scenario from a Compose UI test
 
 ## Contents
 
-- [Modules](#modules) · [Requirements](#requirements) · [Run the sample](#run-the-sample) · [Install](#install-and-release-safety)
+- [Modules](#modules) · [Requirements](#requirements) · [Run the sample](#run-the-sample) · [Install](#install-and-release-safety) · [Publishing](docs/PUBLISHING.md)
 - Registering fields: [TextFieldState](#textfieldstate-and-one-fill-target) · [ContentType](#compose-contenttype-mapping) · [Suggestions](#field-suggestions) · [Semantics](#semantics-integration-and-discovery-boundary)
 - Locales: [Internationalization](#internationalization-and-locales) · [Fallback](#fallback) · [Custom packs](#custom-packs-and-composition) · [Precedence](#locale-precedence) · [Adding a locale](#adding-a-locale)
 - Test data: [Personas](#saved-personas) · [Locales](#locales) · [Scenarios](#scenario-packs) · [Generators](#custom-generator-dsl) · [Packs](#unified-packs) · [Precedence](#resolution-precedence)
@@ -30,16 +30,23 @@ Automation  → activate the same scenario from a Compose UI test
 
 ## Modules
 
-| Module | Ships in | Contents |
-| --- | --- | --- |
-| `:fillkit:api` | release + debug | Pure models, DSLs, the Compose modifier, semantics keys, reproduction specs and token codec, activation requests, and a no-op release runtime |
-| `:fillkit:engine` | debug | Locale registries, persona and value generation, scenario composition, deterministic random streams |
-| `:fillkit:debug` | debug | Developer panel, QA scenario launcher, activation engine, pending activations, deep-link entry point, local persistence |
-| `:fillkit:testing` | `androidTestImplementation` only | Compose test finders, assertions, `FillKitTestDriver`, reproduction helpers |
-| `:netkit` | debug | Network scenario toolkit — OkHttp interceptor, scenario engine, request history, masking, Compose console. See [netkit/README.md](netkit/README.md) |
-| `:app` | — | Sample application exercising every capability |
+| Module | Maven artifact | Ships in | Contents |
+| --- | --- | --- | --- |
+| `:core` | `core` | release + debug | DevKit version metadata and the runtime/debug/test distribution classification |
+| `:fillkit:api` | `fillkit-api` | release + debug | Pure models, DSLs, the Compose modifier, semantics keys, reproduction specs and token codec, activation requests, and a no-op release runtime |
+| `:fillkit:engine` | `fillkit-engine` | debug | Locale registries, persona and value generation, scenario composition, deterministic random streams |
+| `:fillkit:debug` | `fillkit-debug` | debug | Developer panel, QA scenario launcher, activation engine, pending activations, deep-link entry point, local persistence |
+| `:fillkit:testing` | `fillkit-testing` | `androidTestImplementation` only | Compose test finders, assertions, `FillKitTestDriver`, reproduction helpers |
+| `:netkit` | `netkit` | debug | Network scenario toolkit — OkHttp interceptor, scenario engine, request history, masking, Compose console. See [netkit/README.md](netkit/README.md) |
+| `:devkit` | `devkit` | release + debug | Umbrella over every release-safe library. No source of its own |
+| `:devkit-debug` | `devkit-debug` | debug | Umbrella over every developer and QA tool. No source of its own |
+| `:devkit-bom` | `devkit-bom` | — | Version alignment |
+| `:app` | — | — | Sample application exercising every capability |
+| `:consumer-test` | — | — | Standalone build that resolves DevKit from Maven Local by coordinates, verifying the published graphs |
 
-Only `:fillkit:api` reaches a release build. `:netkit` is `debugImplementation`-only and every reference to it lives in the sample app's `src/debug` source set, so the release APK contains none of it.
+Only `:core` and `:fillkit:api` reach a release build. `:netkit` is `debugImplementation`-only and every reference to it lives in the sample app's `src/debug` source set, so the release APK contains none of it.
+
+Every kit installs independently — see [Install](#install-and-release-safety) — and the split between `devkit` and `devkit-debug` is what keeps developer tooling out of production builds. [docs/PUBLISHING.md](docs/PUBLISHING.md) covers the artifact architecture, versioning and how to add a kit.
 
 ## Requirements
 
@@ -67,15 +74,130 @@ The sample application id is `io.devkit`. Tap the ⚡ trigger on any screen to o
 
 ## Install and release safety
 
+DevKit publishes to Maven under the group **`io.github.ezekielwachira.devkit`**.
+Every library installs independently — nothing forces you to take a kit you did
+not ask for. Pick whichever of the four models fits.
+
+> **Not yet on Maven Central.** The artifacts are ready and verified, but no
+> release has been published yet. Until one is, build locally with
+> `./gradlew publishToMavenLocal` and add `mavenLocal()` to your repositories.
+> See [docs/PUBLISHING.md](docs/PUBLISHING.md).
+
+### One library
+
+```kotlin
+dependencies {
+    debugImplementation("io.github.ezekielwachira.devkit:netkit:0.3.0")
+}
+```
+
+### Selected libraries
+
+```kotlin
+dependencies {
+    // FillKit's release-safe half — production code annotates fields with it
+    implementation("io.github.ezekielwachira.devkit:fillkit-api:0.5.0")
+
+    // The panel and the network console, debug builds only
+    debugImplementation("io.github.ezekielwachira.devkit:fillkit-debug:0.5.0")
+    debugImplementation("io.github.ezekielwachira.devkit:netkit:0.3.0")
+
+    androidTestImplementation("io.github.ezekielwachira.devkit:fillkit-testing:0.5.0")
+}
+```
+
+### The BOM, so you name no versions
+
+```kotlin
+dependencies {
+    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.1.0"))
+
+    implementation("io.github.ezekielwachira.devkit:fillkit-api")
+    debugImplementation("io.github.ezekielwachira.devkit:fillkit-debug")
+    debugImplementation("io.github.ezekielwachira.devkit:netkit")
+    androidTestImplementation("io.github.ezekielwachira.devkit:fillkit-testing")
+}
+```
+
+One `implementation(platform(...))` line covers the debug and androidTest
+configurations too, because they extend `implementation`. A second
+`debugImplementation(platform(...))` is not needed — verified, not assumed.
+
+### The bundles
+
+```kotlin
+dependencies {
+    // Every release-safe DevKit library: core + fillkit-api.
+    // Contains no developer tooling.
+    implementation("io.github.ezekielwachira.devkit:devkit:0.1.0")
+
+    // Every DevKit developer and QA tool: the FillKit panel (with its engine
+    // and API) and NetKit. Not fillkit-testing — that stays androidTest-only.
+    debugImplementation("io.github.ezekielwachira.devkit:devkit-debug:0.1.0")
+}
+```
+
+`devkit` and `devkit-debug` are deliberately separate. A single "all of DevKit"
+artifact would mean the most natural thing to type —
+`implementation("…:devkit")` — silently shipped a network interceptor and a
+debug panel to production.
+
+### What each artifact is
+
+| Artifact | Ships in | Version | Contents |
+| --- | --- | --- | --- |
+| `core` | release + debug | `0.1.0` | Ecosystem version metadata and the runtime/debug/test classification. Arrives transitively; you rarely add it yourself |
+| `fillkit-api` | release + debug | `0.5.0` | Models, DSLs, the Compose modifier, semantics keys, reproduction specs, and a no-op release runtime |
+| `fillkit-engine` | debug | `0.5.0` | Locale registries, persona and value generation, deterministic random streams |
+| `fillkit-debug` | debug | `0.5.0` | Developer panel, QA scenario launcher, deep links, local persistence |
+| `fillkit-testing` | `androidTestImplementation` only | `0.5.0` | Compose finders, assertions, `FillKitTestDriver` |
+| `netkit` | debug | `0.3.0` | Network scenario toolkit — see [netkit/README.md](netkit/README.md) |
+| `devkit` | release + debug | `0.1.0` | Umbrella: `core` + `fillkit-api` |
+| `devkit-debug` | debug | `0.1.0` | Umbrella: `fillkit-debug` + `netkit` |
+| `devkit-bom` | — | `0.1.0` | Version alignment for all of the above |
+
+`fillkit-testing` exposes Compose test rules and JUnit types;
+`implementation("…:fillkit-testing")` is not a supported configuration, and it is
+in neither umbrella for the same reason.
+
+You do not normally add `core` yourself. It arrives with whichever kits you
+chose, and is only worth naming directly if you use its public API
+(`DevKitTool`, `DevKitDistribution`).
+
+### Version compatibility
+
+DevKit BOM **`0.1.0`** pins this tested set:
+
+```text
+Artifact          Version
+-------------------------
+core              0.1.0
+fillkit-api       0.5.0
+fillkit-engine    0.5.0
+fillkit-debug     0.5.0
+fillkit-testing   0.5.0
+netkit            0.3.0
+devkit            0.1.0
+devkit-debug      0.1.0
+```
+
+Kits version independently — NetKit reaching `0.4.0` does not oblige FillKit to
+move. The BOM and umbrella version names a compatible *combination*, not the
+maturity of any one kit, which is why `devkit 0.1.0` contains `fillkit-api
+0.5.0`. See [docs/PUBLISHING.md](docs/PUBLISHING.md).
+
+### Building from source
+
+Within this repository the modules are consumed as projects:
+
 ```kotlin
 dependencies {
     implementation(project(":fillkit:api"))
     debugImplementation(project(":fillkit:debug"))
+    debugImplementation(project(":netkit"))
     androidTestImplementation(project(":fillkit:testing"))
 }
 ```
-
-`:fillkit:testing` is an **`androidTestImplementation`-only** artifact. It exposes Compose test rules and JUnit types; `implementation(":fillkit:testing")` is not a supported configuration.
 
 Minimum tested Compose versions are UI/Foundation `1.10.4` and Material 3 `1.4.0` (Compose BOM `2026.02.01`).
 

@@ -1,0 +1,97 @@
+name: Publish
+
+# Never on a branch push. Publishing to Maven Central is irreversible — a
+# version, once released, cannot be replaced — so it takes a deliberate act:
+# either a published GitHub Release, or a manual dispatch naming what to ship.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      module:
+        description: >-
+          Gradle path to publish, or "all". Publishing one kit without the
+          others is the normal case: kit versions are independent, and a NetKit
+          release should not oblige FillKit to move.
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - ':core'
+          - ':fillkit:api'
+          - ':fillkit:engine'
+          - ':fillkit:debug'
+          - ':fillkit:testing'
+          - ':netkit'
+          - ':devkit'
+          - ':devkit-debug'
+          - ':devkit-bom'
+      dryRun:
+        description: Publish to Maven Local only, without releasing
+        required: false
+        default: false
+        type: boolean
+
+# One publish at a time. Two concurrent runs could stage the same version twice.
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: Verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Build and test
+        run: ./gradlew build
+
+      # The check that matters before a release: resolve and compile the
+      # artifacts from a consumer that knows them only by Maven coordinates.
+      # A project dependency inside the main build would prove none of it.
+      - name: Verify publication
+        run: ./scripts/verify-publication.sh
+
+  publish:
+    name: Publish
+    needs: verify
+    runs-on: ubuntu-latest
+    # A dry run stops after `verify`, which has already published to Maven Local
+    # and resolved from it.
+    if: ${{ github.event_name == 'release' || inputs.dryRun == false }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Publish to Maven Central
+        # A release publishes everything; a dispatch publishes what it named.
+        # Secrets reach Gradle through the environment and are never echoed —
+        # note there is no `env:` dump and no `--info`, both of which would put
+        # credentials in a public log.
+        run: |
+          MODULE="${{ github.event_name == 'release' && 'all' || inputs.module }}"
+          if [ "$MODULE" = "all" ]; then
+            ./gradlew publishAllPublicationsToMavenCentralRepository
+          else
+            ./gradlew "${MODULE}:publishAllPublicationsToMavenCentralRepository"
+          fi
+        env:
+          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
+          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}

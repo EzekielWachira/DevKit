@@ -1,5 +1,6 @@
 plugins {
     alias(libs.plugins.android.library)
+    id("devkit.publish")
 }
 
 android {
@@ -21,4 +22,15 @@ android {
 dependencies {
     api(project(":fillkit:api"))
     testImplementation(libs.junit)
+}
+
+devKitPublishing {
+    artifactId.set("fillkit-engine")
+    displayName.set("FillKit Engine")
+    description.set(
+        "FillKit's data generation engine: locale registries, persona and value generation, " +
+            "scenario composition and deterministic random streams. Debug-only; normally " +
+            "arrives transitively with fillkit-debug.",
+    )
+    versionKey.set("fillkit")
 }

@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
+    id("devkit.publish")
 }
 
 android {
@@ -34,6 +35,7 @@ android {
 // NetKit is a single module consumed through `debugImplementation`. OkHttp and the
 // Compose UI are both part of the public surface, so they are exposed with `api`.
 dependencies {
+    api(project(":core"))
     api(platform(libs.okhttp.bom))
     api(libs.okhttp)
     api(libs.kotlinx.coroutines.core)
@@ -58,4 +60,15 @@ dependencies {
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
     debugImplementation(libs.androidx.compose.ui.test.manifest)
+}
+
+devKitPublishing {
+    artifactId.set("netkit")
+    displayName.set("NetKit")
+    description.set(
+        "Network scenario and failure simulation toolkit for Android developers and QA: " +
+            "offline, latency, timeouts, forced responses, deterministic chaos with " +
+            "reproducible seeds, request history and replay. debugImplementation only.",
+    )
+    versionKey.set("netkit")
 }

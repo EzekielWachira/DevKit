@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.compose)
+    id("devkit.publish")
 }
 
 android {
@@ -31,4 +32,15 @@ dependencies {
     api(libs.androidx.compose.ui.test.junit4)
     api(libs.junit)
     implementation(libs.androidx.compose.ui)
+}
+
+devKitPublishing {
+    artifactId.set("fillkit-testing")
+    displayName.set("FillKit Testing")
+    description.set(
+        "Compose test support for FillKit: field finders, assertions, FillKitTestDriver and " +
+            "reproduction helpers. androidTestImplementation only — it exposes JUnit and " +
+            "Compose test rules.",
+    )
+    versionKey.set("fillkit")
 }
