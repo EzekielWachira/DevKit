@@ -5,6 +5,7 @@ import org.gradle.api.Project
 import org.gradle.api.provider.Property
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
+import org.gradle.authentication.http.BasicAuthentication
 import org.gradle.kotlin.dsl.create
 import org.gradle.kotlin.dsl.getByType
 import org.gradle.plugins.signing.SigningExtension
@@ -231,6 +232,18 @@ private fun configureDevKitRepositories(project: Project, publishing: Publishing
             username = user
             password = token
         }
+        // Forces Gradle to send Basic credentials **preemptively**.
+        //
+        // Without this, Gradle makes the request unauthenticated first and only
+        // retries with credentials if the server answers with a challenge it
+        // recognises. Sonatype's staging API does not send one Gradle acts on,
+        // so the 401 is surfaced rather than retried — and it looks exactly like
+        // a bad token, which is a genuinely expensive thing to misdiagnose
+        // (`curl -u` sends Basic immediately, so it succeeds where the build
+        // fails).
+        authentication {
+            create<BasicAuthentication>("basic")
+        }
     }
 }
 
@@ -263,8 +276,16 @@ private fun configureDevKitSigning(project: Project, publishing: PublishingExten
  * consume it and never put it in a task input, a log line or an error message.
  */
 private fun Project.secret(environmentName: String, propertyName: String): String? =
-    providers.environmentVariable(environmentName).orNull
-        ?: providers.gradleProperty(propertyName).orNull
+    (
+        providers.environmentVariable(environmentName).orNull
+            ?: providers.gradleProperty(propertyName).orNull
+        )
+        // Trimmed because a trailing newline is easy to introduce when setting a
+        // secret — `echo "token" | gh secret set …` adds one — and inside an
+        // HTTP Basic header it corrupts the credential into an opaque 401 with
+        // nothing in the message to suggest whitespace is the problem.
+        ?.trim()
+        ?.takeIf { it.isNotEmpty() }
 
 /**
  * Fails a **remote** publish that would produce an artifact nobody can use.
