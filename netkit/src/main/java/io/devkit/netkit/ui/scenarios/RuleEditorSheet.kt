@@ -229,6 +229,18 @@ internal fun RuleEditorSheet(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
 
+                RuleBehavior.DISCONNECT -> Text(
+                    text = "Requests to this endpoint fail with an IOException, the way a " +
+                        "connection dropped mid-flight does. This is an application-layer " +
+                        "simulation — no socket is actually reset.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+
+                RuleBehavior.LATENCY_RANGE -> LatencyRangeFields(form) { form = it }
+
+                RuleBehavior.RANDOM -> WeightedOutcomesEditor(form) { form = it }
+
                 RuleBehavior.TIMEOUT -> {
                     NetKitSectionLabel("Timeout")
                     FlowRow(
@@ -251,6 +263,8 @@ internal fun RuleEditorSheet(
                     )
                 }
             }
+
+            AdvancedSection(form) { form = it }
 
             OutlinedTextField(
                 value = form.name,

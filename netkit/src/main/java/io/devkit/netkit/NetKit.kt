@@ -16,6 +16,8 @@ import io.devkit.netkit.scenario.persistence.ScenarioRepository
 import io.devkit.netkit.scenario.runtime.ActiveNetworkConfiguration
 import io.devkit.netkit.scenario.runtime.DefaultScenarioExecutionState
 import io.devkit.netkit.scenario.runtime.ScenarioManager
+import io.devkit.netkit.scenario.run.ExecutionTimeline
+import io.devkit.netkit.scenario.run.ScenarioRunManager
 import io.devkit.netkit.scenario.serialization.JsonScenarioSerializer
 import io.devkit.netkit.scenario.serialization.ScenarioSerializer
 import io.devkit.netkit.state.DefaultNetKitController
@@ -60,13 +62,25 @@ import java.util.concurrent.atomic.AtomicReference
  * 1. NetKit disabled                → the request passes through
  * 2. temporary endpoint override    → wins
  * 3. active saved scenario rule     → next
- * 4. active saved scenario global   → next, when the scenario sets one
- * 5. temporary global configuration → next
- * 6. otherwise                      → pass through
+ * 4. chaos, the scenario's or the console's
+ * 5. active saved scenario global   → next, when the scenario sets one
+ * 6. temporary global configuration → next
+ * 7. otherwise                      → pass through
  * ```
  *
  * A matching rule fully replaces global behaviour — global latency is *not*
  * added on top — so a rule pinned to `PassThrough` acts as an allow-list entry.
+ * Chaos sits below explicit rules on purpose: an endpoint someone wrote a rule
+ * for should behave the way the rule says, not the way the weather says.
+ *
+ * ### Runs and reproducibility
+ *
+ * Activating a scenario starts a [io.devkit.netkit.scenario.run.ScenarioRun] with
+ * a seed. Every stochastic decision — a probability gate, a weighted outcome, a
+ * latency inside a range, a chaos failure — derives from that seed and the
+ * request's evaluation index, so the same scenario, the same seed and the same
+ * request ordering reproduce the same failures. See [runManager] and the module
+ * README.
  *
  * ### Threading
  *
@@ -82,6 +96,7 @@ import java.util.concurrent.atomic.AtomicReference
  * @property interceptor the OkHttp interceptor to install on your client.
  * @property repository saved scenarios and packs.
  * @property serializer the `.netkit.json` reader and writer.
+ * @property runManager the seed, counters and timeline of the current run.
  * @property replaySnapshots in-memory replay data; `null` when replay is off.
  * @property scope where NetKit's own coroutines run.
  */
@@ -94,6 +109,7 @@ class NetKit private constructor(
     val repository: ScenarioRepository,
     val serializer: ScenarioSerializer,
     val manager: ScenarioManager,
+    val runManager: ScenarioRunManager,
     val replayer: RequestReplayer,
     val replaySnapshots: ReplaySnapshotStore?,
     val scope: CoroutineScope,
@@ -155,12 +171,20 @@ class NetKit private constructor(
                 storage = config.scenarioStorage ?: InMemoryScenarioStorage(),
             )
             val executionState = DefaultScenarioExecutionState()
+            val runManager = ScenarioRunManager(
+                executionState = executionState,
+                timeline = ExecutionTimeline(
+                    maxEvents = config.maxExecutionEvents,
+                    enabled = config.timelineEnabled,
+                ),
+            )
             val manager = ScenarioManager(
                 repository = repository,
                 serializer = serializer,
                 scope = scope,
                 builtInPacks = config.builtInPacks,
                 executionState = executionState,
+                runManager = runManager,
             )
 
             // The engine needs the controller's configuration and the controller
@@ -169,7 +193,7 @@ class NetKit private constructor(
             // local: the engine reads this from OkHttp threads, and a plain
             // captured var would be a data race with no happens-before edge.
             val controllerRef = AtomicReference<DefaultNetKitController?>(null)
-            val engine = DefaultNetworkScenarioEngine(executionState) {
+            val engine = DefaultNetworkScenarioEngine(executionState, runManager) {
                 controllerRef.get()?.configuration ?: ActiveNetworkConfiguration.Default
             }
             val interceptor = NetKitInterceptor(
@@ -204,6 +228,7 @@ class NetKit private constructor(
                 replaySnapshots = replaySnapshots,
                 scope = scope,
                 initialConfiguration = config.initialConfiguration,
+                masker = config.masker,
             )
             controllerRef.set(controller)
 
@@ -221,6 +246,7 @@ class NetKit private constructor(
                 repository = repository,
                 serializer = serializer,
                 manager = manager,
+                runManager = runManager,
                 replayer = replayer,
                 replaySnapshots = replaySnapshots,
                 scope = scope,

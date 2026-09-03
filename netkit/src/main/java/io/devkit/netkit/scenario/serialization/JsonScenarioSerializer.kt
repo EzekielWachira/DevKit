@@ -146,11 +146,66 @@ class JsonScenarioSerializer(
         return when (envelope.type) {
             ScenarioSchema.TYPE_SCENARIO -> importScenario(envelope, declaredVersion)
             ScenarioSchema.TYPE_PACK -> importPack(envelope, declaredVersion)
+            ScenarioSchema.TYPE_REPRODUCTION -> importReproduction(envelope, declaredVersion)
             else -> ScenarioImportResult.InvalidFile(
                 "Unknown NetKit file type \"${envelope.type}\". This version reads " +
-                    "\"${ScenarioSchema.TYPE_SCENARIO}\" and \"${ScenarioSchema.TYPE_PACK}\".",
+                    "\"${ScenarioSchema.TYPE_SCENARIO}\", \"${ScenarioSchema.TYPE_PACK}\" and " +
+                    "\"${ScenarioSchema.TYPE_REPRODUCTION}\".",
             )
         }
+    }
+
+    /**
+     * Reads a `.netkit-run.json`.
+     *
+     * The scenario inside is validated exactly like a standalone one — a
+     * reproduction is not a trusted channel just because it came from a
+     * colleague. What it adds is the seed, which the console offers to activate
+     * with, and the trace, which is read purely as display text.
+     */
+    private fun importReproduction(
+        envelope: StoredExportEnvelope,
+        version: Int,
+    ): ScenarioImportResult {
+        val run = envelope.run
+            ?: return ScenarioImportResult.InvalidFile(
+                "This file says it holds a reproduction but carries no run metadata.",
+            )
+        val stored = envelope.scenario
+            ?: return ScenarioImportResult.InvalidFile(
+                "This reproduction carries no scenario, so there is nothing to reproduce.",
+            )
+        val scenario = try {
+            ScenarioStorageMapper.toDomain(stored).asImported()
+        } catch (error: IllegalArgumentException) {
+            return ScenarioImportResult.InvalidFile(error.message ?: "The scenario is malformed.")
+        }
+        val validation = validator.validate(scenario)
+        if (validation is ValidationResult.Invalid) {
+            return ScenarioImportResult.InvalidScenario(validation.errors)
+        }
+        return ScenarioImportResult.Reproduction(
+            scenario = scenario,
+            seed = run.seed,
+            runId = run.runId.takeIf { it.isNotBlank() },
+            trace = envelope.trace.orEmpty().map(::traceLine),
+            summary = summarize(
+                name = scenario.name,
+                description = scenario.description,
+                schemaVersion = version,
+                scenarios = listOf(scenario),
+                seed = run.seed,
+            ),
+        )
+    }
+
+    /** `#17 GET /api/v1/bookings · Chaos · HTTP 503` */
+    private fun traceLine(event: StoredTraceEvent): String = buildString {
+        append('#').append(event.index)
+        event.method?.let { append(' ').append(it) }
+        event.path?.let { append(' ').append(it) }
+        event.rule?.let { append(" · ").append(it) }
+        event.detail?.let { append(" · ").append(it) }
     }
 
     private fun importScenario(
@@ -226,7 +281,7 @@ class JsonScenarioSerializer(
         }
     }
 
-    private fun timestamp(): String = iso8601.get()!!.format(Date(nowMillis()))
+    private fun timestamp(): String = timestampOf(nowMillis())
 
     @OptIn(ExperimentalSerializationApi::class)
     internal companion object {
@@ -265,6 +320,14 @@ class JsonScenarioSerializer(
                     timeZone = TimeZone.getTimeZone("UTC")
                 }
         }
+
+        /**
+         * `2026-09-03T09:44:12Z` — the timestamp format every NetKit export uses.
+         *
+         * Shared with [ReproductionExporter] so a reproduction and the scenario
+         * export beside it in a ticket agree on how a time is written.
+         */
+        internal fun timestampOf(millis: Long): String = iso8601.get()!!.format(Date(millis))
     }
 }
 

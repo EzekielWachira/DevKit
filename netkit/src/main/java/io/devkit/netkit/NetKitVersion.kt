@@ -13,9 +13,9 @@ package io.devkit.netkit
  */
 object NetKitVersion {
 
-    /** `0.2.0` */
-    const val NAME: String = "0.2.0"
+    /** `0.3.0` */
+    const val NAME: String = "0.3.0"
 
-    /** `netkit/0.2.0` — the value written into an exported file. */
+    /** `netkit/0.3.0` — the value written into an exported file. */
     const val GENERATOR: String = "netkit/$NAME"
 }

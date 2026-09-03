@@ -9,7 +9,9 @@ package io.devkit.netkit.scenario
  * **immutable and thread-safe**: [matches] is called from OkHttp's background
  * threads while the debug UI mutates rules on the main thread.
  *
- * NetKit 0.1 ships [ExactPath] only.
+ * NetKit 0.1 shipped [ExactPath]; 0.3 adds [PathPrefix], which the auth and
+ * pagination presets need in order to say "every protected endpoint" without
+ * enumerating them.
  */
 interface EndpointMatcher {
 
@@ -45,6 +47,42 @@ interface EndpointMatcher {
                 } else {
                     withLeadingSlash
                 }
+            }
+        }
+    }
+
+    /**
+     * Matches every path beginning with [prefix].
+     *
+     * Accepts the glob form people already type — a path followed by a trailing
+     * `/` and a star — and normalises it away, so `/api/v1` and the glob spelling
+     * of it are the same matcher. A leading `/` is added and a trailing `/`
+     * dropped, exactly as [ExactPath] does.
+     *
+     * A prefix matches on **path segment boundaries**, so `/api/v1` claims
+     * `/api/v1/bookings` and `/api/v1` itself, but not `/api/v10/bookings`. That
+     * distinction matters more than it sounds: an auth scenario scoped to
+     * `/api/v1` that quietly also caught `/api/v10` would produce a bug report
+     * about the wrong endpoint.
+     */
+    data class PathPrefix(val prefix: String) : EndpointMatcher {
+
+        private val normalized: String = normalize(prefix)
+
+        override val label: String get() = if (normalized == "/") "/*" else "$normalized/*"
+
+        override fun matches(target: RequestTarget): Boolean {
+            if (normalized == "/") return true
+            val path = ExactPath.normalize(target.path)
+            if (!path.startsWith(normalized)) return false
+            return path.length == normalized.length || path[normalized.length] == '/'
+        }
+
+        companion object {
+            internal fun normalize(raw: String): String {
+                var value = raw.trim()
+                if (value.endsWith("*")) value = value.dropLast(1)
+                return ExactPath.normalize(value)
             }
         }
     }

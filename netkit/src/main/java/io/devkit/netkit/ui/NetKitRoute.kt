@@ -7,10 +7,19 @@ import io.devkit.netkit.scenario.serialization.ScenarioImportResult
 import io.devkit.netkit.ui.history.HistoryFilter
 import io.devkit.netkit.ui.scenarios.RuleEditorState
 
-/** The three top-level surfaces of the NetKit console. */
+/**
+ * The top-level surfaces of the NetKit console.
+ *
+ * 0.3 added two, following the shape of the work rather than the shape of the
+ * code: **Chaos** is a thing you configure once and forget, **Run** is a thing
+ * you watch while reproducing, and neither belonged inside Console — which is
+ * about the network *right now* — or Scenarios, which is about definitions.
+ */
 internal enum class NetKitTab(val label: String, val testTag: String) {
     CONSOLE("Console", NetKitTestTags.TAB_CONSOLE),
     SCENARIOS("Scenarios", NetKitTestTags.TAB_SCENARIOS),
+    CHAOS("Chaos", NetKitTestTags.TAB_CHAOS),
+    RUN("Run", NetKitTestTags.TAB_RUN),
     HISTORY("History", NetKitTestTags.TAB_HISTORY),
 }
 
@@ -52,6 +61,7 @@ internal data class NetKitRoute(
     val scenarioEditor: NetworkScenario? = null,
     val pendingImport: PendingImport? = null,
     val saveSetup: SaveSetupPrompt? = null,
+    val presetPicker: Boolean = false,
     val historyFilter: HistoryFilter = HistoryFilter.ALL,
     val scenarioSearch: String = "",
     val message: String? = null,
@@ -65,5 +75,6 @@ internal data class NetKitRoute(
         scenarioEditor = null,
         pendingImport = null,
         saveSetup = null,
+        presetPicker = false,
     )
 }

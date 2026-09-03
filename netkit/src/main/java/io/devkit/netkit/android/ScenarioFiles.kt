@@ -7,7 +7,7 @@ import android.content.Intent
 import android.net.Uri
 import androidx.core.content.FileProvider
 import io.devkit.netkit.config.NetKitLimits
-import io.devkit.netkit.scenario.serialization.ScenarioExport
+import io.devkit.netkit.scenario.serialization.NetKitExport
 import java.io.File
 import java.io.IOException
 import java.nio.charset.StandardCharsets
@@ -15,7 +15,7 @@ import java.nio.charset.StandardCharsets
 /** The outcome of writing an export to a file the user can share. */
 sealed interface ScenarioFileResult {
 
-    data class Ready(val uri: Uri, val file: File, val export: ScenarioExport) : ScenarioFileResult
+    data class Ready(val uri: Uri, val file: File, val export: NetKitExport) : ScenarioFileResult
 
     data class Failed(val message: String) : ScenarioFileResult
 }
@@ -57,7 +57,7 @@ object ScenarioFiles {
      * `content://` URI for its file, and deleting it out from under a chooser
      * the user has not dismissed hands the receiving app nothing.
      */
-    fun write(context: Context, export: ScenarioExport): ScenarioFileResult = try {
+    fun write(context: Context, export: NetKitExport): ScenarioFileResult = try {
         val directory = File(context.cacheDir, EXPORT_DIRECTORY).apply { mkdirs() }
         val staleBefore = System.currentTimeMillis() - STALE_EXPORT_MILLIS
         directory.listFiles()
@@ -98,12 +98,14 @@ object ScenarioFiles {
         }
 
     /** Writes [export] and opens the system share sheet. Returns false on failure. */
-    fun share(context: Context, export: ScenarioExport): ScenarioFileResult {
+    fun share(context: Context, export: NetKitExport): ScenarioFileResult {
         val result = write(context, export)
         if (result is ScenarioFileResult.Ready) {
             val chooser = Intent.createChooser(
                 shareIntent(context, result.uri, export.suggestedFileName),
-                "Share NetKit scenario",
+                // Covers a scenario, a pack and a reproduction alike; the file name
+                // in the chooser preview says which.
+                "Share from NetKit",
             )
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

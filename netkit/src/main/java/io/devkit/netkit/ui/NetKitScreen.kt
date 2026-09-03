@@ -21,6 +21,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryScrollableTabRow
 import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Snackbar
 import androidx.compose.material3.Surface
@@ -53,15 +54,20 @@ import io.devkit.netkit.scenario.model.NetworkScenario
 import io.devkit.netkit.scenario.model.ScenarioMetadata
 import io.devkit.netkit.scenario.persistence.ScenarioWriteResult
 import io.devkit.netkit.scenario.runtime.ScenarioImportOutcome
+import io.devkit.netkit.scenario.preset.ScenarioPresetRegistry
 import io.devkit.netkit.state.NetKitController
 import io.devkit.netkit.state.NetKitState
 import io.devkit.netkit.ui.components.NetKitBadge
 import io.devkit.netkit.ui.components.NetKitDivider
 import io.devkit.netkit.ui.components.NetKitGutter
+import io.devkit.netkit.ui.chaos.ChaosTab
 import io.devkit.netkit.ui.console.ConsoleTab
 import io.devkit.netkit.ui.details.RecordDetailSheet
 import io.devkit.netkit.ui.history.HistoryTab
+import io.devkit.netkit.ui.preset.PresetSheet
 import io.devkit.netkit.ui.replay.ReplaySheet
+import io.devkit.netkit.ui.run.RunTab
+import io.devkit.netkit.ui.run.RunTabState
 import io.devkit.netkit.ui.scenarioeditor.ScenarioEditorSheet
 import io.devkit.netkit.ui.scenariolist.ImportPreviewSheet
 import io.devkit.netkit.ui.scenariolist.ScenarioDetailSheet
@@ -106,6 +112,7 @@ fun NetKitScreen(
     controller: NetKitController,
     modifier: Modifier = Modifier,
     onClose: (() -> Unit)? = null,
+    presets: ScenarioPresetRegistry = ScenarioPresetRegistry(),
 ) {
     val state by controller.state.collectAsState()
     val history by controller.history.collectAsState()
@@ -115,6 +122,10 @@ fun NetKitScreen(
     val activeScenario by controller.scenarios.activeScenario.collectAsState()
     val sequenceProgress by controller.scenarios.sequenceProgress.collectAsState()
     val persistenceError by controller.scenarios.lastError.collectAsState()
+    val run by controller.runs.current.collectAsState()
+    val timeline by controller.runs.timeline.collectAsState()
+    val ruleStatistics by controller.runs.ruleStatistics.collectAsState()
+    val chaosStatistics by controller.runs.chaosStatistics.collectAsState()
 
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -159,11 +170,42 @@ fun NetKitScreen(
         packs = packs,
         activeScenario = activeScenario,
         sequenceProgress = sequenceProgress,
+        runState = RunTabState(
+            run = run,
+            timeline = timeline,
+            ruleStatistics = ruleStatistics,
+            chaosStatistics = chaosStatistics,
+            timelineEnabled = controller.runs.isTimelineEnabled,
+            isStochastic = state.configuration.isStochastic,
+        ),
         route = route,
         onRouteChange = { route = it },
         onClose = onClose,
         controller = controller,
         onImport = { importPicker.launch(ScenarioFiles.IMPORT_MIME_TYPES) },
+        onCopy = { label, text ->
+            // The platform clipboard rather than Compose's, matching the request
+            // detail sheet: NetKit copies plain text and nothing else, and the
+            // Compose wrapper is deprecated in favour of a suspending API this
+            // one-liner has no use for.
+            copyPlainText(context, label, text)
+            route = route.copy(message = "$label copied")
+        },
+        onExportRun = {
+            scope.launch {
+                val export = controller.runs.exportReproduction()
+                route = route.copy(
+                    message = if (export == null) {
+                        "There is no run to export."
+                    } else {
+                        when (val written = ScenarioFiles.share(context, export)) {
+                            is ScenarioFileResult.Ready -> "Exported ${export.suggestedFileName}"
+                            is ScenarioFileResult.Failed -> written.message
+                        }
+                    },
+                )
+            }
+        },
         modifier = modifier,
     )
 
@@ -176,6 +218,7 @@ fun NetKitScreen(
         scenarios = scenarios,
         packs = packs,
         sequenceProgress = sequenceProgress,
+        presets = presets,
         scope = { block -> scope.launch { block() } },
     )
 
@@ -216,6 +259,7 @@ private fun NetKitSheets(
     scenarios: List<NetworkScenario>,
     packs: List<io.devkit.netkit.scenario.model.ScenarioPackContents>,
     sequenceProgress: Map<String, io.devkit.netkit.scenario.runtime.SequenceProgress>,
+    presets: ScenarioPresetRegistry,
     scope: (suspend () -> Unit) -> Unit,
 ) {
     route.ruleEditor?.let { editor ->
@@ -366,6 +410,16 @@ private fun NetKitSheets(
                     val message = when (val outcome =
                         controller.scenarios.commitImport(pending.result)) {
                         is ScenarioImportOutcome.Imported -> "Imported ${outcome.summary}"
+
+                        // A reproduction is imported *and activated on its seed*.
+                        // Stopping at "saved" would leave the developer to hunt
+                        // for the scenario and retype the number, which is the
+                        // step the whole format exists to remove.
+                        is ScenarioImportOutcome.ImportedReproduction -> {
+                            controller.scenarios.reproduce(outcome.scenario.id, outcome.seed)
+                            "Reproducing ${outcome.summary}"
+                        }
+
                         is ScenarioImportOutcome.Rejected -> outcome.reason
                         is ScenarioImportOutcome.Failed -> outcome.error.message
                     }
@@ -373,6 +427,33 @@ private fun NetKitSheets(
                 }
             },
             onDismiss = { onRouteChange(route.copy(pendingImport = null)) },
+        )
+    }
+
+    if (route.presetPicker) {
+        PresetSheet(
+            registry = presets,
+            onCreate = { scenario ->
+                scope {
+                    val result = controller.scenarios.save(scenario)
+                    onRouteChange(
+                        route.copy(
+                            presetPicker = false,
+                            // Straight into the editor: a template is a starting
+                            // point, and the endpoints it guessed at are almost
+                            // always the first thing to correct.
+                            scenarioEditor = result.scenarioOrNull,
+                            message = when (result) {
+                                is ScenarioWriteResult.Success ->
+                                    "Created \"${result.scenario.name}\" from a template"
+
+                                is ScenarioWriteResult.Failure -> result.error.message
+                            },
+                        ),
+                    )
+                }
+            },
+            onDismiss = { onRouteChange(route.copy(presetPicker = false)) },
         )
     }
 
@@ -452,11 +533,14 @@ private fun NetKitScaffold(
     packs: List<io.devkit.netkit.scenario.model.ScenarioPackContents>,
     activeScenario: NetworkScenario?,
     sequenceProgress: Map<String, io.devkit.netkit.scenario.runtime.SequenceProgress>,
+    runState: RunTabState,
     route: NetKitRoute,
     onRouteChange: (NetKitRoute) -> Unit,
     onClose: (() -> Unit)?,
     controller: NetKitController,
     onImport: () -> Unit,
+    onCopy: (String, String) -> Unit,
+    onExportRun: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val scope = rememberCoroutineScope()
@@ -485,7 +569,10 @@ private fun NetKitScaffold(
                     Row(Modifier.fillMaxSize()) {
                         Box(Modifier.weight(1f)) {
                             Column(Modifier.fillMaxSize()) {
-                                PrimaryTabRow(selectedTabIndex = route.tab.leftPaneIndex) {
+                                PrimaryScrollableTabRow(
+                                    selectedTabIndex = route.tab.leftPaneIndex,
+                                    edgePadding = 0.dp,
+                                ) {
                                     LeftPaneTabs.forEach { tab ->
                                         Tab(
                                             selected = route.tab == tab,
@@ -502,10 +589,13 @@ private fun NetKitScaffold(
                                     packs = packs,
                                     activeScenario = activeScenario,
                                     sequenceProgress = sequenceProgress,
+                                    runState = runState,
                                     route = route,
                                     onRouteChange = onRouteChange,
                                     controller = controller,
                                     onImport = onImport,
+                                    onCopy = onCopy,
+                                    onExportRun = onExportRun,
                                     launch = { block -> scope.launch { block() } },
                                 )
                             }
@@ -517,7 +607,10 @@ private fun NetKitScaffold(
                     }
                 } else {
                     Column(Modifier.fillMaxSize()) {
-                        PrimaryTabRow(selectedTabIndex = route.tab.ordinal) {
+                        PrimaryScrollableTabRow(
+                            selectedTabIndex = route.tab.ordinal,
+                            edgePadding = 0.dp,
+                        ) {
                             NetKitTab.entries.forEach { tab ->
                                 Tab(
                                     selected = route.tab == tab,
@@ -549,10 +642,13 @@ private fun NetKitScaffold(
                                 packs = packs,
                                 activeScenario = activeScenario,
                                 sequenceProgress = sequenceProgress,
+                                runState = runState,
                                 route = route,
                                 onRouteChange = onRouteChange,
                                 controller = controller,
                                 onImport = onImport,
+                                onCopy = onCopy,
+                                onExportRun = onExportRun,
                                 launch = { block -> scope.launch { block() } },
                             )
                         }
@@ -571,10 +667,13 @@ private fun LeftPane(
     packs: List<io.devkit.netkit.scenario.model.ScenarioPackContents>,
     activeScenario: NetworkScenario?,
     sequenceProgress: Map<String, io.devkit.netkit.scenario.runtime.SequenceProgress>,
+    runState: RunTabState,
     route: NetKitRoute,
     onRouteChange: (NetKitRoute) -> Unit,
     controller: NetKitController,
     onImport: () -> Unit,
+    onCopy: (String, String) -> Unit,
+    onExportRun: () -> Unit,
     launch: (suspend () -> Unit) -> Unit,
 ) {
     when (tab) {
@@ -619,9 +718,39 @@ private fun LeftPane(
                     ),
                 )
             },
+            onNewFromPreset = { onRouteChange(route.copy(presetPicker = true)) },
             onImport = onImport,
             onSaveCurrentSetup = { onRouteChange(route.copy(saveSetup = SaveSetupPrompt())) },
             canSaveCurrentSetup = !state.global.isNormal || state.rules.isNotEmpty(),
+            contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
+        )
+
+        NetKitTab.CHAOS -> ChaosTab(
+            chaos = state.configuration.chaos,
+            scenarioChaos = state.configuration.scenario?.takeIf { it.enabled }?.chaos,
+            scenarioName = state.activeScenario?.name,
+            run = runState.run,
+            statistics = runState.chaosStatistics,
+            onChange = controller::setChaos,
+            onRestartRun = { controller.runs.restartWithNewSeed() },
+            contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
+        )
+
+        NetKitTab.RUN -> RunTab(
+            state = runState,
+            onRestartSameSeed = { controller.runs.restartWithSameSeed() },
+            onRestartNewSeed = { controller.runs.restartWithNewSeed() },
+            onApplySeed = { seed -> controller.runs.restartWithSeed(seed) },
+            onCopyReproduction = {
+                controller.runs.reproductionSummary()?.let { onCopy("Reproduction", it) }
+            },
+            onCopyTrace = { controller.runs.traceSummary()?.let { onCopy("Trace", it) } },
+            onExportReproduction = onExportRun,
+            onTimelineEnabledChange = controller.runs::setTimelineEnabled,
+            onStop = {
+                launch { controller.scenarios.deactivate() }
+                controller.setChaosEnabled(false)
+            },
             contentPadding = PaddingValues(top = 12.dp, bottom = 32.dp),
         )
 
@@ -709,11 +838,25 @@ private fun NetKitHeader(
     }
 }
 
+/**
+ * Puts [text] on the clipboard.
+ *
+ * Everything NetKit copies has already been through the masker, so a copied
+ * reproduction or trace is safe to paste anywhere — which is the point of having
+ * a copy button at all.
+ */
+private fun copyPlainText(context: Context, label: String, text: String) {
+    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+        as? android.content.ClipboardManager ?: return
+    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("NetKit $label", text))
+}
+
 /** How long a result message stays up before dismissing itself. */
 private const val MessageDurationMillis = 6_000L
 
 /** In the two-pane layout history has its own column, so it is not a left tab. */
-private val LeftPaneTabs = listOf(NetKitTab.CONSOLE, NetKitTab.SCENARIOS)
+private val LeftPaneTabs =
+    listOf(NetKitTab.CONSOLE, NetKitTab.SCENARIOS, NetKitTab.CHAOS, NetKitTab.RUN)
 
 private val NetKitTab.leftPaneIndex: Int
     get() = LeftPaneTabs.indexOf(this).coerceAtLeast(0)

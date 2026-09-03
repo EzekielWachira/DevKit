@@ -53,6 +53,7 @@ internal fun ScenarioListTab(
     onOpen: (NetworkScenario) -> Unit,
     onToggleActive: (NetworkScenario) -> Unit,
     onNew: () -> Unit,
+    onNewFromPreset: () -> Unit,
     onImport: () -> Unit,
     onSaveCurrentSetup: () -> Unit,
     canSaveCurrentSetup: Boolean,
@@ -184,14 +185,22 @@ internal fun ScenarioListTab(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 Button(
-                    onClick = onNew,
+                    onClick = onNewFromPreset,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag(NetKitTestTags.SCENARIO_NEW),
+                        .testTag(NetKitTestTags.SCENARIO_FROM_PRESET),
                 ) {
-                    Text("New scenario")
+                    Text("New from a template")
                 }
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(
+                        onClick = onNew,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag(NetKitTestTags.SCENARIO_NEW),
+                    ) {
+                        Text("Blank scenario")
+                    }
                     OutlinedButton(
                         onClick = onImport,
                         modifier = Modifier
@@ -200,6 +209,8 @@ internal fun ScenarioListTab(
                     ) {
                         Text("Import")
                     }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(
                         onClick = onSaveCurrentSetup,
                         modifier = Modifier

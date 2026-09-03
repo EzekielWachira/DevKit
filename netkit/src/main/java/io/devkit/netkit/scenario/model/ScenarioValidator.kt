@@ -4,6 +4,16 @@ import io.devkit.netkit.config.NetKitLimits
 import io.devkit.netkit.scenario.EndpointRule
 import io.devkit.netkit.scenario.NetworkAction
 import io.devkit.netkit.scenario.SequenceStep
+import io.devkit.netkit.scenario.WeightedOutcome
+import io.devkit.netkit.scenario.chaos.ChaosConfig
+import io.devkit.netkit.scenario.condition.AllOf
+import io.devkit.netkit.scenario.condition.AnyOf
+import io.devkit.netkit.scenario.condition.BodyCondition
+import io.devkit.netkit.scenario.condition.HeaderCondition
+import io.devkit.netkit.scenario.condition.PreviousResultCondition
+import io.devkit.netkit.scenario.condition.QueryParameterCondition
+import io.devkit.netkit.scenario.condition.RequestCountCondition
+import io.devkit.netkit.scenario.condition.RuleCondition
 import java.nio.charset.StandardCharsets
 
 /** One thing wrong with a scenario, in terms a person can act on. */
@@ -99,6 +109,8 @@ class DefaultScenarioValidator : ScenarioValidator {
             }
         }
 
+        scenario.chaos?.let { errors += validateChaos(it, "chaos") }
+
         if (scenario.rules.size > NetKitLimits.MAX_RULES_PER_SCENARIO) {
             errors += ValidationError(
                 "rules",
@@ -166,16 +178,137 @@ class DefaultScenarioValidator : ScenarioValidator {
         } else if (rule.matcher.label.contains(' ')) {
             errors += ValidationError("$path.path", "A path cannot contain spaces.")
         }
+        if (rule.probability.value.isNaN() || rule.probability.value !in 0.0..1.0) {
+            errors += ValidationError(
+                "$path.probability",
+                "A probability must be between 0% and 100%.",
+            )
+        }
+        if (rule.conditions.size > NetKitLimits.MAX_CONDITIONS_PER_RULE) {
+            errors += ValidationError(
+                "$path.conditions",
+                "A rule cannot have more than ${NetKitLimits.MAX_CONDITIONS_PER_RULE} " +
+                    "conditions (has ${rule.conditions.size}).",
+            )
+        }
+        rule.conditions.forEachIndexed { index, condition ->
+            errors += validateCondition(condition, "$path.conditions[$index]")
+        }
         errors += validateAction(rule.action, "$path.action", allowSequence = true)
         return errors
+    }
+
+    /**
+     * Checks a condition's own invariants.
+     *
+     * The condition types enforce most of this in their constructors, so a
+     * condition built in Kotlin cannot be wrong. This exists for the other two
+     * doors: a hand-edited `.netkit.json`, and a consumer-supplied condition
+     * whose constructor NetKit does not control.
+     */
+    private fun validateCondition(
+        condition: RuleCondition,
+        path: String,
+        depth: Int = 0,
+    ): List<ValidationError> = buildList {
+        if (depth > MAX_CONDITION_DEPTH) {
+            add(ValidationError(path, "Conditions are nested too deeply."))
+            return@buildList
+        }
+        when (condition) {
+            is RequestCountCondition.Exactly -> if (condition.index < 1) {
+                add(ValidationError(path, "A request index starts at 1."))
+            }
+
+            is RequestCountCondition.AtLeast -> if (condition.count < 1) {
+                add(ValidationError(path, "A request count starts at 1."))
+            }
+
+            is RequestCountCondition.Range -> {
+                if (condition.from < 1) add(ValidationError(path, "A request index starts at 1."))
+                if (condition.to < condition.from) {
+                    add(ValidationError(path, "A request range cannot end before it starts."))
+                }
+            }
+
+            is RequestCountCondition.Every -> if (condition.interval < 1) {
+                add(ValidationError(path, "An 'every Nth request' interval must be at least 1."))
+            }
+
+            is HeaderCondition -> {
+                if (condition.name.isBlank()) {
+                    add(ValidationError(path, "A header condition needs a header name."))
+                }
+                if (condition.match.needsValue && condition.value.isEmpty()) {
+                    add(ValidationError(path, "This header condition needs a value to compare."))
+                }
+            }
+
+            is QueryParameterCondition -> {
+                if (condition.name.isBlank()) {
+                    add(ValidationError(path, "A query condition needs a parameter name."))
+                }
+                if (condition.match.needsValue && condition.value.isEmpty()) {
+                    add(ValidationError(path, "This query condition needs a value to compare."))
+                }
+            }
+
+            is BodyCondition -> {
+                if (condition.text.isEmpty()) {
+                    add(ValidationError(path, "A body condition needs something to look for."))
+                } else if (condition.text.length > NetKitLimits.MAX_CONDITION_TEXT_LENGTH) {
+                    add(
+                        ValidationError(
+                            path,
+                            "A body condition cannot exceed " +
+                                "${NetKitLimits.MAX_CONDITION_TEXT_LENGTH} characters.",
+                        ),
+                    )
+                }
+            }
+
+            is PreviousResultCondition -> {
+                if (condition.requirement == null && condition.ruleId == null) {
+                    add(
+                        ValidationError(
+                            path,
+                            "A previous-result condition needs a requirement or a rule to watch.",
+                        ),
+                    )
+                }
+                if (condition.minimumHits < 1) {
+                    add(ValidationError(path, "A previous-result condition needs at least one hit."))
+                }
+            }
+
+            is AllOf -> condition.conditions.forEachIndexed { index, nested ->
+                addAll(validateCondition(nested, "$path[$index]", depth + 1))
+            }
+
+            is AnyOf -> {
+                if (condition.conditions.isEmpty()) {
+                    add(ValidationError(path, "An 'any of' condition needs at least one entry."))
+                }
+                condition.conditions.forEachIndexed { index, nested ->
+                    addAll(validateCondition(nested, "$path[$index]", depth + 1))
+                }
+            }
+
+            // A consumer-supplied condition. NetKit cannot check its invariants,
+            // only that it says something a person can read.
+            else -> if (condition.label.isBlank()) {
+                add(ValidationError(path, "A condition needs a label."))
+            }
+        }
     }
 
     private fun validateAction(
         action: NetworkAction,
         path: String,
         allowSequence: Boolean,
+        allowWeighted: Boolean = true,
     ): List<ValidationError> = when (action) {
-        NetworkAction.PassThrough, NetworkAction.Offline -> emptyList()
+        NetworkAction.PassThrough, NetworkAction.Offline, NetworkAction.Disconnect -> emptyList()
 
         is NetworkAction.Timeout -> emptyList()
 
@@ -183,6 +316,20 @@ class DefaultScenarioValidator : ScenarioValidator {
             listOf(ValidationError("$path.delay", "Delay cannot be negative."))
         } else {
             emptyList()
+        }
+
+        is NetworkAction.RandomDelay -> buildList {
+            if (action.latency.minMillis < 0) {
+                add(ValidationError("$path.latency", "Latency cannot be negative."))
+            }
+            if (action.latency.maxMillis < action.latency.minMillis) {
+                add(
+                    ValidationError(
+                        "$path.latency",
+                        "The shortest latency cannot be longer than the longest.",
+                    ),
+                )
+            }
         }
 
         is NetworkAction.ReturnResponse -> validateResponse(action, path)
@@ -199,7 +346,97 @@ class DefaultScenarioValidator : ScenarioValidator {
             addAll(validateBodySize(action.type.body, "$path.body"))
         }
 
+        is NetworkAction.Weighted -> validateWeighted(action.outcomes, path, allowWeighted)
+
         is NetworkAction.Sequence -> validateSequence(action, path, allowSequence)
+    }
+
+    /**
+     * Checks a set of weighted outcomes.
+     *
+     * Shared by [NetworkAction.Weighted] and chaos, because a distribution is a
+     * distribution and the two should never disagree about what a valid one is.
+     */
+    private fun validateWeighted(
+        outcomes: List<WeightedOutcome>,
+        path: String,
+        allowed: Boolean,
+    ): List<ValidationError> = buildList {
+        if (!allowed) {
+            add(ValidationError(path, "Random outcomes cannot be nested."))
+            return@buildList
+        }
+        if (outcomes.isEmpty()) {
+            add(ValidationError("$path.outcomes", "A random action needs at least one outcome."))
+        }
+        if (outcomes.size > NetKitLimits.MAX_WEIGHTED_OUTCOMES) {
+            add(
+                ValidationError(
+                    "$path.outcomes",
+                    "A random action cannot exceed ${NetKitLimits.MAX_WEIGHTED_OUTCOMES} " +
+                        "outcomes (has ${outcomes.size}).",
+                ),
+            )
+        }
+        outcomes.forEachIndexed { index, outcome ->
+            if (outcome.weight <= 0) {
+                add(
+                    ValidationError(
+                        "$path.outcomes[$index].weight",
+                        "An outcome weight must be greater than zero.",
+                    ),
+                )
+            }
+            addAll(
+                validateAction(
+                    action = outcome.action,
+                    path = "$path.outcomes[$index]",
+                    allowSequence = false,
+                    allowWeighted = false,
+                ),
+            )
+        }
+    }
+
+    /** Checks a scenario's chaos configuration. */
+    private fun validateChaos(chaos: ChaosConfig, path: String): List<ValidationError> = buildList {
+        if (chaos.failureProbability.value.isNaN() ||
+            chaos.failureProbability.value !in 0.0..1.0
+        ) {
+            add(ValidationError("$path.failureRate", "A failure rate must be between 0% and 100%."))
+        }
+        if (chaos.latency.minMillis < 0) {
+            add(ValidationError("$path.latency", "Latency cannot be negative."))
+        }
+        if (chaos.latency.maxMillis < chaos.latency.minMillis) {
+            add(
+                ValidationError(
+                    "$path.latency",
+                    "The shortest latency cannot be longer than the longest.",
+                ),
+            )
+        }
+        // Only an error when chaos could actually fire: a disabled config, or one
+        // configured purely for latency, has no need of a failure mix.
+        if (chaos.enabled && !chaos.failureProbability.isNever && chaos.failures.isEmpty()) {
+            add(
+                ValidationError(
+                    "$path.failures",
+                    "Chaos has a failure rate but nothing to fail with. Add an outcome, or " +
+                        "set the failure rate to 0%.",
+                ),
+            )
+        }
+        addAll(validateWeighted(chaos.failures, path, allowed = true))
+        val prefixes = chaos.scope.pathPrefixes.size + chaos.exclusions.prefixes.size
+        if (prefixes > NetKitLimits.MAX_CHAOS_PREFIXES) {
+            add(
+                ValidationError(
+                    "$path.scope",
+                    "Chaos cannot use more than ${NetKitLimits.MAX_CHAOS_PREFIXES} path prefixes.",
+                ),
+            )
+        }
     }
 
     private fun validateResponse(
@@ -269,6 +506,9 @@ class DefaultScenarioValidator : ScenarioValidator {
             emptyList()
         }
     }
+
+    /** How deep `allOf` / `anyOf` may nest. Matches the import mapper's limit. */
+    private val MAX_CONDITION_DEPTH = 3
 
     private fun statusMessage(code: Int) =
         "HTTP status must be between ${NetworkAction.ReturnResponse.MIN_STATUS} and " +

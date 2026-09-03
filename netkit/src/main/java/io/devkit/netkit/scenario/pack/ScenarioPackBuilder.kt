@@ -5,7 +5,20 @@ import io.devkit.netkit.scenario.EndpointRule
 import io.devkit.netkit.scenario.GlobalNetworkConfig
 import io.devkit.netkit.scenario.GlobalNetworkMode
 import io.devkit.netkit.scenario.HttpMethod
+import io.devkit.netkit.scenario.LatencyRange
 import io.devkit.netkit.scenario.MalformedResponseType
+import io.devkit.netkit.scenario.Probability
+import io.devkit.netkit.scenario.WeightedOutcome
+import io.devkit.netkit.scenario.chaos.ChaosConfig
+import io.devkit.netkit.scenario.chaos.ChaosExclusions
+import io.devkit.netkit.scenario.chaos.ChaosPreset
+import io.devkit.netkit.scenario.chaos.ChaosScope
+import io.devkit.netkit.scenario.condition.BodyCondition
+import io.devkit.netkit.scenario.condition.HeaderCondition
+import io.devkit.netkit.scenario.condition.QueryParameterCondition
+import io.devkit.netkit.scenario.condition.RequestCountCondition
+import io.devkit.netkit.scenario.condition.RuleCondition
+import io.devkit.netkit.scenario.condition.StringMatch
 import io.devkit.netkit.scenario.NetworkAction
 import io.devkit.netkit.scenario.ResponseHeader
 import io.devkit.netkit.scenario.SequenceCompletionBehavior
@@ -132,6 +145,7 @@ class ScenarioBuilder internal constructor(
 ) {
     private var description: String? = null
     private var global: GlobalNetworkConfig? = null
+    private var chaos: ChaosConfig? = null
     private val rules = mutableListOf<EndpointRule>()
 
     /** A sentence explaining what this scenario reproduces. */
@@ -155,6 +169,37 @@ class ScenarioBuilder internal constructor(
     /** Shorthand for a scenario that takes the whole app offline. */
     fun offline() = global(GlobalNetworkMode.Offline)
 
+    /**
+     * Adds application-layer instability across this scenario.
+     *
+     * ```kotlin
+     * scenario("Poor network") {
+     *     chaos {
+     *         failureRate(0.15)
+     *         latency(500, 3_000)
+     *         exclude("/api/v1/auth/refresh")
+     *         outcomes {
+     *             http(500, weight = 3)
+     *             http(503, weight = 3)
+     *             timeout(weight = 2)
+     *             disconnect(weight = 2)
+     *         }
+     *     }
+     * }
+     * ```
+     *
+     * Every draw comes from the run's seed, so the same seed reproduces the same
+     * failures. See [io.devkit.netkit.scenario.chaos.ChaosConfig].
+     */
+    fun chaos(build: ChaosBuilder.() -> Unit) {
+        chaos = ChaosBuilder().apply(build).build()
+    }
+
+    /** Applies a chaos preset, optionally adjusted. */
+    fun chaos(preset: ChaosPreset, adjust: (ChaosConfig) -> ChaosConfig = { it }) {
+        chaos = adjust(preset.config)
+    }
+
     fun get(path: String, build: RuleBuilder.() -> Unit) = rule(HttpMethod.GET, path, build)
     fun post(path: String, build: RuleBuilder.() -> Unit) = rule(HttpMethod.POST, path, build)
     fun put(path: String, build: RuleBuilder.() -> Unit) = rule(HttpMethod.PUT, path, build)
@@ -173,6 +218,33 @@ class ScenarioBuilder internal constructor(
             enabled = builder.enabled,
             method = method,
             matcher = EndpointMatcher.ExactPath(path),
+            conditions = builder.conditions.toList(),
+            probability = builder.probability,
+            action = builder.build(),
+        )
+    }
+
+    /**
+     * A rule matching every path under [prefix].
+     *
+     * ```kotlin
+     * prefix("/api/v1") { respond(401) }
+     * ```
+     */
+    fun prefix(
+        prefix: String,
+        method: HttpMethod = HttpMethod.ANY,
+        build: RuleBuilder.() -> Unit,
+    ) {
+        val builder = RuleBuilder().apply(build)
+        rules += EndpointRule(
+            id = ruleId(method, prefix, rules.size),
+            name = builder.name,
+            enabled = builder.enabled,
+            method = method,
+            matcher = EndpointMatcher.PathPrefix(prefix),
+            conditions = builder.conditions.toList(),
+            probability = builder.probability,
             action = builder.build(),
         )
     }
@@ -193,6 +265,7 @@ class ScenarioBuilder internal constructor(
         description = description,
         globalConfig = global,
         rules = rules.toList(),
+        chaos = chaos,
         metadata = ScenarioMetadata(
             source = ScenarioSource.BUILT_IN,
             packId = ScenarioPackId.builtIn(packKey),
@@ -206,6 +279,8 @@ class RuleBuilder internal constructor() {
 
     internal var name: String? = null
     internal var enabled: Boolean = true
+    internal var probability: Probability = Probability.ALWAYS
+    internal val conditions = mutableListOf<RuleCondition>()
     private var action: NetworkAction? = null
 
     /** An optional label, shown in history as the responsible rule. */
@@ -217,6 +292,78 @@ class RuleBuilder internal constructor() {
     fun disabled() {
         enabled = false
     }
+
+    // ---- conditions and probability ----------------------------------------
+
+    /**
+     * The chance this rule acts once its conditions have passed.
+     *
+     * ```kotlin
+     * get("/api/v1/bookings") {
+     *     probability(0.3)
+     *     respond(500)
+     * }
+     * ```
+     *
+     * A rule that fails its draw does not end evaluation — the next rule is
+     * tried — so a 30% failure above a plain delay gives 30% failures and 70%
+     * slow requests.
+     */
+    fun probability(chance: Double) {
+        probability = Probability(chance)
+    }
+
+    /** `probabilityPercent(30)` reads better than `probability(0.3)` at some call sites. */
+    fun probabilityPercent(percent: Int) {
+        probability = Probability.ofPercent(percent)
+    }
+
+    /** Adds a condition. All conditions on a rule must hold. */
+    fun where(condition: RuleCondition) {
+        conditions += condition
+    }
+
+    /** Only the first request that reaches this rule. */
+    fun firstRequestOnly() = where(RequestCountCondition.Exactly(1))
+
+    /** Only the [index]-th request that reaches this rule. */
+    fun onRequest(index: Long) = where(RequestCountCondition.Exactly(index))
+
+    /** Requests [from] to [to] inclusive. */
+    fun onRequests(from: Long, to: Long) = where(RequestCountCondition.Range(from, to))
+
+    /** Every [interval]-th request. */
+    fun everyNthRequest(interval: Long) = where(RequestCountCondition.Every(interval))
+
+    /** A query parameter must equal [value]. */
+    fun whereQuery(name: String, value: String) =
+        where(QueryParameterCondition(name, StringMatch.EQUALS, value))
+
+    /** A query parameter must be present, whatever its value. */
+    fun whereQueryExists(name: String) =
+        where(QueryParameterCondition(name, StringMatch.EXISTS))
+
+    /**
+     * A request header must be present.
+     *
+     * Prefer this to matching a header's literal value: `Authorization exists`
+     * says "this is an authenticated call" without storing a credential in the
+     * scenario. Use [whereHeader] only for non-secret headers such as an app
+     * version.
+     */
+    fun whereHeaderExists(name: String) = where(HeaderCondition(name, StringMatch.EXISTS))
+
+    /** A request header must equal [value]. */
+    fun whereHeader(name: String, value: String) =
+        where(HeaderCondition(name, StringMatch.EQUALS, value))
+
+    /**
+     * The request body must contain [text].
+     *
+     * Only evaluated for bodies NetKit can read safely — see [BodyCondition].
+     * When it cannot, the condition does not match and the rule does not fire.
+     */
+    fun whereBodyContains(text: String) = where(BodyCondition(text))
 
     /** Let this endpoint through even while the scenario changes everything else. */
     fun passThrough() = set(NetworkAction.PassThrough)
@@ -245,8 +392,40 @@ class RuleBuilder internal constructor() {
     /** Fail as a device with no connectivity would. */
     fun offline() = set(NetworkAction.Offline)
 
+    /** Fail as a dropped connection does, with an `IOException`. */
+    fun disconnect() = set(NetworkAction.Disconnect)
+
     /** Fail with a simulated socket timeout. */
     fun timeout(type: TimeoutType = TimeoutType.READ) = set(NetworkAction.Timeout(type))
+
+    /**
+     * Delay by a value drawn from a range, then reach the real server.
+     *
+     * Deterministic for a given seed and evaluation index. A range whose ends
+     * agree behaves exactly like [delay].
+     */
+    fun delayBetween(minMillis: Long, maxMillis: Long) =
+        set(NetworkAction.RandomDelay(LatencyRange(minMillis, maxMillis)))
+
+    /**
+     * Choose one of several behaviours at random, by relative weight.
+     *
+     * ```kotlin
+     * post("/api/v1/checkout") {
+     *     outcomes {
+     *         passThrough(weight = 60)
+     *         http(500, weight = 15)
+     *         http(503, weight = 10)
+     *         timeout(weight = 10)
+     *         disconnect(weight = 5)
+     *     }
+     * }
+     * ```
+     *
+     * Weights are relative and normalised, so they need not sum to 100.
+     */
+    fun outcomes(build: OutcomesBuilder.() -> Unit) =
+        set(NetworkAction.Weighted(OutcomesBuilder().apply(build).build()))
 
     /**
      * Behave differently on each successive request.
@@ -302,6 +481,8 @@ class SequenceBuilder internal constructor() {
 
     fun offline() = add(NetworkAction.Offline)
 
+    fun disconnect() = add(NetworkAction.Disconnect)
+
     fun timeout(type: TimeoutType = TimeoutType.READ) = add(NetworkAction.Timeout(type))
 
     private fun add(action: NetworkAction) {
@@ -309,4 +490,139 @@ class SequenceBuilder internal constructor() {
     }
 
     internal fun build(): List<SequenceStep> = steps.toList()
+}
+
+/**
+ * Builds a set of weighted outcomes, for [RuleBuilder.outcomes] and
+ * [ChaosBuilder.outcomes].
+ *
+ * One builder for both, so a rule's random branch and a chaos failure mix are
+ * written the same way and cannot drift apart.
+ */
+@ScenarioPackDsl
+class OutcomesBuilder internal constructor() {
+
+    private val outcomes = mutableListOf<WeightedOutcome>()
+
+    /** The request reaches the real server. Not valid inside chaos. */
+    fun passThrough(weight: Int = 1) = add(weight, NetworkAction.PassThrough)
+
+    /** A simulated HTTP response. */
+    fun http(
+        statusCode: Int,
+        weight: Int = 1,
+        body: String? = null,
+        delayMillis: Long = 0,
+    ) = add(weight, NetworkAction.ReturnResponse(statusCode, body, delayMillis = delayMillis))
+
+    /** A simulated socket timeout. */
+    fun timeout(weight: Int = 1, type: TimeoutType = TimeoutType.READ) =
+        add(weight, NetworkAction.Timeout(type))
+
+    /** A simulated dropped connection. */
+    fun disconnect(weight: Int = 1) = add(weight, NetworkAction.Disconnect)
+
+    /** A simulated loss of connectivity. */
+    fun offline(weight: Int = 1) = add(weight, NetworkAction.Offline)
+
+    /** A fixed delay, then the real server. */
+    fun delay(millis: Long, weight: Int = 1) = add(weight, NetworkAction.Delay(millis))
+
+    /** A deliberately unparseable response. */
+    fun malformed(
+        type: MalformedResponseType,
+        weight: Int = 1,
+        statusCode: Int = 200,
+    ) = add(weight, NetworkAction.Malformed(type, statusCode))
+
+    private fun add(weight: Int, action: NetworkAction) {
+        outcomes += WeightedOutcome(weight, action)
+    }
+
+    internal fun build(): List<WeightedOutcome> {
+        check(outcomes.isNotEmpty()) {
+            "NetKit weighted outcomes need at least one entry — call http(), timeout(), and so on."
+        }
+        return outcomes.toList()
+    }
+}
+
+/**
+ * Builds a scenario's chaos configuration. See [ScenarioBuilder.chaos].
+ *
+ * Defaults are the safe ones: chaos is enabled (you asked for it by opening this
+ * block), the failure mix is NetKit's standard one, and the scope is everything.
+ * The setting most worth changing is [exclude] — see
+ * [io.devkit.netkit.scenario.chaos.ChaosExclusions] for why.
+ */
+@ScenarioPackDsl
+class ChaosBuilder internal constructor() {
+
+    private var failureProbability: Probability = Probability(0.1)
+    private var latency: LatencyRange = LatencyRange.NONE
+    private var failures: List<WeightedOutcome> = ChaosConfig.defaultFailures
+    private var hosts: List<String> = emptyList()
+    private var prefixes: List<String> = emptyList()
+    private var methods: List<HttpMethod> = emptyList()
+    private val exclusions = mutableListOf<String>()
+
+    /** The chance an in-scope request fails outright, `0.0`–`1.0`. */
+    fun failureRate(chance: Double) {
+        failureProbability = Probability(chance)
+    }
+
+    /** `failurePercent(15)` reads better than `failureRate(0.15)` at some call sites. */
+    fun failurePercent(percent: Int) {
+        failureProbability = Probability.ofPercent(percent)
+    }
+
+    /** Delay applied to in-scope requests that do not fail. */
+    fun latency(minMillis: Long, maxMillis: Long = minMillis) {
+        latency = LatencyRange(minMillis, maxMillis)
+    }
+
+    /** The failures to choose between. Replaces the default mix. */
+    fun outcomes(build: OutcomesBuilder.() -> Unit) {
+        failures = OutcomesBuilder().apply(build).build()
+    }
+
+    /** Restrict chaos to these hosts. Empty — the default — means every host. */
+    fun hosts(vararg host: String) {
+        hosts = host.toList()
+    }
+
+    /** Restrict chaos to paths under these prefixes. Empty means every path. */
+    fun paths(vararg prefix: String) {
+        prefixes = prefix.toList()
+    }
+
+    /** Restrict chaos to these verbs. Empty means every verb. */
+    fun methods(vararg method: HttpMethod) {
+        methods = method.toList()
+    }
+
+    /**
+     * Endpoints chaos must never touch, whatever the scope says.
+     *
+     * Reach for this before turning the failure rate up. Chaos across a whole app
+     * also breaks its token refresh and its crash reporter, and the logout loop
+     * that follows looks exactly like the bug you were hunting.
+     */
+    fun exclude(vararg pathPrefix: String) {
+        exclusions += pathPrefix
+    }
+
+    /** Excludes the endpoints almost every app wants spared. */
+    fun excludeRecommended() {
+        exclusions += ChaosExclusions.recommended
+    }
+
+    internal fun build(): ChaosConfig = ChaosConfig(
+        enabled = true,
+        failureProbability = failureProbability,
+        latency = latency,
+        failures = failures,
+        scope = ChaosScope(hosts = hosts, pathPrefixes = prefixes, methods = methods),
+        exclusions = ChaosExclusions(exclusions.toList()),
+    )
 }

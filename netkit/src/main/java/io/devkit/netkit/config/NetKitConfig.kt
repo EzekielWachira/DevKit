@@ -44,6 +44,12 @@ import okhttp3.OkHttpClient
  * @param maxBodyPreviewBytes size cap for a single captured body preview.
  * @param masker redacts credentials before anything is stored. Replace it to add
  *   organisation-specific header or parameter names.
+ * @param timelineEnabled whether the execution timeline records scenario
+ *   decisions. On by default: it is the thing that turns "it failed sometimes"
+ *   into "it failed on evaluation #17", and it is bounded and in-memory only.
+ *   Turn it off in a build where even a bounded per-request append matters.
+ * @param maxExecutionEvents how many timeline events are kept before the oldest
+ *   are evicted. Must be positive.
  * @param simulatedTimeoutDelayMillis how long a simulated timeout blocks before
  *   throwing. `null` — the default — makes NetKit wait for the OkHttp client's
  *   own connect/read timeout, which is the realistic behaviour. Tests should set
@@ -61,9 +67,14 @@ data class NetKitConfig(
     val captureBodies: Boolean = true,
     val maxBodyPreviewBytes: Long = NetKitDefaults.MAX_BODY_PREVIEW_BYTES,
     val masker: SensitiveDataMasker = DefaultSensitiveDataMasker(),
+    val timelineEnabled: Boolean = true,
+    val maxExecutionEvents: Int = NetKitLimits.MAX_EXECUTION_EVENTS,
     val simulatedTimeoutDelayMillis: Long? = null,
 ) {
     init {
+        require(maxExecutionEvents > 0) {
+            "NetKit maxExecutionEvents must be positive (was $maxExecutionEvents)"
+        }
         require(maxHistoryEntries > 0) {
             "NetKit maxHistoryEntries must be positive (was $maxHistoryEntries)"
         }

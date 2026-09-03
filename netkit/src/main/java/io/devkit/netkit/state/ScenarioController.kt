@@ -68,6 +68,17 @@ interface ScenarioController {
     /** Activates [id], or deactivates it when it is already active. */
     suspend fun toggleActive(id: ScenarioId): Boolean
 
+    /**
+     * Activates [id] on [seed] — the developer's side of the reproduction
+     * workflow.
+     *
+     * Equivalent to activating and then restarting on that seed, but atomic, so
+     * no request can slip through against a freshly generated seed first.
+     *
+     * @return true when a scenario with that id exists.
+     */
+    suspend fun reproduce(id: ScenarioId, seed: Long): Boolean
+
     /** Pauses or resumes a scenario without losing its activation. */
     suspend fun setScenarioEnabled(id: ScenarioId, enabled: Boolean)
 

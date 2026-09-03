@@ -11,6 +11,9 @@ import io.devkit.netkit.scenario.model.ScenarioValidator
 import io.devkit.netkit.scenario.model.ValidationResult
 import io.devkit.netkit.scenario.model.ScenarioSource
 import io.devkit.netkit.scenario.pack.BuiltInScenarioPack
+import io.devkit.netkit.scenario.run.RunStartReason
+import io.devkit.netkit.scenario.run.ScenarioRun
+import io.devkit.netkit.scenario.run.ScenarioRunManager
 import io.devkit.netkit.scenario.persistence.JsonScenarioRepository
 import io.devkit.netkit.scenario.persistence.ScenarioPersistenceError
 import io.devkit.netkit.scenario.persistence.ScenarioRepository
@@ -59,6 +62,23 @@ sealed interface ScenarioImportOutcome {
                 if (replaced > 0) append(" · $replaced replaced")
                 if (renamed.isNotEmpty()) append(" · ${renamed.size} renamed")
             }
+    }
+
+    /**
+     * A reproduction was imported: the scenario was saved and the seed it was
+     * recorded with is ready to activate with.
+     *
+     * Kept distinct from [Imported] so the console can offer the one action that
+     * makes a reproduction worth importing — "activate it with seed 843921773" —
+     * rather than dropping the seed on the floor and leaving a developer to
+     * retype it.
+     */
+    data class ImportedReproduction(
+        val scenario: NetworkScenario,
+        val seed: Long,
+        val runId: String?,
+    ) : ScenarioImportOutcome {
+        val summary: String get() = "\"${scenario.name}\" with seed $seed"
     }
 
     data class Rejected(val result: ScenarioImportResult) : ScenarioImportOutcome {
@@ -111,6 +131,14 @@ class ScenarioManager(
     builtInPacks: List<BuiltInScenarioPack> = emptyList(),
     val executionState: ScenarioExecutionState = DefaultScenarioExecutionState(),
     private val validator: ScenarioValidator = DefaultScenarioValidator(),
+    /**
+     * The run layer, which owns seeds, counters and the timeline.
+     *
+     * Supplied rather than created here so one run manager can be shared with the
+     * engine and the controller. Defaulted so every 0.2-era construction site —
+     * including a good number of tests — keeps compiling.
+     */
+    val runManager: ScenarioRunManager = ScenarioRunManager(executionState),
 ) {
 
     private val builtInScenarios: List<NetworkScenario> = builtInPacks.flatMap { it.scenarios }
@@ -222,12 +250,71 @@ class ScenarioManager(
         val previous = _activeSnapshot.value
 
         _activeScenario.value = scenario
-        _activeSnapshot.value = next
 
-        // Sequence cursors are keyed on rule id, so they are only meaningful
-        // while the rule set is the one they were counting against.
-        if (!sameRules(previous, next)) executionState.resetAll()
+        // The run is settled **before** the snapshot is published, so that by the
+        // time anything observes an activation the run belonging to it already
+        // exists — and, on a deactivation, the scenario's run is already stopped.
+        // The controller reacts to this publication by handing an ownerless run
+        // back to chaos, and it can only get that right if the manager has
+        // finished first.
+        syncRun(previous, next)
+        _activeSnapshot.value = next
     }
+
+    /**
+     * Keeps the scenario run in step with the activation.
+     *
+     * Done here, synchronously inside [refreshActive], rather than from a
+     * subscription: a request issued immediately after `activate()` returns must
+     * already be evaluating against the new run's seed and a clean set of
+     * counters. A run started one dispatch later would leave the first few
+     * requests of a reproduction drawing from the *previous* run's stream, which
+     * is exactly the kind of off-by-a-few that makes a seed look unreliable.
+     *
+     * Callers hold [activeLock].
+     */
+    private fun syncRun(previous: ActiveScenarioSnapshot?, next: ActiveScenarioSnapshot?) {
+        when {
+            next == null -> {
+                // Only stop a run this manager started. A chaos-only run belongs
+                // to the console and must survive a scenario being deactivated.
+                if (runManager.run.value?.scenarioId != null) runManager.stopRun()
+                executionState.resetAll()
+            }
+
+            previous?.id != next.id -> runManager.startRun(
+                scenarioId = next.id,
+                scenarioName = next.name,
+                reason = RunStartReason.ACTIVATED,
+                seed = pendingSeed.getAndSet(null),
+            )
+
+            // Sequence cursors and rule counters are keyed on rule id, so they
+            // are only meaningful while the rule set is the one they counted
+            // against. An edit that touches a rule therefore restarts the run —
+            // but on the *same seed*, so a QA engineer who adjusted a status code
+            // mid-reproduction has not silently lost the seed they were using.
+            !sameRules(previous, next) || previous.chaos != next.chaos -> runManager.startRun(
+                scenarioId = next.id,
+                scenarioName = next.name,
+                reason = RunStartReason.DEFINITION_CHANGED,
+                seed = runManager.seed,
+            )
+
+            // A rename or a description edit: nothing deterministic changed, so a
+            // running reproduction is left exactly where it was.
+            else -> Unit
+        }
+    }
+
+    /**
+     * A seed to use for the next activation, consumed once.
+     *
+     * How "import this reproduction and run it" works: the seed is known before
+     * the scenario is activated, and activation must adopt it rather than
+     * generate a fresh one and immediately throw it away.
+     */
+    private val pendingSeed = java.util.concurrent.atomic.AtomicReference<Long?>(null)
 
     /** Packs with their scenarios attached, as of right now. */
     private fun packContentsNow(): List<ScenarioPackContents> =
@@ -261,13 +348,34 @@ class ScenarioManager(
     /**
      * Makes [id] the one active scenario, replacing whatever was active.
      *
+     * Activating always starts a **new run**: fresh seed, zeroed counters, empty
+     * timeline. That is the boundary QA relies on — "I activated it and then the
+     * bug happened" has to mean the seed in the run card produced everything
+     * since.
+     *
+     * @param seed the seed to run with, for replaying a reproduction. A fresh one
+     *   is generated when `null`.
      * @return true when a scenario with that id exists.
      */
-    suspend fun activate(id: ScenarioId): Boolean {
+    suspend fun activate(id: ScenarioId, seed: Long? = null): Boolean {
         if (allScenariosNow().none { it.id == id }) return false
+        pendingSeed.set(seed)
+        val alreadyActive = _activeId.value == id
         synchronized(activeLock) { _activeId.value = id }
         refreshActive()
-        executionState.resetAll()
+        // Re-activating the scenario that is already active is a deliberate
+        // "start over": the id did not change, so `syncRun` would otherwise have
+        // left the run alone.
+        if (alreadyActive) {
+            val snapshot = _activeSnapshot.value
+            runManager.startRun(
+                scenarioId = snapshot?.id,
+                scenarioName = snapshot?.name,
+                reason = RunStartReason.RESTARTED,
+                seed = seed ?: pendingSeed.getAndSet(null),
+            )
+        }
+        pendingSeed.set(null)
         persistActivation(id)
         return true
     }
@@ -277,9 +385,28 @@ class ScenarioManager(
         if (_activeId.value == null) return
         synchronized(activeLock) { _activeId.value = null }
         refreshActive()
-        executionState.resetAll()
         persistActivation(null)
     }
+
+    // ---- runs --------------------------------------------------------------
+
+    /** The run in progress, or `null`. */
+    val activeRun: StateFlow<ScenarioRun?> get() = runManager.run
+
+    /**
+     * Restarts the current run on the same seed.
+     *
+     * The developer half of the reproduction workflow. Everything deterministic
+     * goes back to where it was at activation: the random stream, rule hit
+     * counters, sequence cursors, previous-result state and the timeline.
+     */
+    fun restartRun(): ScenarioRun? = runManager.restartWithSameSeed()
+
+    /** Restarts the current run on a freshly generated seed. */
+    fun restartRunWithNewSeed(): ScenarioRun? = runManager.restartWithNewSeed()
+
+    /** Restarts the current run on [seed], as typed or pasted by a person. */
+    fun restartRunWithSeed(seed: Long): ScenarioRun? = runManager.restartWithSeed(seed)
 
     /**
      * Deactivates without suspending, for callers on a non-suspending path such
@@ -415,6 +542,7 @@ class ScenarioManager(
     fun summaryOf(result: ScenarioImportResult): ImportSummary? = when (result) {
         is ScenarioImportResult.Scenario -> result.summary
         is ScenarioImportResult.Pack -> result.summary
+        is ScenarioImportResult.Reproduction -> result.summary
         else -> null
     }
 
@@ -432,8 +560,26 @@ class ScenarioManager(
     ): ScenarioImportOutcome = when (result) {
         is ScenarioImportResult.Scenario -> commit(listOf(result.scenario), null, policy)
         is ScenarioImportResult.Pack -> commit(result.scenarios, result.pack, policy)
+        is ScenarioImportResult.Reproduction ->
+            when (val saved = commit(listOf(result.scenario), null, policy)) {
+                is ScenarioImportOutcome.Imported -> saved.scenarios.firstOrNull()
+                    ?.let {
+                        ScenarioImportOutcome.ImportedReproduction(it, result.seed, result.runId)
+                    }
+                    ?: saved
+
+                else -> saved
+            }
+
         else -> ScenarioImportOutcome.Rejected(result)
     }
+
+    /**
+     * Activates [id] with [seed] — the second half of importing a reproduction.
+     *
+     * @return true when the scenario exists.
+     */
+    suspend fun reproduce(id: ScenarioId, seed: Long): Boolean = activate(id, seed)
 
     /**
      * Writes an already-validated import.

@@ -5,8 +5,12 @@ import io.devkit.netkit.config.NetKitLimits
 import io.devkit.netkit.scenario.EndpointMatcher
 import io.devkit.netkit.scenario.EndpointRule
 import io.devkit.netkit.scenario.HttpMethod
+import io.devkit.netkit.scenario.LatencyRange
 import io.devkit.netkit.scenario.MalformedResponseType
 import io.devkit.netkit.scenario.NetworkAction
+import io.devkit.netkit.scenario.Probability
+import io.devkit.netkit.scenario.WeightedOutcome
+import io.devkit.netkit.scenario.condition.RuleCondition
 import io.devkit.netkit.scenario.ResponseHeader
 import io.devkit.netkit.scenario.SequenceCompletionBehavior
 import io.devkit.netkit.scenario.SequenceStep
@@ -16,10 +20,13 @@ import io.devkit.netkit.scenario.TimeoutType
 internal enum class RuleBehavior(val label: String) {
     PASS_THROUGH("Normal"),
     DELAY("Delay"),
+    LATENCY_RANGE("Delay range"),
     RESPONSE("Response"),
     MALFORMED("Malformed"),
     SEQUENCE("Sequence"),
+    RANDOM("Random"),
     OFFLINE("Offline"),
+    DISCONNECT("Disconnect"),
     TIMEOUT("Timeout"),
     ;
 
@@ -27,12 +34,48 @@ internal enum class RuleBehavior(val label: String) {
         fun of(action: NetworkAction): RuleBehavior = when (action) {
             NetworkAction.PassThrough -> PASS_THROUGH
             is NetworkAction.Delay -> DELAY
+            is NetworkAction.RandomDelay -> LATENCY_RANGE
             is NetworkAction.ReturnResponse -> RESPONSE
             is NetworkAction.Malformed -> MALFORMED
             is NetworkAction.Sequence -> SEQUENCE
+            is NetworkAction.Weighted -> RANDOM
             NetworkAction.Offline -> OFFLINE
+            NetworkAction.Disconnect -> DISCONNECT
             is NetworkAction.Timeout -> TIMEOUT
         }
+    }
+}
+
+/**
+ * One editable weighted outcome.
+ *
+ * Reuses [SequenceStepForm] for the behaviour half rather than introducing a
+ * third almost-identical form: a weighted outcome and a sequence step are the
+ * same set of choices with a different reason for existing, and two editors that
+ * drift apart is a validation bug waiting to happen.
+ */
+internal data class WeightedOutcomeForm(
+    val weightText: String = "1",
+    val step: SequenceStepForm = SequenceStepForm(),
+) {
+    val weightError: String?
+        get() {
+            val parsed = weightText.trim().toIntOrNull() ?: return "Enter a whole number"
+            return if (parsed <= 0) "A weight must be greater than zero" else null
+        }
+
+    val isValid: Boolean get() = weightError == null && step.isValid
+
+    val weight: Int get() = weightText.trim().toIntOrNull()?.coerceAtLeast(1) ?: 1
+
+    fun toOutcome(): WeightedOutcome? =
+        if (!isValid) null else step.toAction()?.let { WeightedOutcome(weight, it) }
+
+    companion object {
+        fun from(outcome: WeightedOutcome): WeightedOutcomeForm = WeightedOutcomeForm(
+            weightText = outcome.weight.toString(),
+            step = SequenceStepForm.from(outcome.action),
+        )
     }
 }
 
@@ -59,15 +102,16 @@ internal data class SequenceStepForm(
         RuleBehavior.RESPONSE -> "HTTP ${statusText.trim().ifEmpty { "?" }}"
         RuleBehavior.MALFORMED -> malformedType.label
         RuleBehavior.OFFLINE -> "Offline"
+        RuleBehavior.DISCONNECT -> "Disconnect"
         RuleBehavior.TIMEOUT -> timeoutType.label
-        // A nested sequence is not offered by the UI; guard anyway.
-        RuleBehavior.SEQUENCE -> "Unsupported"
+        // Neither is offered by the step picker; guard anyway.
+        RuleBehavior.SEQUENCE, RuleBehavior.LATENCY_RANGE, RuleBehavior.RANDOM -> "Unsupported"
     }
 
     val statusError: String?
         get() = if (behavior == RuleBehavior.RESPONSE) statusErrorFor(statusText) else null
 
-    val isValid: Boolean get() = statusError == null && behavior != RuleBehavior.SEQUENCE
+    val isValid: Boolean get() = statusError == null && behavior in allowed
 
     fun toAction(): NetworkAction? {
         if (!isValid) return null
@@ -91,14 +135,22 @@ internal data class SequenceStepForm(
             )
 
             RuleBehavior.OFFLINE -> NetworkAction.Offline
+            RuleBehavior.DISCONNECT -> NetworkAction.Disconnect
             RuleBehavior.TIMEOUT -> NetworkAction.Timeout(timeoutType)
-            RuleBehavior.SEQUENCE -> null
+            RuleBehavior.SEQUENCE, RuleBehavior.LATENCY_RANGE, RuleBehavior.RANDOM -> null
         }
     }
 
     companion object {
-        /** The behaviours a sequence step may use — everything but a sequence. */
-        val allowed: List<RuleBehavior> = RuleBehavior.entries - RuleBehavior.SEQUENCE
+        /**
+         * The behaviours a sequence step or weighted outcome may use.
+         *
+         * A sequence and a random choice are both *containers*, and nesting one
+         * inside the other produces something nobody can reason about — least of
+         * all a QA engineer trying to explain what a scenario does.
+         */
+        val allowed: List<RuleBehavior> = RuleBehavior.entries -
+            setOf(RuleBehavior.SEQUENCE, RuleBehavior.LATENCY_RANGE, RuleBehavior.RANDOM)
 
         fun from(action: NetworkAction): SequenceStepForm = SequenceStepForm(
             behavior = RuleBehavior.of(action),
@@ -152,8 +204,19 @@ internal data class HeaderForm(val name: String = "", val value: String = "") {
  * a rule is a rule, and duplicating the editor for the two contexts would mean
  * two places to fix every validation bug.
  *
+ * ### Simple stays simple
+ *
+ * 0.3 added conditions, probability and weighted outcomes, and every one of them
+ * is off by default and hidden behind [showAdvanced]. A developer who wants
+ * `GET /bookings → 500` types a path, taps a status and saves, exactly as in 0.1.
+ * Advanced power that taxes the common case is not power, it is friction.
+ *
  * @param ruleId non-null when editing an existing rule.
  * @param pathText raw user input; validated by [pathError].
+ * @param prefixMatch whether the path is a prefix rather than an exact match.
+ * @param conditions the extra requirements, all of which must hold.
+ * @param probabilityPercent the chance the rule acts, `100` for always.
+ * @param showAdvanced whether the conditions and probability section is expanded.
  * @param matcherOverride preserved when editing a rule built with a matcher the
  *   editor cannot express, so saving does not silently downgrade it.
  */
@@ -162,16 +225,29 @@ internal data class RuleEditorState(
     val name: String = "",
     val method: HttpMethod = HttpMethod.ANY,
     val pathText: String = "",
+    val prefixMatch: Boolean = false,
     val behavior: RuleBehavior = RuleBehavior.RESPONSE,
     val statusText: String = "500",
     val bodyText: String = "",
     val contentType: String = NetworkAction.ReturnResponse.DEFAULT_CONTENT_TYPE,
     val headers: List<HeaderForm> = emptyList(),
     val delayText: String = "0",
+    val minLatencyText: String = "500",
+    val maxLatencyText: String = "3000",
     val timeoutType: TimeoutType = TimeoutType.READ,
     val malformedType: MalformedResponseType = MalformedResponseType.InvalidJson,
     val steps: List<SequenceStepForm> = emptyList(),
     val completion: SequenceCompletionBehavior = SequenceCompletionBehavior.REPEAT_LAST,
+    val outcomes: List<WeightedOutcomeForm> = emptyList(),
+    val conditions: List<ConditionForm> = emptyList(),
+    /**
+     * Conditions the editor cannot render — a consumer-supplied one, or an
+     * `allOf`/`anyOf` group — carried through untouched so that opening a rule
+     * and saving it never silently drops a restriction.
+     */
+    val unsupportedConditions: List<RuleCondition> = emptyList(),
+    val probabilityPercent: Int = 100,
+    val showAdvanced: Boolean = false,
     val enabled: Boolean = true,
     val matcherOverride: EndpointMatcher? = null,
 ) {
@@ -244,6 +320,57 @@ internal data class RuleEditorState(
             return headers.firstNotNullOfOrNull { it.error }
         }
 
+    /** Validation message for the latency range, or `null`. */
+    val latencyRangeError: String?
+        get() {
+            if (behavior != RuleBehavior.LATENCY_RANGE) return null
+            val min = minLatencyText.trim().toLongOrNull()
+            val max = maxLatencyText.trim().toLongOrNull()
+            return when {
+                min == null || max == null -> "Enter whole numbers of milliseconds"
+                min < 0 -> "Latency cannot be negative"
+                max < min -> "The longest delay cannot be shorter than the shortest"
+                else -> null
+            }
+        }
+
+    /** Validation message for the weighted outcomes, or `null`. */
+    val outcomesError: String?
+        get() {
+            if (behavior != RuleBehavior.RANDOM) return null
+            return when {
+                outcomes.isEmpty() -> "Add at least one outcome"
+                outcomes.size > NetKitLimits.MAX_WEIGHTED_OUTCOMES ->
+                    "A random rule cannot exceed ${NetKitLimits.MAX_WEIGHTED_OUTCOMES} outcomes"
+
+                outcomes.any { !it.isValid } -> "One of the outcomes is not valid"
+                else -> null
+            }
+        }
+
+    /** Validation message for the conditions, or `null`. */
+    val conditionsError: String?
+        get() {
+            if (conditions.size + unsupportedConditions.size >
+                NetKitLimits.MAX_CONDITIONS_PER_RULE
+            ) {
+                return "A rule cannot have more than " +
+                    "${NetKitLimits.MAX_CONDITIONS_PER_RULE} conditions"
+            }
+            return conditions.firstNotNullOfOrNull { it.error }
+        }
+
+    /** Non-blocking warnings the editor shows beneath the conditions. */
+    val warnings: List<String> get() = conditions.mapNotNull { it.warning }
+
+    /** The percentages the weighted-outcome editor displays beside each weight. */
+    val outcomePercentages: List<Int>
+        get() {
+            val total = outcomes.sumOf { it.weight }
+            if (total <= 0) return List(outcomes.size) { 0 }
+            return outcomes.map { Math.round(it.weight * 100.0 / total).toInt() }
+        }
+
     /** True when [toRule] will succeed. */
     val isValid: Boolean
         get() = pathError == null &&
@@ -251,7 +378,16 @@ internal data class RuleEditorState(
             delayError == null &&
             bodyError == null &&
             sequenceError == null &&
-            headerError == null
+            headerError == null &&
+            latencyRangeError == null &&
+            outcomesError == null &&
+            conditionsError == null
+
+    /** True when this rule uses anything beyond method-and-path matching. */
+    val hasAdvanced: Boolean
+        get() = conditions.isNotEmpty() ||
+            unsupportedConditions.isNotEmpty() ||
+            probabilityPercent < 100
 
     private val delayMillis: Long get() = delayText.trim().toLongOrNull()?.coerceAtLeast(0) ?: 0
 
@@ -262,6 +398,13 @@ internal data class RuleEditorState(
             RuleBehavior.PASS_THROUGH -> NetworkAction.PassThrough
 
             RuleBehavior.DELAY -> NetworkAction.Delay(delayMillis)
+
+            RuleBehavior.LATENCY_RANGE -> NetworkAction.RandomDelay(
+                LatencyRange(
+                    minMillis = minLatencyText.trim().toLongOrNull()?.coerceAtLeast(0) ?: 0,
+                    maxMillis = maxLatencyText.trim().toLongOrNull()?.coerceAtLeast(0) ?: 0,
+                ),
+            )
 
             RuleBehavior.RESPONSE -> NetworkAction.ReturnResponse(
                 statusCode = statusText.trim().toInt(),
@@ -284,7 +427,13 @@ internal data class RuleEditorState(
                 completion = completion,
             )
 
+            RuleBehavior.RANDOM -> NetworkAction.Weighted(
+                outcomes = outcomes.mapNotNull(WeightedOutcomeForm::toOutcome),
+            )
+
             RuleBehavior.OFFLINE -> NetworkAction.Offline
+
+            RuleBehavior.DISCONNECT -> NetworkAction.Disconnect
 
             RuleBehavior.TIMEOUT -> NetworkAction.Timeout(timeoutType)
         }
@@ -293,10 +442,55 @@ internal data class RuleEditorState(
             name = name.trim().takeIf { it.isNotBlank() },
             enabled = enabled,
             method = method,
-            matcher = matcherOverride ?: EndpointMatcher.ExactPath(pathText.trim()),
+            matcher = matcherOverride ?: if (prefixMatch) {
+                EndpointMatcher.PathPrefix(pathText.trim())
+            } else {
+                EndpointMatcher.ExactPath(pathText.trim())
+            },
+            // Conditions the editor could not render are carried through
+            // untouched. Dropping them on save would quietly widen the rule,
+            // which is the one failure mode a debug tool must never have.
+            conditions = conditions.mapNotNull(ConditionForm::toCondition) + unsupportedConditions,
+            probability = Probability.ofPercent(probabilityPercent),
             action = action,
         )
     }
+
+    /** Appends a blank condition of [kind]. */
+    fun withNewCondition(kind: ConditionKind): RuleEditorState =
+        copy(conditions = conditions + ConditionForm.blank(kind), showAdvanced = true)
+
+    fun withCondition(index: Int, condition: ConditionForm): RuleEditorState =
+        if (index !in conditions.indices) {
+            this
+        } else {
+            copy(conditions = conditions.toMutableList().apply { set(index, condition) })
+        }
+
+    fun withConditionRemoved(index: Int): RuleEditorState =
+        if (index !in conditions.indices) {
+            this
+        } else {
+            copy(conditions = conditions.filterIndexed { i, _ -> i != index })
+        }
+
+    /** Appends an outcome, copying the last one so weights stay easy to adjust. */
+    fun withNewOutcome(): RuleEditorState =
+        copy(outcomes = outcomes + (outcomes.lastOrNull() ?: WeightedOutcomeForm()))
+
+    fun withOutcome(index: Int, outcome: WeightedOutcomeForm): RuleEditorState =
+        if (index !in outcomes.indices) {
+            this
+        } else {
+            copy(outcomes = outcomes.toMutableList().apply { set(index, outcome) })
+        }
+
+    fun withOutcomeRemoved(index: Int): RuleEditorState =
+        if (index !in outcomes.indices) {
+            this
+        } else {
+            copy(outcomes = outcomes.filterIndexed { i, _ -> i != index })
+        }
 
     /** Appends a step pre-filled with a sensible next behaviour. */
     fun withNewStep(): RuleEditorState = copy(
@@ -337,13 +531,23 @@ internal data class RuleEditorState(
         fun from(rule: EndpointRule): RuleEditorState {
             val action = rule.action
             val exactPath = rule.matcher as? EndpointMatcher.ExactPath
+            val prefixPath = rule.matcher as? EndpointMatcher.PathPrefix
             val response = action as? NetworkAction.ReturnResponse
             val sequence = action as? NetworkAction.Sequence
+            val weighted = action as? NetworkAction.Weighted
+            val randomDelay = action as? NetworkAction.RandomDelay
+            // Conditions split into ones the editor can render and ones it
+            // cannot; the second group is preserved verbatim and re-attached by
+            // `toRule`, so opening and saving a rule never weakens it.
+            val (editable, unsupported) = rule.conditions
+                .map { it to ConditionForm.from(it) }
+                .partition { it.second != null }
             return RuleEditorState(
                 ruleId = rule.id,
                 name = rule.name.orEmpty(),
                 method = rule.method,
-                pathText = exactPath?.path ?: rule.matcher.label,
+                pathText = exactPath?.path ?: prefixPath?.prefix ?: rule.matcher.label,
+                prefixMatch = prefixPath != null,
                 behavior = RuleBehavior.of(action),
                 statusText = when (action) {
                     is NetworkAction.ReturnResponse -> action.statusCode.toString()
@@ -360,13 +564,20 @@ internal data class RuleEditorState(
                     is NetworkAction.Malformed -> action.delayMillis.toString()
                     else -> "0"
                 },
+                minLatencyText = (randomDelay?.latency?.minMillis ?: 500L).toString(),
+                maxLatencyText = (randomDelay?.latency?.maxMillis ?: 3_000L).toString(),
                 timeoutType = (action as? NetworkAction.Timeout)?.type ?: TimeoutType.READ,
                 malformedType = (action as? NetworkAction.Malformed)?.type
                     ?: MalformedResponseType.InvalidJson,
                 steps = sequence?.steps?.map { SequenceStepForm.from(it.action) }.orEmpty(),
                 completion = sequence?.completion ?: SequenceCompletionBehavior.REPEAT_LAST,
+                outcomes = weighted?.outcomes?.map(WeightedOutcomeForm::from).orEmpty(),
+                conditions = editable.mapNotNull { it.second },
+                unsupportedConditions = unsupported.map { it.first },
+                probabilityPercent = rule.probability.percent,
+                showAdvanced = rule.isConditional,
                 enabled = rule.enabled,
-                matcherOverride = if (exactPath == null) rule.matcher else null,
+                matcherOverride = if (exactPath == null && prefixPath == null) rule.matcher else null,
             )
         }
 
