@@ -10,6 +10,26 @@ import io.devkit.netkit.scenario.model.ValidationError
 import java.nio.charset.StandardCharsets
 
 /**
+ * Anything NetKit can write to a file and hand to a share sheet.
+ *
+ * Introduced in 0.3 so a scenario export and a reproduction export share the
+ * Android file layer instead of duplicating it. That layer needs three things —
+ * bytes, a name, and anything worth warning about — and neither kind of export
+ * needs it to know which it is holding.
+ */
+interface NetKitExport {
+
+    /** The file's exact bytes, as UTF-8 text. */
+    val content: String
+
+    /** e.g. `checkout-retry-bug.netkit.json`. */
+    val suggestedFileName: String
+
+    /** Anything removed or worth telling the exporter about. */
+    val warnings: List<String>
+}
+
+/**
  * A `.netkit.json` ready to be written to disk or shared.
  *
  * @param content the file's exact bytes, as UTF-8 text.
@@ -18,10 +38,10 @@ import java.nio.charset.StandardCharsets
  *   a credential-bearing response header that was stripped.
  */
 data class ScenarioExport(
-    val content: String,
-    val suggestedFileName: String,
-    val warnings: List<String> = emptyList(),
-)
+    override val content: String,
+    override val suggestedFileName: String,
+    override val warnings: List<String> = emptyList(),
+) : NetKitExport
 
 /** What an imported file turned out to contain. */
 data class ImportSummary(
@@ -36,6 +56,13 @@ data class ImportSummary(
     val hasTimeouts: Boolean,
     val hasOfflineRules: Boolean,
     val globalSummary: String?,
+    val hasChaos: Boolean = false,
+    val hasConditions: Boolean = false,
+    val hasProbability: Boolean = false,
+    val hasWeightedOutcomes: Boolean = false,
+    val hasDisconnects: Boolean = false,
+    /** The seed a reproduction carries, or `null` for an ordinary scenario file. */
+    val seed: Long? = null,
 ) {
     /** The checklist the import preview renders. */
     val contents: List<String> = buildList {
@@ -44,6 +71,11 @@ data class ImportSummary(
         if (hasSequences) add("Response sequences")
         if (hasTimeouts) add("Timeouts")
         if (hasOfflineRules) add("Offline failures")
+        if (hasDisconnects) add("Simulated disconnects")
+        if (hasChaos) add("Chaos mode")
+        if (hasConditions) add("Conditional rules")
+        if (hasProbability) add("Probability-based rules")
+        if (hasWeightedOutcomes) add("Random outcomes")
     }
 }
 
@@ -66,6 +98,28 @@ sealed interface ScenarioImportResult {
     data class Pack(
         val pack: ScenarioPack,
         val scenarios: List<NetworkScenario>,
+        val summary: ImportSummary,
+    ) : ScenarioImportResult
+
+    /**
+     * A reproduction: a scenario, the seed it was run with, and optionally the
+     * trace of what happened.
+     *
+     * Importing one saves the scenario like any other and, unlike any other,
+     * carries a [seed] the console offers to activate with — which is the whole
+     * point. A developer handed a ticket picks the file, taps activate, and is
+     * running the same decision sequence the reporter saw.
+     *
+     * @param seed the seed to reproduce with.
+     * @param runId the reporter's run, kept so a ticket and a device agree on
+     *   which execution is being talked about.
+     * @param trace the safe execution trace, when the file carried one.
+     */
+    data class Reproduction(
+        val scenario: NetworkScenario,
+        val seed: Long,
+        val runId: String?,
+        val trace: List<String>,
         val summary: ImportSummary,
     ) : ScenarioImportResult
 
@@ -94,7 +148,7 @@ sealed interface ScenarioImportResult {
     /** A human-readable explanation of a failure, or `null` on success. */
     val failureReason: String?
         get() = when (this) {
-            is Scenario, is Pack -> null
+            is Scenario, is Pack, is Reproduction -> null
             is InvalidFile -> reason
             is UnsupportedVersion -> reason
             is InvalidScenario -> reason
@@ -195,11 +249,16 @@ internal fun summarize(
     description: String?,
     schemaVersion: Int,
     scenarios: List<NetworkScenario>,
+    seed: Long? = null,
 ): ImportSummary {
     val actions = scenarios.flatMap { scenario -> scenario.rules.map { it.action } }
     val flattened = actions.flatMap { action ->
-        if (action is NetworkAction.Sequence) listOf(action) + action.steps.map { it.action } else listOf(action)
-    }
+        when (action) {
+            is NetworkAction.Sequence -> listOf(action) + action.steps.map { it.action }
+            is NetworkAction.Weighted -> listOf(action) + action.outcomes.map { it.action }
+            else -> listOf(action)
+        }
+    } + scenarios.mapNotNull { it.chaos }.flatMap { chaos -> chaos.failures.map { it.action } }
     return ImportSummary(
         name = name,
         description = description,
@@ -214,6 +273,14 @@ internal fun summarize(
         globalSummary = scenarios.firstNotNullOfOrNull { it.globalConfig }
             ?.takeIf { !it.isNormal }
             ?.summary,
+        hasChaos = scenarios.any { it.chaos?.isIdle == false },
+        hasConditions = scenarios.any { it.hasConditions },
+        hasProbability = scenarios.any { scenario ->
+            scenario.rules.any { !it.probability.isAlways }
+        },
+        hasWeightedOutcomes = actions.any { it is NetworkAction.Weighted },
+        hasDisconnects = flattened.any { it == NetworkAction.Disconnect },
+        seed = seed,
     )
 }
 

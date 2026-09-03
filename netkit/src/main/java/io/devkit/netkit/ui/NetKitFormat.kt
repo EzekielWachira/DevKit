@@ -4,6 +4,7 @@ import io.devkit.netkit.config.NetKitDefaults
 import io.devkit.netkit.history.NetworkOutcome
 import io.devkit.netkit.history.NetworkRecord
 import io.devkit.netkit.scenario.NetworkAction
+import io.devkit.netkit.scenario.percentages
 import io.devkit.netkit.scenario.model.NetworkScenario
 import io.devkit.netkit.scenario.runtime.RuleSource
 import java.util.Calendar
@@ -86,7 +87,36 @@ internal object NetKitFormat {
 
         NetworkAction.Offline -> "Fail as offline"
 
+        NetworkAction.Disconnect -> "Fail as a dropped connection"
+
+        is NetworkAction.RandomDelay ->
+            "Delay ${action.latency.label}, then pass through"
+
+        is NetworkAction.Weighted -> buildString {
+            append("Random: ")
+            val percentages = action.outcomes.percentages()
+            append(
+                action.outcomes.take(3).mapIndexed { index, outcome ->
+                    "${percentages[index]}% ${outcome.label}"
+                }.joinToString(" · "),
+            )
+            if (action.outcomes.size > 3) append(" · +${action.outcomes.size - 3} more")
+        }
+
         is NetworkAction.Timeout -> action.type.label
+    }
+
+    /** `Chaos` or a scenario name, for the history detail. */
+    fun chaosSummary(chaos: io.devkit.netkit.scenario.chaos.ChaosConfig): String = buildString {
+        append(if (chaos.enabled) "On" else "Off")
+        append(" · ")
+        append(chaos.summary)
+        append(" · ")
+        append(chaos.scope.label)
+        if (!chaos.exclusions.isEmpty) {
+            append(" · excluding ")
+            append(chaos.exclusions.label)
+        }
     }
 
     /** The compact outcome badge, e.g. `200`, `500`, `TIMEOUT`, `OFFLINE`. */
@@ -105,6 +135,7 @@ internal object NetKitFormat {
     fun ruleSourceLabel(source: RuleSource?): String = when (source) {
         null -> "None"
         RuleSource.Temporary -> "Temporary override"
+        RuleSource.Chaos -> "Chaos mode"
         is RuleSource.Scenario -> "Scenario \"${source.scenarioName}\""
     }
 

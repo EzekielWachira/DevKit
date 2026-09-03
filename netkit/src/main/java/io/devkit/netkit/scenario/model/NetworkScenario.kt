@@ -2,8 +2,36 @@ package io.devkit.netkit.scenario.model
 
 import io.devkit.netkit.scenario.EndpointRule
 import io.devkit.netkit.scenario.GlobalNetworkConfig
+import io.devkit.netkit.scenario.chaos.ChaosConfig
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
+
+/**
+ * Which preset generated a scenario, kept purely as provenance.
+ *
+ * ### Why this is metadata and never behaviour
+ *
+ * A preset is a **generator**: selecting "Refresh token fails" builds ordinary
+ * endpoint rules and then gets out of the way. This record says where those rules
+ * came from, so the console can label the scenario and offer to re-run the wizard
+ * — and nothing else reads it. A scenario whose preset metadata is stripped, or
+ * whose preset no longer exists in a later NetKit, executes exactly the same,
+ * because the rules are complete on their own.
+ *
+ * The alternative — presets that are interpreted at request time — would have
+ * meant a second execution engine living alongside the real one, and scenarios
+ * that stopped working when a preset was renamed.
+ *
+ * @param presetId the generator's id, e.g. `auth.refresh-fails`.
+ * @param presetName its display name at the time of generation.
+ * @param configuration the values the wizard was filled in with, so the console
+ *   can reopen it pre-populated. Never consulted during evaluation.
+ */
+data class ScenarioPresetOrigin(
+    val presetId: String,
+    val presetName: String,
+    val configuration: Map<String, String> = emptyMap(),
+)
 
 /**
  * Identity of a saved scenario.
@@ -137,6 +165,12 @@ data class ScenarioMetadata(
  * @param globalConfig the global behaviour this scenario imposes, or `null` to
  *   leave the console's own global setting in charge.
  * @param rules endpoint overrides, evaluated in order; the first match wins.
+ * @param chaos scenario-scoped chaos, or `null` to leave the console's own chaos
+ *   setting in charge — the same relationship [globalConfig] has to the console's
+ *   global switch.
+ * @param preset the preset that generated this scenario, purely as provenance.
+ *   The rules are always the source of truth: a scenario whose preset metadata is
+ *   stripped still runs identically.
  * @param metadata provenance and timestamps.
  */
 data class NetworkScenario(
@@ -146,6 +180,8 @@ data class NetworkScenario(
     val enabled: Boolean = true,
     val globalConfig: GlobalNetworkConfig? = null,
     val rules: List<EndpointRule> = emptyList(),
+    val chaos: ChaosConfig? = null,
+    val preset: ScenarioPresetOrigin? = null,
     val metadata: ScenarioMetadata = ScenarioMetadata(),
 ) {
     /** Rules currently eligible for matching. */
@@ -154,17 +190,39 @@ data class NetworkScenario(
     /** True when activating this scenario would change nothing. */
     val isIdle: Boolean
         get() = !enabled ||
-            (rules.none(EndpointRule::enabled) && (globalConfig == null || globalConfig.isNormal))
+            (
+                rules.none(EndpointRule::enabled) &&
+                    (globalConfig == null || globalConfig.isNormal) &&
+                    (chaos == null || chaos.isIdle)
+                )
 
     /** True when any rule uses a [io.devkit.netkit.scenario.NetworkAction.Sequence]. */
     val hasSequence: Boolean
         get() = rules.any { it.action is io.devkit.netkit.scenario.NetworkAction.Sequence }
 
-    /** `3 rules · Global 2500ms` — the subtitle in the scenario list. */
+    /**
+     * True when this scenario can decide differently on two identical requests,
+     * and therefore needs a seed to be reproducible.
+     *
+     * The console uses this to decide whether to show the seed controls at all: a
+     * plain `GET /bookings → 500` scenario has nothing random about it, and
+     * offering to reseed it would only raise a question that has no answer.
+     */
+    val isStochastic: Boolean
+        get() = chaos?.isIdle == false || rules.any { it.enabled && it.isStochastic }
+
+    /** True when any rule uses a condition. */
+    val hasConditions: Boolean get() = rules.any { it.conditions.isNotEmpty() }
+
+    /** `3 rules · Chaos 15% · Global 2500ms` — the subtitle in the scenario list. */
     val summary: String
         get() = buildString {
             append(rules.size)
             append(if (rules.size == 1) " rule" else " rules")
+            chaos?.takeIf { !it.isIdle }?.let {
+                append(" · Chaos ")
+                append(it.summary)
+            }
             globalConfig?.takeIf { !it.isNormal }?.let {
                 append(" · ")
                 append(it.summary)

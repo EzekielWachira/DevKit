@@ -237,8 +237,14 @@ class ScenarioSerializerTest {
 
     @Test
     fun `a newer schema version is refused rather than partly imported`() {
+        // Derived from the current version rather than hard-coded, so bumping the
+        // schema does not quietly turn this into a test of nothing: a literal `1`
+        // here stopped matching the moment 0.3 started writing version 2.
         val future = serializer.exportScenario(scenario()).content
-            .replace("\"schemaVersion\": 1", "\"schemaVersion\": 4")
+            .replace(
+                "\"schemaVersion\": ${ScenarioSchema.CURRENT_VERSION}",
+                "\"schemaVersion\": 4",
+            )
 
         val result = serializer.import(future)
 

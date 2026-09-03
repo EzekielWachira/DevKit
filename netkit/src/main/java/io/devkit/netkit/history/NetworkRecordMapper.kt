@@ -3,6 +3,9 @@ package io.devkit.netkit.history
 import io.devkit.netkit.config.NetKitConfig
 import io.devkit.netkit.masking.MaskedHeader
 import io.devkit.netkit.scenario.RequestTarget
+import io.devkit.netkit.scenario.condition.RequestBodyPeek
+import io.devkit.netkit.scenario.condition.RequestBodySource
+import io.devkit.netkit.scenario.runtime.RequestInspection
 import okhttp3.Headers
 import okhttp3.MediaType
 import okhttp3.Request
@@ -25,8 +28,18 @@ import java.nio.charset.StandardCharsets
  */
 internal class NetworkRecordMapper(private val config: NetKitConfig) {
 
-    /** Extracts the transport-independent target the scenario engine matches on. */
-    fun toTarget(request: Request): RequestTarget {
+    /**
+     * Extracts the transport-independent target the scenario engine matches on.
+     *
+     * [inspection] decides how much of the request is captured. The default is
+     * [RequestInspection.Minimal] — URL and method only, exactly what 0.1 needed
+     * — and the extra work is done only for the conditions that asked for it, so
+     * a scenario without header or body conditions costs nothing new here.
+     */
+    fun toTarget(
+        request: Request,
+        inspection: RequestInspection = RequestInspection.Minimal,
+    ): RequestTarget {
         val url = request.url
         return RequestTarget(
             method = request.method,
@@ -35,7 +48,61 @@ internal class NetworkRecordMapper(private val config: NetKitConfig) {
             port = url.port,
             path = url.encodedPath,
             encodedQuery = url.encodedQuery,
+            headers = if (inspection.headers) headerPairs(request.headers) else emptyList(),
+            bodySource = if (inspection.body) bodySource(request) else RequestBodySource.Absent,
         )
+    }
+
+    /**
+     * Bounded, non-destructive access to the request body for a body condition.
+     *
+     * Reuses the same safety rules as history capture, and for the same reason:
+     * NetKit must never be the thing that broke an upload. A duplex or one-shot
+     * body is refused outright — those can only be written once, and buffering
+     * one to evaluate a debug condition would leave nothing for the server. A
+     * body past the condition limit is refused rather than copied. Everything
+     * else is written into a scratch buffer, leaving the original untouched.
+     *
+     * The lambda is not invoked unless a body condition actually asks.
+     */
+    private fun bodySource(request: Request): RequestBodySource = RequestBodySource { maxBytes ->
+        val body = request.body ?: return@RequestBodySource RequestBodyPeek.Absent
+        if (body.isDuplex() || body.isOneShot()) {
+            return@RequestBodySource unavailable(RequestBodyPeek.Unavailable.Reason.NOT_REPEATABLE)
+        }
+        val declared = safeContentLength(body)
+        if (declared > maxBytes) {
+            return@RequestBodySource unavailable(RequestBodyPeek.Unavailable.Reason.TOO_LARGE)
+        }
+        val charset = charsetOrNull(body.contentType())
+            ?: return@RequestBodySource unavailable(RequestBodyPeek.Unavailable.Reason.BINARY)
+        try {
+            val buffer = Buffer()
+            body.writeTo(buffer)
+            if (buffer.size > maxBytes) {
+                // A chunked body that could not declare its length gets past the
+                // check above, so the real size is checked again after writing.
+                unavailable(RequestBodyPeek.Unavailable.Reason.TOO_LARGE)
+            } else {
+                RequestBodyPeek.Text(buffer.readString(charset))
+            }
+        } catch (error: Throwable) {
+            // `writeTo` is application code and can throw anything at all.
+            unavailable(RequestBodyPeek.Unavailable.Reason.UNREADABLE)
+        }
+    }
+
+    private fun unavailable(reason: RequestBodyPeek.Unavailable.Reason): RequestBodyPeek =
+        RequestBodyPeek.Unavailable(reason)
+
+    /** The raw header pairs a condition matches against, in wire order. */
+    private fun headerPairs(headers: Headers): List<Pair<String, String>> {
+        if (headers.size == 0) return emptyList()
+        val pairs = ArrayList<Pair<String, String>>(headers.size)
+        for (index in 0 until headers.size) {
+            pairs += headers.name(index) to headers.value(index)
+        }
+        return pairs
     }
 
     /** Masks the URL so credential-bearing query parameters never reach history. */

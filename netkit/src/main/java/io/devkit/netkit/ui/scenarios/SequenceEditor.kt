@@ -260,7 +260,15 @@ private fun SequenceStepCard(
                 ),
             )
 
-            RuleBehavior.PASS_THROUGH, RuleBehavior.OFFLINE, RuleBehavior.SEQUENCE -> Unit
+            // Everything left needs no configuration of its own — or, for the
+            // three container behaviours, is not offered as a step at all.
+            RuleBehavior.PASS_THROUGH,
+            RuleBehavior.OFFLINE,
+            RuleBehavior.DISCONNECT,
+            RuleBehavior.SEQUENCE,
+            RuleBehavior.LATENCY_RANGE,
+            RuleBehavior.RANDOM,
+            -> Unit
         }
     }
 }

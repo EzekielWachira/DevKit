@@ -5,6 +5,7 @@ import io.devkit.netkit.replay.RequestReplayer
 import io.devkit.netkit.scenario.EndpointRule
 import io.devkit.netkit.scenario.GlobalNetworkMode
 import io.devkit.netkit.scenario.TimeoutType
+import io.devkit.netkit.scenario.chaos.ChaosConfig
 import io.devkit.netkit.scenario.runtime.ActiveNetworkConfiguration
 import kotlinx.coroutines.flow.StateFlow
 
@@ -46,6 +47,9 @@ interface NetKitController {
     /** Saved scenarios, packs, activation, import and export. */
     val scenarios: ScenarioController
 
+    /** The current scenario run: its seed, counters, timeline and statistics. */
+    val runs: RunController
+
     /** Replays a recorded request. */
     val replayer: RequestReplayer
 
@@ -85,6 +89,22 @@ interface NetKitController {
      * Negative values are rejected — implementations coerce to `0`.
      */
     fun setGlobalLatency(milliseconds: Long)
+
+    // ---- chaos -------------------------------------------------------------
+
+    /**
+     * Replaces the console's own chaos configuration.
+     *
+     * This is the **temporary** chaos layer, the counterpart of
+     * [setGlobalMode]: it is not saved, and an active scenario that declares its
+     * own chaos takes precedence. Turning chaos on when nothing else is running
+     * starts a scenario run, so the seed and the timeline are available even
+     * without a saved scenario.
+     */
+    fun setChaos(config: ChaosConfig)
+
+    /** Switches the console's chaos on or off, keeping its settings. */
+    fun setChaosEnabled(enabled: Boolean)
 
     // ---- temporary endpoint overrides --------------------------------------
 

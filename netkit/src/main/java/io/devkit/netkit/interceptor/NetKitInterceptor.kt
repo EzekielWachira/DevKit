@@ -74,9 +74,18 @@ class NetKitInterceptor internal constructor(
      * network down with it, so any unexpected failure degrades to pass-through.
      */
     private fun decide(request: Request, bypass: Boolean): ScenarioDecision = try {
-        // `evaluate` reads the configuration once and short-circuits internally,
-        // so this path never sees two different snapshots for one request.
-        if (bypass) IDLE_DECISION else engine.evaluate(mapper.toTarget(request))
+        // A bypassed replay must not consume anything: no evaluation index, no
+        // random draw, no rule counter, no sequence step. Short-circuiting here
+        // rather than inside the engine is what makes that literally true.
+        if (bypass) {
+            IDLE_DECISION
+        } else {
+            // `evaluate` reads the configuration once and short-circuits
+            // internally, so this path never sees two different snapshots for one
+            // request. `inspection` is read first so headers and the body source
+            // are only built when some condition actually needs them.
+            engine.evaluate(mapper.toTarget(request, engine.inspection))
+        }
     } catch (error: RuntimeException) {
         IDLE_DECISION
     }
@@ -113,6 +122,8 @@ class NetKitInterceptor internal constructor(
                 }
 
                 is ScenarioDecision.FailOffline -> throw offlineFailure(request)
+
+                is ScenarioDecision.FailDisconnect -> throw disconnectFailure(request)
 
                 is ScenarioDecision.FailTimeout -> {
                     sleeper.sleep(timeoutDelayMillis(chain, decision.type))
@@ -154,6 +165,19 @@ class NetKitInterceptor internal constructor(
 
     private fun offlineFailure(request: Request): IOException =
         UnknownHostException("NetKit offline scenario: unable to resolve host ${request.url.host}")
+
+    /**
+     * The exception a dropped connection produces.
+     *
+     * A plain [IOException] with the message OkHttp's own socket layer would
+     * surface, rather than a NetKit-specific subclass: client code that catches
+     * `IOException` and inspects the message — which, for better or worse, plenty
+     * does — should behave the same way it would against a real reset.
+     *
+     * This is an application-layer simulation. Nothing here touches a socket.
+     */
+    private fun disconnectFailure(request: Request): IOException =
+        IOException("NetKit simulated disconnect: connection reset by ${request.url.host}")
 
     private fun timeoutFailure(type: TimeoutType): IOException = when (type) {
         TimeoutType.CONNECT -> SocketTimeoutException("NetKit simulated connect timeout")

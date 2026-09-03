@@ -84,6 +84,16 @@ internal fun EndpointRuleRow(
                     overflow = TextOverflow.MiddleEllipsis,
                 )
                 if (progress != null) NetKitBadge(text = progress.display)
+                // A rule that only fires sometimes must not read like one that
+                // always does. Without this badge a 30% rule and a plain rule are
+                // indistinguishable in the list, and "why did that not happen?"
+                // becomes a question the list cannot answer.
+                if (!rule.probability.isAlways) {
+                    NetKitBadge(text = rule.probability.percentLabel)
+                }
+                if (rule.conditions.isNotEmpty()) {
+                    NetKitBadge(text = "IF")
+                }
                 if (!rule.enabled) {
                     NetKitBadge(text = "OFF")
                 }
@@ -95,6 +105,17 @@ internal fun EndpointRuleRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+            // Spelled out under the action, because "IF" alone says a rule is
+            // conditional without saying on what.
+            rule.conditionSummary?.let { conditions ->
+                Text(
+                    text = conditions,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = contentAlpha),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
             rule.name?.takeIf { it.isNotBlank() }?.let { name ->
                 Text(
                     text = name,

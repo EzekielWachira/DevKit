@@ -41,6 +41,12 @@ object DemoApi {
         DemoEndpoint("bookings", "GET", "/api/v1/bookings", "Lists upcoming bookings"),
         DemoEndpoint("notifications", "GET", "/api/v1/notifications", "Polls for notifications"),
         DemoEndpoint("checkout", "POST", "/api/v1/checkout", "Submits an order"),
+        // Added for the 0.3 demo packs: pagination presets need a paginated
+        // endpoint to target, and the auth presets need a refresh endpoint that
+        // is distinguishable from the protected ones.
+        DemoEndpoint("services-1", "GET", "/api/v1/services?page=1", "Loads page 1 of services"),
+        DemoEndpoint("services-2", "GET", "/api/v1/services?page=2", "Loads page 2 of services"),
+        DemoEndpoint("refresh", "POST", "/api/v1/auth/refresh", "Exchanges the refresh token"),
     )
 
     private val client: OkHttpClient by lazy {

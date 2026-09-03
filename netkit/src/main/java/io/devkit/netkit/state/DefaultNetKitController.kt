@@ -2,11 +2,14 @@ package io.devkit.netkit.state
 
 import io.devkit.netkit.history.NetworkHistoryStore
 import io.devkit.netkit.history.NetworkRecord
+import io.devkit.netkit.masking.DefaultSensitiveDataMasker
+import io.devkit.netkit.masking.SensitiveDataMasker
 import io.devkit.netkit.replay.ReplaySnapshotStore
 import io.devkit.netkit.replay.RequestReplayer
 import io.devkit.netkit.scenario.EndpointRule
 import io.devkit.netkit.scenario.GlobalNetworkConfig
 import io.devkit.netkit.scenario.GlobalNetworkMode
+import io.devkit.netkit.scenario.chaos.ChaosConfig
 import io.devkit.netkit.scenario.model.NetworkScenario
 import io.devkit.netkit.scenario.model.ScenarioId
 import io.devkit.netkit.scenario.model.ScenarioMetadata
@@ -20,6 +23,13 @@ import io.devkit.netkit.scenario.runtime.ImportCollisionPolicy
 import io.devkit.netkit.scenario.runtime.ScenarioImportOutcome
 import io.devkit.netkit.scenario.runtime.ScenarioManager
 import io.devkit.netkit.scenario.runtime.SequenceProgress
+import io.devkit.netkit.scenario.run.ChaosStatistics
+import io.devkit.netkit.scenario.run.ExecutionEvent
+import io.devkit.netkit.scenario.run.RuleStatistics
+import io.devkit.netkit.scenario.run.RunStartReason
+import io.devkit.netkit.scenario.run.ScenarioRun
+import io.devkit.netkit.scenario.serialization.ReproductionExport
+import io.devkit.netkit.scenario.serialization.ReproductionExporter
 import io.devkit.netkit.scenario.serialization.ScenarioExport
 import io.devkit.netkit.scenario.serialization.ScenarioImportResult
 import kotlinx.coroutines.CoroutineScope
@@ -50,6 +60,9 @@ import kotlinx.coroutines.launch
  * @param replaySnapshots cleared alongside history, so credentials do not
  *   outlive the records that referenced them.
  * @param scope where the active-scenario subscription runs.
+ * @param masker redacts credential-bearing query parameters out of an exported
+ *   reproduction trace. Defaults to NetKit's own; pass the instance from
+ *   `NetKitConfig` so a custom masker applies here too.
  */
 class DefaultNetKitController(
     private val historyStore: NetworkHistoryStore,
@@ -58,6 +71,7 @@ class DefaultNetKitController(
     private val replaySnapshots: ReplaySnapshotStore?,
     scope: CoroutineScope,
     initialConfiguration: ActiveNetworkConfiguration = ActiveNetworkConfiguration.Default,
+    private val masker: SensitiveDataMasker = DefaultSensitiveDataMasker(),
 ) : NetKitController {
 
     private val _state = MutableStateFlow(NetKitState(initialConfiguration))
@@ -68,6 +82,16 @@ class DefaultNetKitController(
 
     override val scenarios: ScenarioController = ManagerBackedScenarioController()
 
+    override val runs: RunController = ManagerBackedRunController()
+
+    /**
+     * Writes the reproduction files this controller's [runs] produces.
+     *
+     * Constructed with the same masker history uses, so an organisation that
+     * added its own sensitive parameter names has them respected in a trace too.
+     */
+    private val reproductionExporter = ReproductionExporter(masker)
+
     /** The snapshot the engine reads. Cheap and allocation-free. */
     val configuration: ActiveNetworkConfiguration get() = _state.value.configuration
 
@@ -77,6 +101,11 @@ class DefaultNetKitController(
         scope.launch {
             manager.activeSnapshot.collect { snapshot ->
                 updateConfiguration { it.copy(scenario = snapshot) }
+                // Deactivating a scenario ends the run the manager started. When
+                // the console's own chaos is still on, the run has to pass back to
+                // chaos rather than simply stopping — otherwise chaos would keep
+                // failing requests with no seed anybody could quote.
+                syncChaosRun(configuration.effectiveChaos)
             }
         }
     }
@@ -90,6 +119,56 @@ class DefaultNetKitController(
     override fun setGlobalLatency(milliseconds: Long) {
         val safe = milliseconds.coerceAtLeast(0)
         updateConfiguration { it.copy(global = it.global.copy(latencyMillis = safe)) }
+    }
+
+    override fun setChaos(config: ChaosConfig) {
+        val previous = configuration.effectiveChaos
+        updateConfiguration { it.copy(chaos = config) }
+        syncChaosRun(previous)
+    }
+
+    override fun setChaosEnabled(enabled: Boolean) {
+        if (configuration.chaos.enabled == enabled) return
+        setChaos(configuration.chaos.copy(enabled = enabled))
+    }
+
+    /**
+     * Starts or stops a chaos-only run as the console's chaos is switched.
+     *
+     * Only relevant when **no scenario is active**: a scenario owns its run, and
+     * `ScenarioManager` starts and stops it synchronously with activation. This
+     * fills the other case — someone turns chaos on from the console with nothing
+     * saved — so a seed and a timeline exist for that too, and a bug found under
+     * ad-hoc chaos is just as reproducible as one found under a saved scenario.
+     *
+     * Changing a *running* chaos configuration also restarts, on a fresh seed:
+     * the decisions a seed produced were a function of the old failure rate, so
+     * continuing to quote that seed after changing the rate would be a lie.
+     */
+    private fun syncChaosRun(previousChaos: ChaosConfig) {
+        val current = configuration
+        // A scenario is active: its run is the manager's business, not ours.
+        if (current.scenario?.enabled == true) return
+
+        val chaos = current.chaos
+        val running = manager.runManager.run.value
+        when {
+            !chaos.enabled || !current.enabled -> if (running?.scenarioId == null) {
+                manager.runManager.stopRun()
+            }
+
+            running == null -> manager.runManager.startRun(
+                scenarioId = null,
+                scenarioName = "Chaos",
+                reason = RunStartReason.CHAOS_ENABLED,
+            )
+
+            previousChaos != chaos -> manager.runManager.startRun(
+                scenarioId = null,
+                scenarioName = "Chaos",
+                reason = RunStartReason.SEED_CHANGED,
+            )
+        }
     }
 
     override fun addRule(rule: EndpointRule): String {
@@ -207,6 +286,9 @@ class DefaultNetKitController(
 
         override suspend fun toggleActive(id: ScenarioId): Boolean = manager.toggleActive(id)
 
+        override suspend fun reproduce(id: ScenarioId, seed: Long): Boolean =
+            manager.reproduce(id, seed)
+
         override suspend fun setScenarioEnabled(id: ScenarioId, enabled: Boolean) {
             manager.setScenarioEnabled(id, enabled)
         }
@@ -273,6 +355,64 @@ class DefaultNetKitController(
         override fun resetSequence(ruleId: String) = manager.resetSequence(ruleId)
 
         override fun resetAllSequences() = manager.resetAllSequences()
+    }
+
+    /**
+     * Adapts [ScenarioRunManager] to the [RunController] the UI depends on.
+     *
+     * A thin delegating layer for the same reason the scenario one is: the run
+     * manager holds the atomics the engine hammers on every request, and no UI
+     * should be able to reach those. What the UI gets is the published state and
+     * five verbs.
+     */
+    private inner class ManagerBackedRunController : RunController {
+
+        override val current: StateFlow<ScenarioRun?> get() = manager.runManager.run
+
+        override val timeline: StateFlow<List<ExecutionEvent>>
+            get() = manager.runManager.timeline.events
+
+        override val ruleStatistics: StateFlow<Map<String, RuleStatistics>>
+            get() = manager.runManager.ruleStatistics
+
+        override val chaosStatistics: StateFlow<ChaosStatistics>
+            get() = manager.runManager.chaosStatistics
+
+        override val seed: Long? get() = current.value?.seed
+
+        override fun restartWithSameSeed(): ScenarioRun? = manager.restartRun()
+
+        override fun restartWithNewSeed(): ScenarioRun? = manager.restartRunWithNewSeed()
+
+        override fun restartWithSeed(seed: Long): ScenarioRun? = manager.restartRunWithSeed(seed)
+
+        override fun resetRuntimeState() = manager.runManager.resetRuntimeState()
+
+        override fun reproductionSummary(): String? {
+            val run = current.value ?: return null
+            return reproductionExporter.summary(run, manager.activeScenario.value)
+        }
+
+        override fun traceSummary(): String? {
+            val run = current.value ?: return null
+            return reproductionExporter.trace(run, timeline.value)
+        }
+
+        override fun exportReproduction(includeTrace: Boolean): ReproductionExport? {
+            val run = current.value ?: return null
+            return reproductionExporter.export(
+                run = run,
+                scenario = manager.activeScenario.value,
+                events = if (includeTrace) timeline.value else emptyList(),
+                includeTrace = includeTrace,
+            )
+        }
+
+        override fun setTimelineEnabled(enabled: Boolean) {
+            manager.runManager.timeline.enabled = enabled
+        }
+
+        override val isTimelineEnabled: Boolean get() = manager.runManager.timeline.enabled
     }
 }
 

@@ -1,5 +1,7 @@
 package io.devkit.netkit.scenario.serialization
 
+import kotlinx.serialization.EncodeDefault
+import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 
@@ -29,6 +31,130 @@ internal data class StoredScenario(
     val updatedAt: Long = 0,
     val source: String = "created",
     val packId: String? = null,
+    /** Schema 2. Absent in every schema-1 file, which is what the default is for. */
+    val chaos: StoredChaos? = null,
+    /** Schema 2. Provenance only; the rules remain the source of truth. */
+    val preset: StoredPresetOrigin? = null,
+)
+
+/** Schema 2. Which preset generated a scenario. Never consulted at runtime. */
+@Serializable
+internal data class StoredPresetOrigin(
+    val id: String,
+    val name: String,
+    val configuration: Map<String, String> = emptyMap(),
+)
+
+/** Schema 2. Chaos mode as written down. */
+@Serializable
+internal data class StoredChaos(
+    val enabled: Boolean = false,
+    val failureProbability: Double = 0.0,
+    val minLatencyMillis: Long = 0,
+    val maxLatencyMillis: Long = 0,
+    val failures: List<StoredWeightedOutcome> = emptyList(),
+    val hosts: List<String> = emptyList(),
+    val pathPrefixes: List<String> = emptyList(),
+    val methods: List<String> = emptyList(),
+    val excludedPathPrefixes: List<String> = emptyList(),
+)
+
+/** Schema 2. One weighted branch of a random choice. */
+@Serializable
+internal data class StoredWeightedOutcome(
+    val weight: Int,
+    val action: StoredAction,
+)
+
+/**
+ * Schema 2. A condition on a rule.
+ *
+ * Polymorphic like [StoredMatcher] and [StoredAction], so a 0.4 condition kind is
+ * a new subtype rather than a migration. An unknown kind is a hard error on
+ * import: a condition silently dropped would widen a rule from "page 2 only" to
+ * "every page", and a scenario that reproduces the wrong bug is worse than one
+ * that refuses to load.
+ */
+@Serializable
+internal sealed interface StoredCondition {
+
+    @Serializable
+    @SerialName("requestCount")
+    data class RequestCount(
+        /** `exactly`, `atLeast`, `range` or `every`. */
+        val kind: String,
+        val from: Long = 1,
+        val to: Long = 1,
+        val interval: Long = 1,
+    ) : StoredCondition
+
+    @Serializable
+    @SerialName("header")
+    data class Header(
+        val name: String,
+        val match: String = "exists",
+        val value: String = "",
+    ) : StoredCondition
+
+    @Serializable
+    @SerialName("query")
+    data class Query(
+        val name: String,
+        val match: String = "equals",
+        val value: String = "",
+    ) : StoredCondition
+
+    @Serializable
+    @SerialName("body")
+    data class Body(
+        val text: String,
+        val jsonField: String? = null,
+    ) : StoredCondition
+
+    @Serializable
+    @SerialName("previousResult")
+    data class PreviousResult(
+        val requirement: String? = null,
+        val ruleId: String? = null,
+        val ruleLabel: String? = null,
+        val minimumHits: Long = 1,
+    ) : StoredCondition
+
+    @Serializable
+    @SerialName("allOf")
+    data class AllOf(val conditions: List<StoredCondition>) : StoredCondition
+
+    @Serializable
+    @SerialName("anyOf")
+    data class AnyOf(val conditions: List<StoredCondition>) : StoredCondition
+}
+
+/** Schema 2. One event of an exported reproduction trace. */
+@Serializable
+internal data class StoredTraceEvent(
+    val index: Long,
+    val type: String,
+    val method: String? = null,
+    val path: String? = null,
+    val rule: String? = null,
+    val detail: String? = null,
+    val reason: String? = null,
+)
+
+/**
+ * Schema 2. The run metadata a reproduction carries.
+ *
+ * Counters and identity only. Nothing here is derived from request or response
+ * content, which is what makes a reproduction safe to attach without review.
+ */
+@Serializable
+internal data class StoredRun(
+    val runId: String,
+    val seed: Long,
+    val startedAt: String? = null,
+    val scenarioName: String? = null,
+    val evaluationCount: Long = 0,
+    val simulatedCount: Long = 0,
 )
 
 @Serializable
@@ -47,6 +173,7 @@ internal data class StoredGlobal(
     val latencyMillis: Long = 0,
 )
 
+@OptIn(ExperimentalSerializationApi::class)
 @Serializable
 internal data class StoredRule(
     val id: String,
@@ -55,6 +182,21 @@ internal data class StoredRule(
     val method: String = "ANY",
     val matcher: StoredMatcher,
     val action: StoredAction,
+    /**
+     * Schema 2. Absent in a schema-1 file, meaning "no conditions".
+     *
+     * Omitted from the file when empty — the rest of the document writes its
+     * defaults, but a stray `"conditions": []` on every rule would make every
+     * scenario in a repository show a diff on the upgrade to 0.3 while nothing
+     * about its behaviour had changed.
+     */
+    @EncodeDefault(EncodeDefault.Mode.NEVER)
+    val conditions: List<StoredCondition> = emptyList(),
+    /**
+     * Schema 2. Absent in a schema-1 file, meaning "always fires" — which is
+     * exactly what a schema-1 rule did, so an old scenario needs no rewriting.
+     */
+    val probability: Double? = null,
 )
 
 /**
@@ -70,6 +212,11 @@ internal sealed interface StoredMatcher {
     @Serializable
     @SerialName("exactPath")
     data class ExactPath(val path: String) : StoredMatcher
+
+    /** Schema 2. Every path under a prefix. */
+    @Serializable
+    @SerialName("pathPrefix")
+    data class PathPrefix(val prefix: String) : StoredMatcher
 }
 
 @Serializable
@@ -129,6 +276,24 @@ internal sealed interface StoredAction {
         val steps: List<StoredAction>,
         val completion: String = "repeatLast",
     ) : StoredAction
+
+    /** Schema 2. Fail the way a dropped connection does. */
+    @Serializable
+    @SerialName("disconnect")
+    data object Disconnect : StoredAction
+
+    /** Schema 2. Delay by a value drawn from a range. */
+    @Serializable
+    @SerialName("randomDelay")
+    data class RandomDelay(
+        val minMillis: Long,
+        val maxMillis: Long,
+    ) : StoredAction
+
+    /** Schema 2. Choose one of several behaviours by relative weight. */
+    @Serializable
+    @SerialName("weighted")
+    data class Weighted(val outcomes: List<StoredWeightedOutcome>) : StoredAction
 }
 
 /**
@@ -167,6 +332,10 @@ internal data class StoredExportEnvelope(
      * by people as often as by NetKit.
      */
     val scenarios: List<StoredScenario>? = null,
+    /** Schema 2. Present only in a reproduction export. */
+    val run: StoredRun? = null,
+    /** Schema 2. Present only in a reproduction export that carries a trace. */
+    val trace: List<StoredTraceEvent>? = null,
 )
 
 /** Constants that define the NetKit scenario format. */
@@ -175,10 +344,25 @@ object ScenarioSchema {
     /** The value of the `format` field in every exported file. */
     const val FORMAT: String = "netkit"
 
-    /** The schema version this NetKit reads and writes. */
-    const val CURRENT_VERSION: Int = 1
+    /**
+     * The schema version this NetKit reads and writes.
+     *
+     * ```text
+     * 1 → NetKit 0.1 and 0.2
+     * 2 → NetKit 0.3: conditions, probability, weighted outcomes, chaos,
+     *     random delay, disconnect, preset provenance, reproductions
+     * ```
+     */
+    const val CURRENT_VERSION: Int = 2
 
-    /** The oldest schema version this NetKit can migrate forward from. */
+    /**
+     * The oldest schema version this NetKit can migrate forward from.
+     *
+     * Still 1: every scenario a QA team saved or exported under 0.1 or 0.2
+     * imports into 0.3 unchanged. Every field version 2 added is optional with a
+     * neutral default, so the migration has no data to rewrite — see
+     * [ScenarioMigration1To2].
+     */
     const val MIN_SUPPORTED_VERSION: Int = 1
 
     /** `type` for a single-scenario export. */
@@ -186,4 +370,13 @@ object ScenarioSchema {
 
     /** `type` for a whole-pack export. */
     const val TYPE_PACK: String = "scenario-pack"
+
+    /**
+     * `type` for a reproduction: a scenario plus the seed and trace of one run.
+     *
+     * A distinct `type` rather than a distinct file extension, so that a file
+     * renamed on its way through a chat client or a ticket attachment is still
+     * identified correctly. NetKit never decides what a file is from its name.
+     */
+    const val TYPE_REPRODUCTION: String = "reproduction"
 }

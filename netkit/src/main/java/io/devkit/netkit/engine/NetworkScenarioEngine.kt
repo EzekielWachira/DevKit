@@ -2,7 +2,9 @@ package io.devkit.netkit.engine
 
 import io.devkit.netkit.scenario.RequestTarget
 import io.devkit.netkit.scenario.runtime.ActiveNetworkConfiguration
+import io.devkit.netkit.scenario.runtime.RequestInspection
 import io.devkit.netkit.scenario.runtime.ScenarioExecutionState
+import io.devkit.netkit.scenario.run.ScenarioRunManager
 
 /**
  * Decides what happens to each request.
@@ -21,6 +23,16 @@ interface NetworkScenarioEngine {
      */
     val isIdle: Boolean
 
+    /**
+     * What the transport must capture from each request before calling
+     * [evaluate].
+     *
+     * Read per request, so it must be cheap. A configuration with no conditions
+     * reports [RequestInspection.Minimal] and the interceptor skips building
+     * header lists and body sources entirely.
+     */
+    val inspection: RequestInspection
+
     /** Decides what to do with [target]. Must not throw. */
     fun evaluate(target: RequestTarget): ScenarioDecision
 }
@@ -37,15 +49,39 @@ interface NetworkScenarioEngine {
  * against a single consistent snapshot even if the debug UI changes the
  * configuration mid-evaluation.
  *
- * @param configurationProvider supplies the latest immutable snapshot.
+ * ### The evaluation index
+ *
+ * A non-idle evaluation claims an index from [runManager] before doing anything
+ * else. That index is the anchor for every random draw the request makes and the
+ * number a reproduction trace refers to. Idle evaluations claim nothing, so a
+ * scenario that is switched on after ten thousand untouched requests still starts
+ * at evaluation #1 — the index counts the run, not the process.
+ *
  * @param executionState the cursor layer response sequences advance.
+ * @param runManager the owner of seeds, counters and the timeline.
+ * @param configurationProvider supplies the latest immutable snapshot.
  */
 class DefaultNetworkScenarioEngine(
     private val executionState: ScenarioExecutionState,
+    /**
+     * The run this engine evaluates against.
+     *
+     * Defaulted to a private one so an engine can be constructed for a test or a
+     * one-off harness without wiring the whole runtime. In an application this is
+     * always the instance `NetKit.create` shares with the controller — an engine
+     * with a run manager of its own would keep counters and a seed nobody could
+     * read, which is worse than having none.
+     */
+    private val runManager: ScenarioRunManager = ScenarioRunManager(executionState),
     private val configurationProvider: () -> ActiveNetworkConfiguration,
 ) : NetworkScenarioEngine {
 
     override val isIdle: Boolean get() = configurationProvider().isIdle
+
+    override val inspection: RequestInspection
+        get() = configurationProvider().let { configuration ->
+            if (configuration.isIdle) RequestInspection.Minimal else configuration.inspection
+        }
 
     /**
      * Reads the provider **once** and both short-circuits and evaluates against
@@ -56,7 +92,18 @@ class DefaultNetworkScenarioEngine(
     override fun evaluate(target: RequestTarget): ScenarioDecision {
         val configuration = configurationProvider()
         if (configuration.isIdle) return IDLE
-        return ScenarioEvaluator.evaluate(configuration, target, executionState)
+
+        val context = ScenarioExecutionContext(
+            target = target,
+            evaluationIndex = runManager.beginEvaluation(),
+            runManager = runManager,
+            timelineEnabled = runManager.timeline.enabled,
+        )
+        val decision = ScenarioEvaluator.evaluate(configuration, context, executionState)
+        // One publish per request, covering both the rule funnel and the run
+        // totals — see ScenarioExecutionContext for why they are batched.
+        context.flush(decision)
+        return decision
     }
 
     private companion object {

@@ -154,6 +154,14 @@ data class SequenceStep(val action: NetworkAction) {
         require(action !is NetworkAction.Sequence) {
             "NetKit sequence steps cannot themselves be sequences"
         }
+        // A weighted step would make "request 2 of this sequence" mean something
+        // different on every run, which is the opposite of what a sequence is
+        // for: a sequence is the *deterministic* way to script retry behaviour.
+        // Randomness belongs on the rule, where it is visible as such.
+        require(action !is NetworkAction.Weighted) {
+            "NetKit sequence steps cannot be weighted outcomes — put the randomness " +
+                "on the rule instead, so the sequence stays a fixed script"
+        }
     }
 
     /** `HTTP 500` — the label shown next to the step number. */
@@ -292,6 +300,77 @@ sealed interface NetworkAction {
     /** Fail the request with a realistic `SocketTimeoutException`. */
     data class Timeout(val type: TimeoutType) : NetworkAction {
         override val label: String get() = type.label
+    }
+
+    /**
+     * Fail the request as a connection dropped mid-flight would.
+     *
+     * Distinct from [Offline], which imitates a device that cannot resolve a host
+     * at all (`UnknownHostException`). This is the other common shape: the host
+     * was reachable, the call was in progress, and the connection went away
+     * (`IOException: Connection reset`). Clients frequently treat the two
+     * differently — one looks like "no network", the other like "the server hung
+     * up" — so a scenario needs to be able to produce each.
+     *
+     * This is an **application-layer simulation**. NetKit runs inside an OkHttp
+     * interceptor and throws the exception a reset would produce; it does not and
+     * cannot drop packets, reset a TCP connection, or affect the radio. See the
+     * module README's limitations section.
+     */
+    data object Disconnect : NetworkAction {
+        override val label: String get() = "Disconnect"
+    }
+
+    /**
+     * Sleep for a value drawn from [latency], then let the request reach the real
+     * server.
+     *
+     * The random draw goes through the run's seeded stream, so the same seed and
+     * the same evaluation index always produce the same delay. A range whose ends
+     * agree ([LatencyRange.isFixed]) draws nothing and behaves exactly like
+     * [Delay].
+     */
+    data class RandomDelay(val latency: LatencyRange) : NetworkAction {
+        override val label: String get() = "Delay ${latency.label}"
+    }
+
+    /**
+     * Choose one of several behaviours at random, by relative weight.
+     *
+     * This is how "mostly fine, sometimes broken" is expressed for a single
+     * endpoint:
+     *
+     * ```kotlin
+     * NetworkAction.Weighted(
+     *     listOf(
+     *         WeightedOutcome(60, NetworkAction.PassThrough),
+     *         WeightedOutcome(15, NetworkAction.ReturnResponse(500)),
+     *         WeightedOutcome(10, NetworkAction.ReturnResponse(503)),
+     *         WeightedOutcome(10, NetworkAction.Timeout(TimeoutType.READ)),
+     *         WeightedOutcome(5, NetworkAction.Disconnect),
+     *     ),
+     * )
+     * ```
+     *
+     * Weights are relative and normalised internally, so they need not sum to
+     * 100. [PassThrough] is a legitimate outcome and is how "and the rest of the
+     * time it works" is written down.
+     *
+     * The choice is drawn from the run's seeded stream keyed on the rule id, so
+     * it is reproducible and independent of the other rules in the scenario.
+     */
+    data class Weighted(val outcomes: List<WeightedOutcome>) : NetworkAction {
+        init {
+            require(outcomes.isNotEmpty()) {
+                "NetKit weighted action needs at least one outcome"
+            }
+            require(outcomes.size <= NetKitLimits.MAX_WEIGHTED_OUTCOMES) {
+                "NetKit weighted action cannot exceed ${NetKitLimits.MAX_WEIGHTED_OUTCOMES} " +
+                    "outcomes (was ${outcomes.size})"
+            }
+        }
+
+        override val label: String get() = "Random of ${outcomes.size}"
     }
 
     companion object {
