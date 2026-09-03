@@ -21,11 +21,6 @@ dependencies {
 }
 ```
 
-The published artifacts start at `0.1.0`. The milestone numbers in the
-repository history (FillKit 0.2 through 0.4) predate publication and were never
-release versions; `0.1.0` is the first with a Maven coordinate and contains all
-of that work.
-
 FillKit is four artifacts because its pieces have genuinely different
 consumption scopes. `fillkit-api` is the only one that reaches a release build —
 your production code annotates fields with it — so it is `implementation` while

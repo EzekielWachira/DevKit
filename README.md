@@ -7,7 +7,7 @@ An Android workspace for debug-only developer and QA tooling.
 
 The rest of this file is the complete FillKit documentation.
 
-FillKit 0.4 covers three audiences from one set of definitions:
+FillKit covers three audiences from one set of definitions:
 
 ```text
 Developer   → fill forms quickly while building a screen
@@ -182,7 +182,7 @@ devkit-debug      0.1.0
 ```
 
 Every kit starts its published line at `0.1.0`, and from there versions move
-independently — NetKit reaching `0.2.0` does not oblige FillKit to follow. The
+independently — a future NetKit release does not oblige FillKit to follow. The
 BOM and umbrella version names a compatible *combination* rather than the
 maturity of any one kit, so those columns will diverge as soon as any kit moves.
 See [docs/PUBLISHING.md](docs/PUBLISHING.md).
@@ -683,7 +683,7 @@ A persona carries its locale, and a saved persona keeps its identity when the pa
 
 ### Localized field labels
 
-The 0.3 suggestion heuristics read alias tables from the active pack, so `Prénom`, `Vorname`, `Nombre` and `jina` are recognised the way `First name` is. `ContentType` remains stronger than any label, which is exactly why it matters: `ContentType.EmailAddress` maps to `FillType.Email` whether the label reads `Email`, `E-Mail`, `Correo electrónico` or `Adresse e-mail`.
+The suggestion heuristics read alias tables from the active pack, so `Prénom`, `Vorname`, `Nombre` and `jina` are recognised the way `First name` is. `ContentType` remains stronger than any label, which is exactly why it matters: `ContentType.EmailAddress` maps to `FillType.Email` whether the label reads `Email`, `E-Mail`, `Correo electrónico` or `Adresse e-mail`.
 
 ### Right to left
 
@@ -956,7 +956,7 @@ composeRule.onFillKitField("email").assertFillKitType(FillType.Email)
 composeRule.onFillKitForm("registration").assertRegisteredFieldCount(8)
 ```
 
-Finders use the 0.3 semantics metadata, never visible label text, content descriptions or tree position. Merged/unmerged tree handling lives inside the finder; consumer tests never need `useUnmergedTree = true` to reach a FillKit field.
+Finders use the semantics metadata, never visible label text, content descriptions or tree position. Merged/unmerged tree handling lives inside the finder; consumer tests never need `useUnmergedTree = true` to reach a FillKit field.
 
 ## Activating scenarios in tests
 

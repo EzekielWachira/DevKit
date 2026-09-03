@@ -11,17 +11,17 @@ NetKit is a **scenario toolkit, not a mock server**. Requests you have not confi
 /api/v1/checkout       → simulated read timeout
 ```
 
-**NetKit 0.2** turned that from a set of switches into a reproduction workflow:
+NetKit is a reproduction workflow, not just a set of switches:
 
 ```text
 Discover bug → Create scenario → Save → Reproduce → Export
      → attach to the ticket → developer imports → Activate → Replay
 ```
 
-**NetKit 0.3** makes the *random* part of that workflow reproducible too. A
-scenario can now fail 20% of the time, delay somewhere between 500ms and 3s, or
-pick one of five outcomes per request — and still replay identically, because
-every one of those decisions comes from a seed you can copy into a ticket:
+The *random* part is reproducible too. A scenario can fail 20% of the time,
+delay somewhere between 500ms and 3s, or pick one of five outcomes per request —
+and still replay identically, because every one of those decisions comes from a
+seed you can copy into a ticket:
 
 ```text
 Scenario Definition  +  Seed  +  Request order  =  Reproducible network decisions
@@ -49,13 +49,13 @@ Reproduction: import the scenario, restart with seed 842137293
 - Right now: [Global network](#global-network) · [Temporary overrides](#temporary-overrides) · [Precedence](#precedence)
 - Saved work: [Scenarios](#saved-scenarios) · [Packs](#scenario-packs) · [Built-in packs](#built-in-scenario-packs)
 - Behaviours: [Custom responses](#custom-responses) · [Malformed responses](#malformed-responses) · [Response sequences](#response-sequences)
-- **0.3 — reproducible chaos**: [Scenario runs and seeds](#scenario-runs-and-seeds) · [Chaos mode](#chaos-mode) · [Probability](#probability-based-rules) · [Weighted outcomes](#weighted-outcomes) · [Latency ranges](#latency-ranges) · [Conditional rules](#conditional-rules)
-- **0.3 — templates**: [Authentication presets](#authentication-presets) · [Pagination presets](#pagination-presets) · [Custom presets](#custom-presets)
-- **0.3 — reproduction**: [Execution timeline](#execution-timeline) · [Rule statistics](#rule-statistics) · [Reproduction export](#reproduction-export) · [Determinism and its limits](#determinism-and-its-limits)
+- Reproducible chaos: [Scenario runs and seeds](#scenario-runs-and-seeds) · [Chaos mode](#chaos-mode) · [Probability](#probability-based-rules) · [Weighted outcomes](#weighted-outcomes) · [Latency ranges](#latency-ranges) · [Conditional rules](#conditional-rules)
+- Templates: [Authentication presets](#authentication-presets) · [Pagination presets](#pagination-presets) · [Custom presets](#custom-presets)
+- Reproduction: [Execution timeline](#execution-timeline) · [Rule statistics](#rule-statistics) · [Reproduction export](#reproduction-export) · [Determinism and its limits](#determinism-and-its-limits)
 - Sharing: [Import and export](#import-and-export) · [File format](#scenario-file-format) · [Security](#security-considerations)
 - Inspection: [Request history](#request-history) · [Request replay](#request-replay) · [Masking](#sensitive-data-masking)
 - Runtime: [Controller](#the-controller) · [Architecture](#architecture) · [Threading](#threading-and-state)
-- [Reset](#reset-semantics) · [Sample app](#sample-app) · [Testing](#testing) · [Migrating from 0.2](#migrating-from-02) · [Migrating from 0.1](#migrating-from-01) · [Limitations](#current-limitations) · [Roadmap](#roadmap)
+- [Reset](#reset-semantics) · [Sample app](#sample-app) · [Testing](#testing) · [API naming](#api-naming) · [Limitations](#current-limitations) · [Roadmap](#roadmap)
 
 ## Why
 
@@ -72,13 +72,6 @@ dependencies {
     debugImplementation("io.github.ezekielwachira.devkit:netkit:0.1.0")
 }
 ```
-
-> **On version numbers.** The published artifact starts at `0.1.0`. The `0.1`,
-> `0.2` and `0.3` that appear throughout this document are *development
-> milestones* — three rounds of capability that all landed before NetKit was
-> ever published — not release versions anyone could depend on. `0.1.0` is the
-> first version with a Maven coordinate, and it contains everything the 0.3
-> milestone describes.
 
 NetKit is one artifact and installs on its own — it pulls no FillKit and no
 other kit, only `core` (version metadata, no dependencies of its own). If you
@@ -452,7 +445,7 @@ Progress resets when a scenario is activated or reactivated, when its rule set i
 
 ## Scenario runs and seeds
 
-0.3 splits a concept that 0.2 had conflated:
+NetKit keeps two concepts apart:
 
 ```text
 NetworkScenario   the definition   — saved, exported, shared, immutable
@@ -461,7 +454,7 @@ ScenarioRun       the execution    — seeded, counted, restartable, disposable
 
 A definition says *"20% of calls to `/bookings` fail"*. A run says *"with seed
 843921773, since 09:44, evaluation #17 was the one that got the 503"*. A bug
-report needs both, and before 0.3 only the first existed.
+report needs both.
 
 A new run starts when a scenario is activated, when it is restarted, when the
 seed changes, and when the active scenario's rules are edited. Each one resets
@@ -594,8 +587,8 @@ GET /bookings        → Delay 2000ms
 
 30% of calls fail and the other 70% are slow, which is what someone writing those
 two rules in that order plainly meant. For a rule with no probability and no
-conditions the 0.2 behaviour is unchanged: it never declines, so the first
-matching rule still wins.
+conditions nothing changes: it never declines, so the first matching rule
+wins.
 
 ## Weighted outcomes
 
@@ -639,7 +632,7 @@ differently.
 
 ## Conditional rules
 
-A 0.2 rule was `matcher + action`. A 0.3 rule is:
+A rule is not just `matcher + action`. It is:
 
 ```text
 matcher  +  conditions  +  probability  →  action
@@ -834,7 +827,7 @@ Seed:         843921773
 Run ID:       run-abc12345
 Requests:     37 evaluated · 8 simulated
 Schema:       2
-NetKit:       0.3.0
+NetKit:       0.1.0
 ```
 
 **Export run** writes a portable `.netkit-run.json` carrying the scenario, the
@@ -967,7 +960,7 @@ Versioned, portable, human-readable JSON. The extension is `.netkit.json`.
   "schemaVersion": 1,
   "type": "scenario",
   "exportedAt": "2026-09-02T08:30:00Z",
-  "generator": "netkit/0.2",
+  "generator": "netkit/0.1.0",
   "scenario": {
     "id": "scn-…",
     "name": "Checkout retry",
@@ -990,7 +983,7 @@ Versioned, portable, human-readable JSON. The extension is `.netkit.json`.
 }
 ```
 
-`type` is `scenario`, `scenario-pack` or — new in 0.3 — `reproduction`. The
+`type` is `scenario`, `scenario-pack` or `reproduction`. The
 `format` field exists so that a file which merely *is* valid JSON is still
 rejected: an exported Postman collection must not be read as a scenario because
 its shape happens to fit. NetKit never decides what a file is from its name, so a
@@ -1013,12 +1006,13 @@ Unsupported NetKit schema version: 4
 This version supports schema version 2.
 ```
 
-Older versions are migrated. 0.3 defines schema 2 and ships
-`ScenarioMigration1To2`, which rewrites nothing — every field 0.3 added is
+Older versions are migrated. NetKit writes schema 2 and ships
+`ScenarioMigration1To2`, which rewrites nothing — every field schema 2 added is
 optional with a neutral default, so a schema-1 rule already means exactly what a
 schema-2 reader takes it to mean. The step exists as a real, tested migration
-rather than a version bump in the reader so that 0.4, which may well have data to
-rewrite, has an exercised pipeline to add to rather than one that has never run.
+rather than a version bump in the reader so that schema 3, which may well have
+data to rewrite, has an exercised pipeline to add to rather than one that has
+never run.
 
 An unknown *condition* type is a hard error rather than a dropped field, for the
 same reason an unknown action is: a condition silently discarded would widen a
@@ -1168,8 +1162,8 @@ ScenarioStorage ─→ ScenarioRepository ─→ ScenarioManager ─┐
                                                    (how to do it)
 ```
 
-The evaluation pipeline is the part 0.3 changed most. What was one function is
-now named stages, because a single `when` over matching, conditions, probability,
+The evaluation pipeline is split into named stages, because a single `when` over
+matching, conditions, probability,
 chaos, weighted outcomes and ten action types would have been unreadable and —
 more to the point — untestable stage by stage:
 
@@ -1213,13 +1207,13 @@ runtime state lives in `ScenarioRunManager` and is reached through
 | Masking | `SensitiveDataMasker` | Redacts credentials before anything is stored |
 | UI | `NetKitScreen` | Renders controller state; never touches the interceptor |
 
-The engine works on `RequestTarget`, a plain Kotlin value with method, scheme, host, port, path, query, and — new in 0.3 — headers and a lazy body source. It has no OkHttp dependency, which is what makes a Ktor or Apollo binding a matter of writing a new adapter rather than reworking the matching layer.
+The engine works on `RequestTarget`, a plain Kotlin value with method, scheme, host, port, path, query, headers and a lazy body source. It has no OkHttp dependency, which is what makes a Ktor or Apollo binding a matter of writing a new adapter rather than reworking the matching layer.
 
 The two new fields are opt-in. `RequestInspection`, precomputed once per
 configuration change, tells the transport how much of a request to capture:
 headers are only built when some condition actually reads one, and the body source
-never reads anything until a body condition asks. A scenario shaped like an 0.1
-one costs what it did in 0.1.
+never reads anything until a body condition asks. A scenario that uses neither
+pays for neither.
 
 Everything above the interceptor is free of Android types except `DataStoreScenarioStorage` and `ScenarioFiles`, which is what lets the scenario system — persistence, serialization, validation, activation, sequences — be unit-tested on the JVM with no emulator.
 
@@ -1227,7 +1221,7 @@ Everything above the interceptor is free of Android types except `DataStoreScena
 
 State lives in one `MutableStateFlow` of immutable snapshots, updated with a compare-and-set loop. Calls are safe from any thread, and each request evaluates against exactly one coherent snapshot even while the console is being used. History writes are serialised on a private lock and published as immutable lists.
 
-**The interceptor never touches storage.** Activating a scenario flattens it into an `ActiveScenarioSnapshot` once; the engine then reads a plain volatile field per request. There is no DataStore read, no `Flow` collection and no JSON parsing on the request path, so an active scenario costs the same per request as a temporary rule did in 0.1. Scenario persistence happens on NetKit's own coroutine scope, never on an OkHttp thread.
+**The interceptor never touches storage.** Activating a scenario flattens it into an `ActiveScenarioSnapshot` once; the engine then reads a plain volatile field per request. There is no DataStore read, no `Flow` collection and no JSON parsing on the request path, so an active scenario costs the same per request as a temporary rule. Scenario persistence happens on NetKit's own coroutine scope, never on an OkHttp thread.
 
 When nothing is configured, `ActiveNetworkConfiguration.isIdle` short-circuits evaluation, so an enabled-but-empty NetKit costs one boolean per request.
 
@@ -1308,7 +1302,7 @@ Demo API                          Checkout
 └── Offline except profile
 ```
 
-0.3 adds three more packs against the same demo backend:
+Three more packs run against the same demo backend:
 
 ```text
 Network Reliability          Authentication              Pagination
@@ -1360,7 +1354,7 @@ is the cure for.
 | `ChaosTest` | Same-seed reproduction, scope by host/path/method, segment-boundary prefixes, exclusions beating scope, latency, precedence against rules and global, preset sanity |
 | `ScenarioRunTest` | Same-seed restart reproducing a sequence, resets of counters/sequences/previous-result/timeline, run counters, the rule funnel and its diagnoses, timeline bounding |
 | `ScenarioPresetTest` | Every shipped preset validates and generates working rules; each auth and pagination preset driven through the real engine; a generated scenario runs identically with its preset metadata stripped |
-| `SchemaMigrationTest` | Literal 0.2-era JSON importing unchanged, schema-2 round trips for every new construct, and rejection of every malformed 0.3 field |
+| `SchemaMigrationTest` | Literal schema-1 JSON importing unchanged, schema-2 round trips for every construct, and rejection of every malformed field |
 | `ReproductionTest` | Summary and trace contents, export/import round trip, an imported reproduction actually reproducing, and that no credential reaches a reproduction |
 | `ScenarioEvaluatorTest` | Precedence, matching, methods, disabled rules, every action |
 | `ScenarioActivationTest` | Activation, one-at-a-time, two-layer precedence, live editing, reset semantics |
@@ -1373,7 +1367,7 @@ is the cure for.
 | `ExportSecurityTest` | That no credential, history or replay data reaches an exported file |
 | `RobustnessTest` | Persisted-id uniqueness, concurrent history writes, an application body that throws, all-or-nothing pack import, built-in collision handling, surfaced storage failures |
 | `NetKitInterceptorTest` | The OkHttp binding against `MockWebServer` |
-| `NetKitControllerTest` | The 0.1 temporary layer, unchanged — the regression net for backward compatibility |
+| `NetKitControllerTest` | The temporary-override layer — the regression net for the console's own settings |
 | `ScenarioScreenTest` | Scenario list, create, activate, duplicate, delete-with-confirmation, sequence editor, replay confirmation, history filters, save-current-setup |
 | `NetKit03ScreenTest` | Chaos screen and its validation, seed display and the three restart actions, applying a pasted seed, copy reproduction, timeline toggle, progressive disclosure of the advanced rule editor, condition and outcome editors, preset picker and generation |
 
@@ -1381,58 +1375,17 @@ No test sleeps. Sequence and count behaviour is asserted on counters, chaos and
 probability on decisions, and latency on the *decision's* delay rather than by
 timing the interceptor — so the whole unit suite runs in seconds.
 
-## Migrating from 0.2
+## API naming
 
-**0.3 is source-compatible with 0.2.** Nothing was renamed and nothing was
-removed; every 0.1 and 0.2 capability works unchanged. Four things are worth
-knowing.
+Nothing was published before `0.1.0`, so there is no upgrade path to describe.
+Two names in the codebase are worth knowing about anyway, because both have a
+predecessor that still appears in older branches and in some commit messages.
 
-**Saved scenarios and exports still work.** The file format moved to schema
-version 2, and `ScenarioMigration1To2` runs on import. It rewrites nothing —
-every field 0.3 added is optional with a neutral default, because a rule with no
-`probability` field means "always fires", which is exactly what a 0.2 rule did.
-A `.netkit.json` exported months ago imports unchanged.
-
-A 0.3 scenario that uses no 0.3 features also *writes* a file indistinguishable
-from a 0.2 one apart from the version stamp, so upgrading does not produce a diff
-across a repository of saved scenarios.
-
-**`EndpointRule` gained two parameters.** `conditions` and `probability` sit
-between `matcher` and `action`, so a positional construction breaks:
+**`ActiveNetworkConfiguration` is the runtime snapshot; `NetworkScenario` is the
+saved definition.** An early revision used `NetworkScenario` for the snapshot,
+which left two different things called a scenario side by side.
 
 ```kotlin
-// Breaks — action is now in the conditions slot
-EndpointRule("id", "name", true, HttpMethod.GET, matcher, action)
-
-// Use named arguments, or the factory
-EndpointRule(id = "id", matcher = matcher, action = action)
-EndpointRule.forPath("/api/v1/bookings", HttpMethod.GET, action)
-```
-
-**`NetworkAction` gained three cases.** An exhaustive `when` over it now needs
-`Disconnect`, `RandomDelay` and `Weighted`, and the compiler will say so.
-`ScenarioDecision` likewise gained `FailDisconnect`, and `DecisionOrigin` gained
-`CHAOS`.
-
-**`DefaultNetworkScenarioEngine` takes a run manager.** It is defaulted, so
-existing construction still compiles; in an application `NetKit.create` supplies
-the shared instance. An engine left with a run manager of its own would keep a
-seed nobody could read.
-
-## Migrating from 0.1
-
-0.2 is source-compatible with 0.1 apart from three renames, each of which fails loudly at compile time rather than changing behaviour silently.
-
-**`NetworkScenario` now means a saved scenario.** In 0.1 the name described the runtime snapshot; in 0.2 that type is `ActiveNetworkConfiguration`, and `NetworkScenario` is the named, saved, exportable thing every part of the UI and docs calls a scenario. Keeping the old meaning would have left two different "scenarios" side by side.
-
-```kotlin
-// 0.1
-import io.devkit.netkit.scenario.NetworkScenario
-NetKitConfig(initialScenario = NetworkScenario(global = GlobalNetworkConfig(latencyMillis = 250)))
-controller.applyScenario(scenario)
-
-// 0.2
-import io.devkit.netkit.scenario.runtime.ActiveNetworkConfiguration
 NetKitConfig(
     initialConfiguration = ActiveNetworkConfiguration(
         global = GlobalNetworkConfig(latencyMillis = 250),
@@ -1441,15 +1394,20 @@ NetKitConfig(
 controller.applyConfiguration(configuration)
 ```
 
-**`NetworkAction.HttpError` is now `ReturnResponse`.** The action always modelled any HTTP response, and the old name made "200 with a custom body" read like a contradiction. `NetworkAction.HttpError(500)` still compiles — it is a deprecated factory returning a `ReturnResponse` — but `is NetworkAction.HttpError` checks and `NetworkAction.HttpError.MIN_STATUS` do not; use `ReturnResponse` for both.
+**`NetworkAction.ReturnResponse`, not `HttpError`.** The action always modelled
+any HTTP response, and the old name made "200 with a custom body" read like a
+contradiction. `NetworkAction.HttpError(500)` still compiles as a deprecated
+factory returning a `ReturnResponse`; `is NetworkAction.HttpError` checks and
+`NetworkAction.HttpError.MIN_STATUS` do not.
 
-**`DefaultNetKitController` takes collaborators.** Constructing one by hand now needs a `ScenarioManager`, a `RequestReplayer` and a `CoroutineScope`. Almost nobody does this — `NetKit.create()` wires it — but tests sometimes did.
-
-Everything else is additive. Every 0.1 runtime capability works unchanged: the master switch, global mode and latency, temporary endpoint rules, history, masking and `reset()`.
+`DefaultNetKitController` takes its collaborators — a `ScenarioManager`, a
+`RequestReplayer`, a `CoroutineScope` and a run manager — rather than
+constructing them. `NetKit.create()` wires all of it, so this only matters if
+you build one by hand in a test.
 
 ## Current limitations
 
-NetKit 0.3 deliberately does not include:
+NetKit 0.1.0 deliberately does not include:
 
 - WebSocket, SSE, Ktor or Apollo interception
 - An Android Studio plugin, ADB control or remote device scenario editing
@@ -1470,7 +1428,7 @@ Behaviours worth knowing:
 - **Replay does not survive process death.** By design — see [Request replay](#request-replay). The alternative is persisting real credentials.
 - **A replay uses NetKit's own OkHttp client** unless you supply `replayClientFactory`. It reproduces the request as the app's interceptor chain produced it, but not your custom TLS, DNS or connection pool.
 - **Sequence progress is keyed on rule id.** Rule ids are UUIDs and are persisted with the scenario, so a rule created after a restart can never inherit a saved rule's cursor. Duplicating a scenario regenerates them for the same reason.
-- **Request bodies are not masked.** Headers and URLs are; bodies are shown as captured in the history detail. Body-field masking is 0.3 work — until then, treat the history detail as showing what the app actually sent.
+- **Request bodies are not masked.** Headers and URLs are; bodies are shown as captured in the history detail. Body-field masking is later work — until then, treat the history detail as showing what the app actually sent.
 - **The scenario schema is not stable before 1.0.** Migrations will be provided where practical.
 - **Timeouts are simulated at the interceptor, not the socket.** An interceptor cannot make a real socket stall, so NetKit waits for the client's own connect/read timeout (via `chain.connectTimeoutMillis()` / `chain.readTimeoutMillis()`, capped at 60s) and then throws `SocketTimeoutException`. The application sees a realistic timeout; a packet capture would not.
 - **Response bodies in history are previews.** They are truncated to `maxBodyPreviewBytes` and skipped for binary or streamed payloads. A scenario's own response body is returned in full.
@@ -1479,12 +1437,11 @@ Behaviours worth knowing:
 
 | Release | Adds |
 | --- | --- |
-| 0.2 ✓ | Saved scenarios and packs, custom and malformed responses, response sequences, request replay, import/export |
-| 0.3 ✓ | Deterministic seeds, chaos mode, probability and weighted rules, conditional rules, auth and pagination presets, scenario runs, execution timeline, reproduction export |
-| 0.4 | WebSockets, SSE, Ktor, Apollo GraphQL, network event streams |
-| 0.5 | Android Studio plugin, live device control, endpoint browser, QA session export |
+| 0.1.0 ✓ | Saved scenarios and packs, custom and malformed responses, response sequences, request replay, import/export, deterministic seeds, chaos mode, probability and weighted rules, conditional rules, auth and pagination presets, scenario runs, execution timeline, reproduction export |
+| next | WebSockets, SSE, Ktor, Apollo GraphQL, network event streams |
+| later | Android Studio plugin, live device control, endpoint browser, QA session export |
 
-The 0.3 architecture is shaped for these:
+The 0.1.0 architecture is shaped for these:
 
 - **Other transports** need a `RequestTarget` producer and a decision executor, and nothing above the interceptor knows OkHttp exists. `RequestInspection` already tells a binding how much of a request to capture, so a Ktor plugin pays the same "only what the conditions need" cost the OkHttp interceptor does.
 - **WebSockets and SSE** are long-lived rather than request/response, which is the one shape the current `ScenarioDecision` does not express. The seam is `ScenarioDecision` itself: the evaluator, the conditions, the seeded random layer and the run manager are all transport-independent already, and a `StreamDecision` sibling would reuse every one of them.

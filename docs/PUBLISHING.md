@@ -100,7 +100,7 @@ someone asks it to — which the consumer verification build asserts on every ru
 Two independent tracks.
 
 **Kits version independently.** Every kit starts its published line at `0.1.0`,
-and from there NetKit reaching `0.2.0` does not oblige FillKit to move. FillKit's four artifacts share one version because they are one library
+and from there a NetKit release does not oblige FillKit to move. FillKit's four artifacts share one version because they are one library
 split by scope, and a mismatched pair would not compile against each other.
 
 **The ecosystem versions as a set.** `devkit`, `devkit-debug` and `devkit-bom`

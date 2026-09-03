@@ -19,9 +19,9 @@ and version; what it had no way to state was which ecosystem it belongs to and
 whether it is safe in production.
 
 ```kotlin
-NetKitVersion.tool.qualifiedLabel      // "NetKit 0.3.0 (debug-only)"
-FillKitVersion.api.qualifiedLabel      // "FillKit API 0.5.0"
-NetKitVersion.tool.coordinates()       // "io.github.ezekielwachira.devkit:netkit:0.3.0"
+NetKitVersion.tool.qualifiedLabel      // "NetKit 0.1.0 (debug-only)"
+FillKitVersion.api.qualifiedLabel      // "FillKit API 0.1.0"
+NetKitVersion.tool.coordinates()       // "io.github.ezekielwachira.devkit:netkit:0.1.0"
 ```
 
 **`DevKitDistribution`** — `RUNTIME`, `DEBUG` or `TEST`. The machine-readable
