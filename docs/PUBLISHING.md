@@ -230,11 +230,17 @@ unhelpfully.
 
 ```bash
 # One artifact
-./gradlew :netkit:publishToMavenCentral
+./gradlew :netkit:publishToMavenCentral --no-configuration-cache
 
 # Everything, as a single deployment
-./gradlew publishToMavenCentral
+./gradlew publishToMavenCentral --no-configuration-cache
 ```
+
+`--no-configuration-cache` is required. Publishing a release to Central cannot
+be config-cached yet — the repository spec is not serialisable, pending
+[gradle#22779](https://github.com/gradle/gradle/issues/22779) — and without the
+flag the run dies with a serialisation error that looks nothing like a
+publishing problem. Every other task keeps the cache.
 
 Both upload and stop. The deployment appears at
 [central.sonatype.com/publishing/deployments](https://central.sonatype.com/publishing/deployments)
