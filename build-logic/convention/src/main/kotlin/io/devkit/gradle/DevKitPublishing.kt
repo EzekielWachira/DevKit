@@ -1,15 +1,11 @@
 package io.devkit.gradle
 
+import com.vanniktech.maven.publish.MavenPublishBaseExtension
+import com.vanniktech.maven.publish.SonatypeHost
 import org.gradle.api.GradleException
 import org.gradle.api.Project
 import org.gradle.api.provider.Property
-import org.gradle.api.publish.PublishingExtension
-import org.gradle.api.publish.maven.MavenPublication
-import org.gradle.authentication.http.BasicAuthentication
-import org.gradle.kotlin.dsl.create
-import org.gradle.kotlin.dsl.getByType
-import org.gradle.plugins.signing.SigningExtension
-import java.net.URI
+import org.gradle.kotlin.dsl.configure
 
 /**
  * The per-module half of a DevKit publication.
@@ -141,28 +137,51 @@ fun Project.devKitGroup(): String {
 }
 
 /**
- * Applies the shared POM, validation, signing and repository configuration to
- * every publication in [project].
+ * Applies the shared coordinates, POM, signing and upload configuration to
+ * [project].
  *
  * Called by both the Android-library and the java-platform convention plugins,
  * so an AAR, a JAR and a BOM all end up with byte-identical shared metadata.
+ * Each declares its own *platform* eagerly, before this runs: AGP will not
+ * accept `singleVariant` once the module has been evaluated, so the two halves
+ * cannot share a timing.
+ *
+ * ### Why a plugin owns the upload
+ *
+ * Uploading is the one part of publishing that is not simply "write some XML".
+ * The Central Portal takes a deployment as a **single POST of a bundled zip**,
+ * not as a file-by-file PUT into a repository, so `maven-publish`'s
+ * `repositories { maven { … } }` cannot address it directly. The path that
+ * looks like it works — Sonatype's OSSRH compatibility bridge — accepts the
+ * PUTs and then leaves the result in a legacy staging repository keyed to
+ * *(user, source IP)*, invisible to the Portal until separately promoted from
+ * the same IP. On a CI runner that IP is ephemeral, so the deployment is
+ * stranded the moment the job ends. Hence a plugin that speaks the Portal API.
  */
 internal fun configureDevKitPublication(
     project: Project,
     extension: DevKitPublishingExtension,
-    publicationName: String,
-    configurePublication: MavenPublication.() -> Unit,
 ) {
     val metadata = project.devKitPomMetadata()
-    val publishing = project.extensions.getByType<PublishingExtension>()
     val resolvedVersion = project.devKitVersion(extension.versionKey.get())
 
-    publishing.publications.create<MavenPublication>(publicationName) {
-        configurePublication()
+    project.extensions.configure<MavenPublishBaseExtension> {
+        // `automaticRelease = false`: the deployment lands in the Portal as
+        // VALIDATED and waits for a human. Publication to Central is
+        // irreversible — a version, once live, can never be replaced — so the
+        // last step stays a deliberate act rather than a side effect of merging.
+        publishToMavenCentral(SonatypeHost.CENTRAL_PORTAL, automaticRelease = false)
 
-        groupId = metadata.group
-        artifactId = extension.artifactId.get()
-        version = resolvedVersion
+        // Only when a key exists. `publishToMavenLocal` is how the whole
+        // pipeline is smoke-tested, and requiring release credentials for it
+        // would make it untestable — which is the failure this guards against.
+        // Remote publication without a key is refused outright; see
+        // registerDevKitPublicationValidation.
+        if (project.hasSigningKey()) {
+            signAllPublications()
+        }
+
+        coordinates(metadata.group, extension.artifactId.get(), resolvedVersion)
 
         pom {
             name.set(extension.displayName)
@@ -195,85 +214,20 @@ internal fun configureDevKitPublication(
         }
     }
 
-    configureDevKitRepositories(project, publishing)
-    configureDevKitSigning(project, publishing)
     registerDevKitPublicationValidation(project, extension, metadata)
-}
-
-/**
- * The remote repository, configured only when credentials are present.
- *
- * Declaring it unconditionally would add a `publishAllPublicationsToMavenCentralRepository`
- * task to every module on every developer machine, where it can only fail. It
- * appears when `MAVEN_CENTRAL_USERNAME`/`MAVEN_CENTRAL_PASSWORD` (or the
- * matching Gradle properties) are set, which is the CI case.
- *
- * `mavenLocal()` needs no declaration — `publishToMavenLocal` is built in.
- */
-private fun configureDevKitRepositories(project: Project, publishing: PublishingExtension) {
-    val user = project.secret("MAVEN_CENTRAL_USERNAME", "mavenCentralUsername")
-    val token = project.secret("MAVEN_CENTRAL_PASSWORD", "mavenCentralPassword")
-    if (user.isNullOrBlank() || token.isNullOrBlank()) return
-
-    val snapshot = project.version.toString().endsWith("SNAPSHOT")
-    publishing.repositories.maven {
-        name = "mavenCentral"
-        setUrl(
-            URI(
-                if (snapshot) {
-                    "https://central.sonatype.com/repository/maven-snapshots/"
-                } else {
-                    "https://ossrh-staging-api.central.sonatype.com/" +
-                        "service/local/staging/deploy/maven2/"
-                },
-            ),
-        )
-        credentials {
-            username = user
-            password = token
-        }
-        // Forces Gradle to send Basic credentials **preemptively**.
-        //
-        // Without this, Gradle makes the request unauthenticated first and only
-        // retries with credentials if the server answers with a challenge it
-        // recognises. Sonatype's staging API does not send one Gradle acts on,
-        // so the 401 is surfaced rather than retried — and it looks exactly like
-        // a bad token, which is a genuinely expensive thing to misdiagnose
-        // (`curl -u` sends Basic immediately, so it succeeds where the build
-        // fails).
-        authentication {
-            create<BasicAuthentication>("basic")
-        }
-    }
-}
-
-/**
- * Signing, using an in-memory ASCII-armoured key.
- *
- * In-memory rather than a keyring file because CI has secrets, not files, and
- * because a keyring path in a build script is the kind of thing that ends up
- * pointing at a developer's home directory. Unsigned publication stays possible
- * — `publishToMavenLocal` must work without a key — but remote publication is
- * refused without one; see [registerDevKitPublicationValidation].
- */
-private fun configureDevKitSigning(project: Project, publishing: PublishingExtension) {
-    val key = project.secret("SIGNING_KEY", "signingInMemoryKey")
-    val keyPassword = project.secret("SIGNING_PASSWORD", "signingInMemoryKeyPassword")
-    if (key.isNullOrBlank()) return
-
-    project.pluginManager.apply("signing")
-    project.extensions.getByType<SigningExtension>().apply {
-        useInMemoryPgpKeys(key, keyPassword.orEmpty())
-        sign(publishing.publications)
-    }
 }
 
 /**
  * Reads a secret from the environment or a Gradle property, in that order.
  *
+ * The property names are the ones the publishing plugin itself reads, which is
+ * what makes `ORG_GRADLE_PROJECT_signingInMemoryKey` in CI resolve here too —
+ * Gradle turns that environment variable into the Gradle property of the same
+ * name, so the validation below sees exactly the credentials the upload will.
+ *
  * Returned as a plain `String?` and never logged. Gradle redacts neither, so
- * the discipline is to keep the value inside the credential objects that
- * consume it and never put it in a task input, a log line or an error message.
+ * the discipline is to keep the value inside the objects that consume it and
+ * never put it in a task input, a log line or an error message.
  */
 private fun Project.secret(environmentName: String, propertyName: String): String? =
     (
@@ -286,6 +240,9 @@ private fun Project.secret(environmentName: String, propertyName: String): Strin
         // nothing in the message to suggest whitespace is the problem.
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
+
+private fun Project.hasSigningKey(): Boolean =
+    !secret("SIGNING_KEY", "signingInMemoryKey").isNullOrBlank()
 
 /**
  * Fails a **remote** publish that would produce an artifact nobody can use.
@@ -302,7 +259,7 @@ private fun registerDevKitPublicationValidation(
     metadata: DevKitPomMetadata,
 ) {
     val path = project.path
-    val hasSigningKey = !project.secret("SIGNING_KEY", "signingInMemoryKey").isNullOrBlank()
+    val hasSigningKey = project.hasSigningKey()
 
     val problems = project.provider {
         buildList {
@@ -326,8 +283,9 @@ private fun registerDevKitPublicationValidation(
 
     project.tasks
         .matching { task ->
-            task.name.startsWith("publishAllPublicationsTo") ||
-                task.name.endsWith("ToMavenCentralRepository")
+            task.name == "publishToMavenCentral" ||
+                task.name == "publishAndReleaseToMavenCentral" ||
+                task.name.startsWith("publishAllPublicationsTo")
         }
         .configureEach {
             doFirst {

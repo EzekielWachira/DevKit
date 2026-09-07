@@ -43,14 +43,14 @@ jobs:
     name: Verify
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
 
       - name: Build and test
         run: ./gradlew build
@@ -69,29 +69,44 @@ jobs:
     # and resolved from it.
     if: ${{ github.event_name == 'release' || inputs.dryRun == false }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
 
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
 
       - name: Publish to Maven Central
         # A release publishes everything; a dispatch publishes what it named.
+        #
+        # Run from the root, `all` bundles every module into a *single* Portal
+        # deployment, which is what makes the nine artifacts validate and
+        # release together rather than as nine deployments that can each fail
+        # separately.
+        #
         # Secrets reach Gradle through the environment and are never echoed —
         # note there is no `env:` dump and no `--info`, both of which would put
         # credentials in a public log.
         run: |
           MODULE="${{ github.event_name == 'release' && 'all' || inputs.module }}"
           if [ "$MODULE" = "all" ]; then
-            ./gradlew publishAllPublicationsToMavenCentralRepository
+            ./gradlew publishToMavenCentral
           else
-            ./gradlew "${MODULE}:publishAllPublicationsToMavenCentralRepository"
+            ./gradlew "${MODULE}:publishToMavenCentral"
           fi
+        # `ORG_GRADLE_PROJECT_*` is not decoration: Gradle turns a variable with
+        # that prefix into the Gradle property of the same name, which is how
+        # the publishing plugin expects to be given credentials. The GitHub
+        # secret names are unchanged.
         env:
-          MAVEN_CENTRAL_USERNAME: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
-          MAVEN_CENTRAL_PASSWORD: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
-          SIGNING_KEY: ${{ secrets.SIGNING_KEY }}
-          SIGNING_PASSWORD: ${{ secrets.SIGNING_PASSWORD }}
+          ORG_GRADLE_PROJECT_mavenCentralUsername: ${{ secrets.MAVEN_CENTRAL_USERNAME }}
+          ORG_GRADLE_PROJECT_mavenCentralPassword: ${{ secrets.MAVEN_CENTRAL_PASSWORD }}
+          ORG_GRADLE_PROJECT_signingInMemoryKey: ${{ secrets.SIGNING_KEY }}
+          ORG_GRADLE_PROJECT_signingInMemoryKeyPassword: ${{ secrets.SIGNING_PASSWORD }}
+
+      - name: Where it went
+        run: |
+          echo "Uploaded as a Central Portal deployment, held for review."
+          echo "Release it at https://central.sonatype.com/publishing/deployments"

@@ -1,8 +1,7 @@
-import com.android.build.api.dsl.LibraryExtension
+import com.vanniktech.maven.publish.AndroidSingleVariantLibrary
 import io.devkit.gradle.DevKitPublishingExtension
 import io.devkit.gradle.configureDevKitPublication
 import io.devkit.gradle.devKitGroup
-import io.devkit.gradle.devKitVersion
 
 /**
  * Publishes an Android library as a DevKit Maven artifact.
@@ -23,8 +22,8 @@ import io.devkit.gradle.devKitVersion
  * }
  * ```
  *
- * Everything else — group, POM, sources jar, signing, repositories, validation —
- * comes from here and from `gradle.properties`.
+ * Everything else — group, POM, sources and javadoc jars, signing, upload,
+ * validation — comes from here and from `gradle.properties`.
  *
  * ### Only the release variant is published
  *
@@ -36,36 +35,41 @@ import io.devkit.gradle.devKitVersion
  * builds could not resolve.
  */
 plugins {
-    id("maven-publish")
+    // The `.base` plugin, not the full one: the full plugin auto-detects the
+    // module type and configures a platform itself, which then collides with
+    // the explicit `configure(...)` below. The base plugin configures nothing
+    // until asked, which is what a convention plugin wants.
+    id("com.vanniktech.maven.publish.base")
 }
 
 val devKitPublishing = extensions.create<DevKitPublishingExtension>("devKitPublishing")
 
 group = devKitGroup()
 
-extensions.configure<LibraryExtension> {
-    publishing {
-        singleVariant("release") {
+// Eagerly, *not* in `afterEvaluate`. Declaring the platform reaches into AGP's
+// `publishing { singleVariant(…) }`, and AGP reads that block while evaluating
+// the module — by `afterEvaluate` it has been read and refuses further changes.
+mavenPublishing {
+    configure(
+        AndroidSingleVariantLibrary(
+            variant = "release",
             // Sources are part of the product: a debug tool nobody can step
             // into is a debug tool that gets deleted the first time it
             // misbehaves.
-            withSourcesJar()
-        }
-    }
+            sourcesJar = true,
+            // Required, not optional. Central rejects a release with no
+            // `-javadoc.jar` — and rejects it during validation, after the
+            // upload has already succeeded, which makes it an easy thing to
+            // discover far too late. The jar is empty unless a documentation
+            // engine is applied; Central checks that it exists, not what is in
+            // it.
+            publishJavadocJar = true,
+        ),
+    )
 }
 
-// `afterEvaluate` is required rather than merely convenient: AGP does not
-// register the `release` software component until the module's own
-// `android { }` block has been evaluated, and the module's
-// `devKitPublishing { }` values are not set before then either.
+// The metadata half does need `afterEvaluate`: the module's own
+// `devKitPublishing { }` values are not set before then.
 afterEvaluate {
-    version = devKitVersion(devKitPublishing.versionKey.get())
-
-    configureDevKitPublication(
-        project = project,
-        extension = devKitPublishing,
-        publicationName = "release",
-    ) {
-        from(components["release"])
-    }
+    configureDevKitPublication(project = project, extension = devKitPublishing)
 }
