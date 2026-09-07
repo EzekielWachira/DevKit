@@ -230,14 +230,33 @@ unhelpfully.
 
 ```bash
 # One artifact
-./gradlew :netkit:publishAllPublicationsToMavenCentralRepository
+./gradlew :netkit:publishToMavenCentral
 
-# Everything
-./gradlew publishAllPublicationsToMavenCentralRepository
+# Everything, as a single deployment
+./gradlew publishToMavenCentral
 ```
 
-The remote repository is only declared when credentials are present, so the task
-does not appear on a developer machine where it could only fail.
+Both upload and stop. The deployment appears at
+[central.sonatype.com/publishing/deployments](https://central.sonatype.com/publishing/deployments)
+as `VALIDATED` and waits for someone to press **Publish**. Release to Central is
+irreversible — a version, once live, can never be replaced — so the last step is
+deliberate rather than a side effect of merging. `publishAndReleaseToMavenCentral`
+skips the review; the workflow does not use it.
+
+Run from the root, the nine modules go up as **one** deployment, so they
+validate and release together instead of as nine that can each fail separately.
+
+### Why the upload is a plugin's job
+
+The Central Portal takes a deployment as a single POST of a bundled zip, not as
+a file-by-file PUT into a repository, so `maven-publish` alone cannot address
+it. The path that looks like it works — Sonatype's OSSRH compatibility bridge at
+`ossrh-staging-api.central.sonatype.com` — accepts the PUTs, returns success,
+and leaves the result in a *legacy staging repository keyed to (user, source
+IP)*. It never appears in the Portal until promoted, and the promotion has to
+come from the same IP that uploaded. On a CI runner that IP dies with the job,
+so the deployment is stranded and the build reports success. DevKit used that
+bridge once and lost a release to it.
 
 Before publishing, the build refuses anything that would produce an unusable
 artifact: a missing artifact id, display name, description or version key; a
@@ -259,6 +278,12 @@ Required repository secrets — names only, never values:
 | `MAVEN_CENTRAL_PASSWORD` | Sonatype Central portal token password |
 | `SIGNING_KEY` | ASCII-armoured PGP private key |
 | `SIGNING_PASSWORD` | Passphrase for that key |
+
+The workflow passes these to Gradle as `ORG_GRADLE_PROJECT_mavenCentralUsername`,
+`…Password`, `…signingInMemoryKey` and `…signingInMemoryKeyPassword`. The prefix
+is load-bearing: Gradle turns such a variable into the Gradle property of the
+same name, which is where the publishing plugin looks. The secret names in
+GitHub are unchanged.
 
 Signing uses an in-memory key: CI has secrets, not files, and a keyring path in
 a build script ends up pointing at somebody's home directory. Never commit keys,

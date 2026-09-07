@@ -23,4 +23,9 @@ dependencies {
     // consuming module is what actually applies AGP. Depending on it at runtime
     // here would put a second copy on the classpath.
     compileOnly(libs.android.gradlePlugin)
+
+    // `implementation`, not `compileOnly`: unlike AGP — which each module applies
+    // itself — this plugin is applied *by* the convention plugin, so it has to be
+    // on build-logic's runtime classpath for the consuming build to resolve it.
+    implementation(libs.vanniktech.mavenPublish)
 }
