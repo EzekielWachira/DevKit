@@ -40,6 +40,7 @@ javaPlatform {
 
 val group = providers.gradleProperty("devkit.group").get()
 val coreVersion = devKitVersion("core")
+val chartKitVersion = devKitVersion("chartkit")
 val fillKitVersion = devKitVersion("fillkit")
 val netKitVersion = devKitVersion("netkit")
 val ecosystemVersion = devKitVersion("ecosystem")
@@ -48,6 +49,9 @@ dependencies {
     constraints {
         // Shared foundation
         api("$group:core:$coreVersion")
+
+        // ChartKit — one artifact, its own version.
+        api("$group:chartkit:$chartKitVersion")
 
         // FillKit — four artifacts, one version. They are released together
         // because they are one library split by consumption scope, and a

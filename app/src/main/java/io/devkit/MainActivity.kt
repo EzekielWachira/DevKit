@@ -86,6 +86,10 @@ import io.devkit.fillkit.fillScenario
 import io.devkit.fillkit.generatorPack
 import io.devkit.fillkit.personaPack
 import io.devkit.fillkit.scenarioPack
+import io.devkit.chartdemo.ChartGalleryScreen
+import io.devkit.chartdemo.ChartInteractionScreen
+import io.devkit.chartdemo.ChartStatesScreen
+import io.devkit.chartdemo.ChartStylingScreen
 import io.devkit.netdemo.NetworkDemoScreen
 import io.devkit.netdemo.installDebugNetworking
 import io.devkit.ui.theme.DevKitTheme
@@ -367,6 +371,7 @@ private val sampleTestingPack = fillKitPack("sample-testing", "Sample Testing", 
 private enum class SampleKit(val title: String, val tagline: String) {
     FillKit("FillKit", "Fill Compose forms with coherent synthetic data"),
     NetKit("NetKit", "Simulate offline, latency, timeouts and HTTP errors"),
+    ChartKit("ChartKit", "Compose-native charts over your own data classes"),
 }
 
 /** A sample destination. */
@@ -411,6 +416,30 @@ private enum class SampleScreen(
         "N",
         SampleKit.NetKit,
         "Offline, latency, timeouts and HTTP overrides",
+    ),
+    ChartGallery(
+        "Chart gallery",
+        "G",
+        SampleKit.ChartKit,
+        "Every 0.1 chart type, with live controls",
+    ),
+    ChartInteraction(
+        "Chart interaction",
+        "I",
+        SampleKit.ChartKit,
+        "Tap, scrub, tooltips and legend toggling",
+    ),
+    ChartStyling(
+        "Chart theming",
+        "T",
+        SampleKit.ChartKit,
+        "Themes, dark mode and value formatting",
+    ),
+    ChartStates(
+        "Chart states",
+        "E",
+        SampleKit.ChartKit,
+        "Loading, empty, error, edge cases and semantics",
     ),
 }
 
@@ -530,6 +559,10 @@ private fun FillKitSampleApp() {
                 SampleScreen.SmartFields -> SmartFieldsExample(Modifier.padding(padding))
                 SampleScreen.Qa -> QaReproductionExample(Modifier.padding(padding))
                 SampleScreen.Network -> NetworkDemoScreen(Modifier.padding(padding))
+                SampleScreen.ChartGallery -> ChartGalleryScreen(Modifier.padding(padding))
+                SampleScreen.ChartInteraction -> ChartInteractionScreen(Modifier.padding(padding))
+                SampleScreen.ChartStyling -> ChartStylingScreen(Modifier.padding(padding))
+                SampleScreen.ChartStates -> ChartStatesScreen(Modifier.padding(padding))
             }
         }
     }

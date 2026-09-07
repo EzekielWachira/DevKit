@@ -45,6 +45,7 @@ include(":core")
 // androidTest-only — and collapsing them into one artifact would force the
 // release-safe half into a debug-only dependency.
 
+include(":chartkit")
 include(":fillkit:api")
 include(":fillkit:engine")
 include(":fillkit:debug")

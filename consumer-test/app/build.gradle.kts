@@ -46,6 +46,11 @@ dependencies {
 
     implementation("$group:fillkit-api")
 
+    // ChartKit is a runtime library, so it is declared exactly the way the
+    // README tells a consumer to declare it: `implementation`, reaching the
+    // release variant.
+    implementation("$group:chartkit")
+
     // The BOM's constraints reach debug configurations too, because
     // `debugImplementation` extends `implementation`. That is what makes one
     // `implementation(platform(...))` line enough, and this build is where that
