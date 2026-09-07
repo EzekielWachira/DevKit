@@ -19,6 +19,7 @@ on:
         options:
           - all
           - ':core'
+          - ':chartkit'
           - ':fillkit:api'
           - ':fillkit:engine'
           - ':fillkit:debug'

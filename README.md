@@ -1,9 +1,18 @@
 # DevKit
 
-An Android workspace for debug-only developer and QA tooling.
+An Android workspace of independently published Compose libraries — developer and
+QA tooling that stays out of your release build, and runtime libraries that ship
+with it.
 
-- **FillKit** — fills Jetpack Compose forms with coherent synthetic data, and turns any interesting form state into something you can reproduce, share, launch and convert into an automated regression test. Documented below.
-- **NetKit** — simulates difficult network conditions (offline, latency, timeouts, forced HTTP responses) inside a running app, per endpoint, without touching the backend. Documented in **[netkit/README.md](netkit/README.md)**.
+| Library | Ships in | What it does |
+| --- | --- | --- |
+| **ChartKit** | release + debug | Compose-native charts — line, area, bar, horizontal, grouped, stacked and 100% stacked — over your own data classes, on one shared engine. Documented in **[chartkit/README.md](chartkit/README.md)** |
+| **FillKit** | debug (release-safe API half) | Fills Jetpack Compose forms with coherent synthetic data, and turns any interesting form state into something you can reproduce, share, launch and convert into an automated regression test. Documented below |
+| **NetKit** | debug | Simulates difficult network conditions (offline, latency, timeouts, forced HTTP responses) inside a running app, per endpoint, without touching the backend. Documented in **[netkit/README.md](netkit/README.md)** |
+
+Every library installs independently. The split between the `devkit` and
+`devkit-debug` umbrellas is what keeps developer tooling out of production —
+see [Install and release safety](#install-and-release-safety).
 
 The rest of this file is the complete FillKit documentation.
 
@@ -33,6 +42,7 @@ Automation  → activate the same scenario from a Compose UI test
 | Module | Maven artifact | Ships in | Contents |
 | --- | --- | --- | --- |
 | `:core` | `core` | release + debug | DevKit version metadata and the runtime/debug/test distribution classification |
+| `:chartkit` | `chartkit` | release + debug | Charting engine — scales, coordinates, layout, layers, axes, interaction, animation, theming — and the `LineChart` / `AreaChart` / `BarChart` composables. See [chartkit/README.md](chartkit/README.md) |
 | `:fillkit:api` | `fillkit-api` | release + debug | Pure models, DSLs, the Compose modifier, semantics keys, reproduction specs and token codec, activation requests, and a no-op release runtime |
 | `:fillkit:engine` | `fillkit-engine` | debug | Locale registries, persona and value generation, scenario composition, deterministic random streams |
 | `:fillkit:debug` | `fillkit-debug` | debug | Developer panel, QA scenario launcher, activation engine, pending activations, deep-link entry point, local persistence |
@@ -44,7 +54,7 @@ Automation  → activate the same scenario from a Compose UI test
 | `:app` | — | — | Sample application exercising every capability |
 | `:consumer-test` | — | — | Standalone build that resolves DevKit from Maven Local by coordinates, verifying the published graphs |
 
-Only `:core` and `:fillkit:api` reach a release build. `:netkit` is `debugImplementation`-only and every reference to it lives in the sample app's `src/debug` source set, so the release APK contains none of it.
+Only `:core`, `:chartkit` and `:fillkit:api` reach a release build. `:netkit` is `debugImplementation`-only and every reference to it lives in the sample app's `src/debug` source set, so the release APK contains none of it.
 
 Every kit installs independently — see [Install](#install-and-release-safety) — and the split between `devkit` and `devkit-debug` is what keeps developer tooling out of production builds. [docs/PUBLISHING.md](docs/PUBLISHING.md) covers the artifact architecture, versioning and how to add a kit.
 
@@ -52,6 +62,7 @@ Every kit installs independently — see [Install](#install-and-release-safety) 
 
 - Android Gradle Plugin 9.3.2, Gradle 9.5
 - Kotlin 2.2.10, Compose BOM 2026.02.01
+- Material 3 (ChartKit derives its defaults from `MaterialTheme`)
 - OkHttp 5.5.0 and kotlinx-coroutines 1.11.0 (NetKit only)
 - JDK 17 or newer to run Gradle; Java 11 source/target compatibility
 - `compileSdk` 37, `minSdk` 24
@@ -71,6 +82,10 @@ The sample application id is `io.devkit`. Tap the ⚡ trigger on any screen to o
 | Checkout address | Address generation, persona-driven values |
 | Smart Fields | `TextFieldState`, `ContentType` mapping, field suggestions |
 | QA and reproduction | Scenario catalog, launching by seed, tokens, deep links, ADB commands |
+| Chart gallery | Every ChartKit chart type, with live controls for grid, points, legend, labels and animation |
+| Chart interaction | Tap selection, scrubbing, custom tooltips, legend toggling |
+| Chart theming | `ChartKitTheme` overrides, dark mode, compact/currency/percent/date formatting |
+| Chart states | Loading, empty and error slots; edge-case datasets; accessibility semantics |
 
 ## Install and release safety
 
@@ -87,14 +102,24 @@ not ask for. Pick whichever of the four models fits.
 
 ```kotlin
 dependencies {
+    // A runtime library — ships in release
+    implementation("io.github.ezekielwachira.devkit:chartkit:0.1.0")
+
+    // A debug tool — never reaches release
     debugImplementation("io.github.ezekielwachira.devkit:netkit:0.1.0")
 }
 ```
+
+Installing ChartKit alone pulls ChartKit and `core`, and no FillKit or NetKit.
+The same holds in reverse — verified on every build by `consumer-test`.
 
 ### Selected libraries
 
 ```kotlin
 dependencies {
+    // Charts, in production code
+    implementation("io.github.ezekielwachira.devkit:chartkit:0.1.0")
+
     // FillKit's release-safe half — production code annotates fields with it
     implementation("io.github.ezekielwachira.devkit:fillkit-api:0.1.0")
 
@@ -112,6 +137,7 @@ dependencies {
 dependencies {
     implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.1.0"))
 
+    implementation("io.github.ezekielwachira.devkit:chartkit")
     implementation("io.github.ezekielwachira.devkit:fillkit-api")
     debugImplementation("io.github.ezekielwachira.devkit:fillkit-debug")
     debugImplementation("io.github.ezekielwachira.devkit:netkit")
@@ -127,7 +153,7 @@ configurations too, because they extend `implementation`. A second
 
 ```kotlin
 dependencies {
-    // Every release-safe DevKit library: core + fillkit-api.
+    // Every release-safe DevKit library: core + chartkit + fillkit-api.
     // Contains no developer tooling.
     implementation("io.github.ezekielwachira.devkit:devkit:0.1.0")
 
@@ -147,12 +173,13 @@ debug panel to production.
 | Artifact | Ships in | Version | Contents |
 | --- | --- | --- | --- |
 | `core` | release + debug | `0.1.0` | Ecosystem version metadata and the runtime/debug/test classification. Arrives transitively; you rarely add it yourself |
+| `chartkit` | release + debug | `0.1.0` | Compose charting engine and chart composables — see [chartkit/README.md](chartkit/README.md) |
 | `fillkit-api` | release + debug | `0.1.0` | Models, DSLs, the Compose modifier, semantics keys, reproduction specs, and a no-op release runtime |
 | `fillkit-engine` | debug | `0.1.0` | Locale registries, persona and value generation, deterministic random streams |
 | `fillkit-debug` | debug | `0.1.0` | Developer panel, QA scenario launcher, deep links, local persistence |
 | `fillkit-testing` | `androidTestImplementation` only | `0.1.0` | Compose finders, assertions, `FillKitTestDriver` |
 | `netkit` | debug | `0.1.0` | Network scenario toolkit — see [netkit/README.md](netkit/README.md) |
-| `devkit` | release + debug | `0.1.0` | Umbrella: `core` + `fillkit-api` |
+| `devkit` | release + debug | `0.1.0` | Umbrella: `core` + `chartkit` + `fillkit-api` |
 | `devkit-debug` | debug | `0.1.0` | Umbrella: `fillkit-debug` + `netkit` |
 | `devkit-bom` | — | `0.1.0` | Version alignment for all of the above |
 
@@ -172,6 +199,7 @@ DevKit BOM **`0.1.0`** pins this tested set:
 Artifact          Version
 -------------------------
 core              0.1.0
+chartkit          0.1.0
 fillkit-api       0.1.0
 fillkit-engine    0.1.0
 fillkit-debug     0.1.0
@@ -193,6 +221,7 @@ Within this repository the modules are consumed as projects:
 
 ```kotlin
 dependencies {
+    implementation(project(":chartkit"))
     implementation(project(":fillkit:api"))
     debugImplementation(project(":fillkit:debug"))
     debugImplementation(project(":netkit"))

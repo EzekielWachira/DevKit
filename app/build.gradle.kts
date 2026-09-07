@@ -36,6 +36,10 @@ android {
 }
 
 dependencies {
+    // ChartKit is a runtime library: `implementation`, not `debugImplementation`.
+    // The chart demo lives in `src/main` and ships in the release APK, which is
+    // the sample's own demonstration of that classification.
+    implementation(project(":chartkit"))
     implementation(project(":fillkit:api"))
     debugImplementation(project(":fillkit:debug"))
     // NetKit ships only in debug builds; src/debug holds every reference to it.

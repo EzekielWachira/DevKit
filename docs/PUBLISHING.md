@@ -45,6 +45,7 @@ Group: **`io.github.ezekielwachira.devkit`**
 | Gradle module | Artifact | Purpose | Version | Class |
 | --- | --- | --- | --- | --- |
 | `:core` | `core` | Ecosystem version metadata and the distribution classification | `0.1.0` | runtime |
+| `:chartkit` | `chartkit` | Compose-native charting engine and chart composables | `0.1.0` | runtime |
 | `:fillkit:api` | `fillkit-api` | FillKit's Compose modifier, models, DSLs and no-op release runtime | `0.1.0` | runtime |
 | `:fillkit:engine` | `fillkit-engine` | FillKit's data generation engine | `0.1.0` | debug |
 | `:fillkit:debug` | `fillkit-debug` | FillKit's developer panel and QA launcher | `0.1.0` | debug |
@@ -54,7 +55,7 @@ Group: **`io.github.ezekielwachira.devkit`**
 | `:devkit-debug` | `devkit-debug` | Umbrella: every developer and QA tool | `0.1.0` | debug |
 | `:devkit-bom` | `devkit-bom` | Version alignment | `0.1.0` | — |
 
-### Why FillKit is four artifacts
+### Why ChartKit is one artifact and FillKit is four
 
 Because its pieces have genuinely different consumption scopes, and collapsing
 them would force the release-safe half into a debug-only dependency:
@@ -76,16 +77,22 @@ available at runtime as `DevKitDistribution` in `core`:
 
 | Class | Configuration | Umbrella | Artifacts |
 | --- | --- | --- | --- |
-| **runtime** | `implementation` | `devkit` | `core`, `fillkit-api` |
+| **runtime** | `implementation` | `devkit` | `core`, `chartkit`, `fillkit-api` |
 | **debug** | `debugImplementation` | `devkit-debug` | `netkit`, `fillkit-debug`, `fillkit-engine` |
 | **test** | `androidTestImplementation` | none | `fillkit-testing` |
 
 `fillkit-testing` is in no umbrella on purpose: it exposes JUnit and Compose test
 rules, which have no business on an application's classpath even in debug.
 
-Not every future kit is debug-only. A charting or navigation library would be
-**runtime** and would join `devkit`. The classification is per kit, decided when
-it is added, and written down here.
+Not every kit is debug-only. ChartKit is **runtime**: it draws an application's
+own data on a screen its users see, so it belongs in `implementation` and in the
+`devkit` umbrella, alongside `fillkit-api`. The classification is per kit,
+decided when it is added, and written down here.
+
+ChartKit is one artifact rather than several. Unlike FillKit it has no piece with
+a different consumption scope — the engine, the layers and the composables are
+all needed at runtime by the same code — so splitting it would produce artifacts
+nobody would ever declare separately.
 
 ### Enforcement model
 
@@ -114,6 +121,7 @@ Everything lives in `gradle.properties`:
 devkit.group=io.github.ezekielwachira.devkit
 
 devkit.version.core=0.1.0
+devkit.version.chartkit=0.1.0
 devkit.version.fillkit=0.1.0
 devkit.version.netkit=0.1.0
 
@@ -143,6 +151,7 @@ dependencies, so importing it pulls nothing:
 dependencies {
     implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.1.0"))
 
+    implementation("io.github.ezekielwachira.devkit:chartkit")
     implementation("io.github.ezekielwachira.devkit:fillkit-api")
     debugImplementation("io.github.ezekielwachira.devkit:netkit")
     debugImplementation("io.github.ezekielwachira.devkit:fillkit-debug")
@@ -195,16 +204,17 @@ coordinates. That distinction matters: a `project(":netkit")` dependency inside
 the main build bypasses the POM, the module metadata, the artifact ids and the
 versions — every layer a publishing change can break.
 
-It checks five installation models plus release safety:
+It checks six installation models plus release safety:
 
 | Case | Asserts |
 | --- | --- |
-| NetKit only | resolves; pulls **no** FillKit |
-| FillKit only | resolves with engine and api; pulls **no** NetKit |
+| NetKit only | resolves; pulls **no** FillKit, **no** ChartKit |
+| ChartKit only | resolves; pulls **no** FillKit, **no** NetKit |
+| FillKit only | resolves with engine and api; pulls **no** NetKit, **no** ChartKit |
 | BOM + kits | versions resolve with none named |
-| `devkit-debug` | brings NetKit and the FillKit panel; **not** `fillkit-testing` |
-| `devkit` | brings only release-safe libraries; **no** NetKit, **no** debug |
-| release variant | no debug tooling on `releaseRuntimeClasspath` |
+| `devkit-debug` | brings NetKit and the FillKit panel; **not** `fillkit-testing`, **not** ChartKit |
+| `devkit` | brings only release-safe libraries — including ChartKit; **no** NetKit, **no** debug |
+| release variant | no debug tooling on `releaseRuntimeClasspath`; ChartKit present |
 
 The negative assertions are the point. That `netkit` resolves is unsurprising;
 that it drags in no FillKit is the claim the artifact split rests on, and it is
@@ -298,7 +308,9 @@ properties and never logs them.
 
 ## Adding a new kit
 
-Say a runtime-safe `ChartKit`:
+Worked through with a hypothetical runtime-safe `NavKit`. ChartKit is the most
+recent kit added this way, so its module, BOM entry, umbrella membership and
+consumer-test cases are the reference to copy from.
 
 **1. Create the module and register it** in `settings.gradle.kts` under the kits
 section.
@@ -312,7 +324,7 @@ plugins {
 }
 
 android {
-    namespace = "io.devkit.chartkit"
+    namespace = "io.devkit.navkit"
     compileSdk { version = release(37) }
     defaultConfig { minSdk = 24 }
 }
@@ -322,17 +334,17 @@ dependencies {
 }
 
 devKitPublishing {
-    artifactId.set("chartkit")
-    displayName.set("ChartKit")
-    description.set("Compose charting primitives for Android.")  // specific, not generic
-    versionKey.set("chartkit")
+    artifactId.set("navkit")
+    displayName.set("NavKit")
+    description.set("Type-safe Compose navigation for Android.")  // specific, not generic
+    versionKey.set("navkit")
 }
 ```
 
 **3. Add the version** to `gradle.properties`:
 
 ```properties
-devkit.version.chartkit=0.1.0
+devkit.version.navkit=0.1.0
 ```
 
 **4. Classify it** as runtime, debug or test, and record it in the table above
@@ -343,14 +355,14 @@ for debug, neither for test:
 
 ```kotlin
 dependencies {
-    api(project(":chartkit"))
+    api(project(":navkit"))
 }
 ```
 
 **6. Constrain it in the BOM:**
 
 ```kotlin
-api("$group:chartkit:$chartKitVersion")
+api("$group:navkit:$navKitVersion")
 ```
 
 **7. Add a verification case** to `consumer-test/build.gradle.kts`, including the

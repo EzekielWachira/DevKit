@@ -41,16 +41,17 @@ android {
  */
 dependencies {
     api(project(":core"))
+    api(project(":chartkit"))
     api(project(":fillkit:api"))
-    // Future runtime-safe kits (ChartKit, and so on) are added here.
+    // Future runtime-safe kits are added here.
 }
 
 devKitPublishing {
     artifactId.set("devkit")
     displayName.set("DevKit")
     description.set(
-        "Every release-safe DevKit library in one dependency: DevKit Core and the FillKit " +
-            "API. Contains no developer or QA tooling — those live in devkit-debug.",
+        "Every release-safe DevKit library in one dependency: DevKit Core, ChartKit and the " +
+            "FillKit API. Contains no developer or QA tooling — those live in devkit-debug.",
     )
     versionKey.set("ecosystem")
 }

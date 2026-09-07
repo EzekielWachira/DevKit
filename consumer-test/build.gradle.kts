@@ -16,6 +16,7 @@ plugins {
 // `group` resolves to the task's own group property, which is a `String?` and
 // silently the wrong value.
 val devkitGroup = providers.gradleProperty("devkitGroup").get()
+val chartKit = providers.gradleProperty("devkitChartKitVersion").get()
 val fillKit = providers.gradleProperty("devkitFillKitVersion").get()
 val netKit = providers.gradleProperty("devkitNetKitVersion").get()
 val ecosystem = providers.gradleProperty("devkitEcosystemVersion").get()
@@ -125,6 +126,7 @@ verificationCase(
     dependencies = listOf("$devkitGroup:netkit:$netKit"),
     mustContain = listOf("$devkitGroup:netkit", "$devkitGroup:core"),
     mustNotContain = listOf(
+        "$devkitGroup:chartkit",
         "$devkitGroup:fillkit-api",
         "$devkitGroup:fillkit-engine",
         "$devkitGroup:fillkit-debug",
@@ -134,7 +136,28 @@ verificationCase(
     ),
 )
 
-// ---- Case 2: FillKit alone -------------------------------------------------
+// ---- Case 2: ChartKit alone ------------------------------------------------
+//
+// The claim ChartKit's own installation instructions rest on: a consumer who
+// wants charts gets charts, and does not silently acquire a form filler or a
+// network interceptor along with them.
+verificationCase(
+    name = "chartKitOnly",
+    description = "implementation(chartkit) pulls no FillKit and no NetKit",
+    dependencies = listOf("$devkitGroup:chartkit:$chartKit"),
+    mustContain = listOf("$devkitGroup:chartkit", "$devkitGroup:core"),
+    mustNotContain = listOf(
+        "$devkitGroup:netkit",
+        "$devkitGroup:fillkit-api",
+        "$devkitGroup:fillkit-engine",
+        "$devkitGroup:fillkit-debug",
+        "$devkitGroup:fillkit-testing",
+        "$devkitGroup:devkit",
+        "$devkitGroup:devkit-debug",
+    ),
+)
+
+// ---- Case 3: FillKit alone -------------------------------------------------
 verificationCase(
     name = "fillKitOnly",
     description = "debugImplementation(fillkit-debug) pulls no NetKit",
@@ -145,23 +168,34 @@ verificationCase(
         "$devkitGroup:fillkit-engine",
         "$devkitGroup:core",
     ),
-    mustNotContain = listOf("$devkitGroup:netkit", "$devkitGroup:devkit", "$devkitGroup:devkit-debug"),
+    mustNotContain = listOf(
+        "$devkitGroup:netkit",
+        "$devkitGroup:chartkit",
+        "$devkitGroup:devkit",
+        "$devkitGroup:devkit-debug",
+    ),
 )
 
-// ---- Case 3: BOM + selected kits, no versions named ------------------------
+// ---- Case 4: BOM + selected kits, no versions named ------------------------
 verificationCase(
     name = "bom",
     description = "the BOM supplies versions for unversioned kit dependencies",
     dependencies = listOf(
         "platform:$devkitGroup:devkit-bom:$ecosystem",
         "$devkitGroup:netkit",
+        "$devkitGroup:chartkit",
         "$devkitGroup:fillkit-api",
     ),
-    mustContain = listOf("$devkitGroup:netkit", "$devkitGroup:fillkit-api", "$devkitGroup:devkit-bom"),
+    mustContain = listOf(
+        "$devkitGroup:netkit",
+        "$devkitGroup:chartkit",
+        "$devkitGroup:fillkit-api",
+        "$devkitGroup:devkit-bom",
+    ),
     mustNotContain = listOf("$devkitGroup:fillkit-debug", "$devkitGroup:devkit-debug"),
 )
 
-// ---- Case 4: the debug umbrella --------------------------------------------
+// ---- Case 5: the debug umbrella --------------------------------------------
 verificationCase(
     name = "debugUmbrella",
     description = "devkit-debug brings every QA tool",
@@ -175,15 +209,27 @@ verificationCase(
         "$devkitGroup:core",
     ),
     // Test helpers pull JUnit and Compose test rules; they stay out.
-    mustNotContain = listOf("$devkitGroup:fillkit-testing", "$devkitGroup:devkit"),
+    mustNotContain = listOf(
+        "$devkitGroup:fillkit-testing",
+        "$devkitGroup:devkit",
+        // ChartKit is a runtime library. It belongs to the production umbrella,
+        // and a debug-only dependency would put an application's own charts on
+        // the debug classpath alone.
+        "$devkitGroup:chartkit",
+    ),
 )
 
-// ---- Case 5: the production umbrella ---------------------------------------
+// ---- Case 6: the production umbrella ---------------------------------------
 verificationCase(
     name = "productionUmbrella",
     description = "devkit contains only release-safe libraries",
     dependencies = listOf("$devkitGroup:devkit:$ecosystem"),
-    mustContain = listOf("$devkitGroup:devkit", "$devkitGroup:core", "$devkitGroup:fillkit-api"),
+    mustContain = listOf(
+        "$devkitGroup:devkit",
+        "$devkitGroup:core",
+        "$devkitGroup:chartkit",
+        "$devkitGroup:fillkit-api",
+    ),
     // The assertion the release-safety model depends on.
     mustNotContain = listOf(
         "$devkitGroup:netkit",
@@ -199,6 +245,7 @@ tasks.register("verifyAll") {
     description = "Resolves every documented DevKit installation model from mavenLocal()"
     dependsOn(
         "verifyNetKitOnly",
+        "verifyChartKitOnly",
         "verifyFillKitOnly",
         "verifyBom",
         "verifyDebugUmbrella",
