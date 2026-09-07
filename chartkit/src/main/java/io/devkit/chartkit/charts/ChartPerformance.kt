@@ -3,7 +3,7 @@ package io.devkit.chartkit.charts
 /**
  * Thresholds that keep a large dataset from becoming pathological.
  *
- * ChartKit 0.1 does not downsample and does not claim to render a million
+ * ChartKit does not downsample and does not claim to render a million
  * points. What it does claim is that nothing in the engine degrades
  * *catastrophically* as the dataset grows — no composable per point, no path
  * rebuilt per frame, no linear scan per pointer move on sorted data. These

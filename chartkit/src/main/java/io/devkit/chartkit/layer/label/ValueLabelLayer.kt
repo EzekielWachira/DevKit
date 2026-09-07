@@ -32,7 +32,7 @@ internal class ValueLabelLayer(
 
     override fun draw(scope: DrawScope, context: ChartRenderContext) {
         if (anchors.isEmpty() || context.reveal < 1f) return
-        val plot = context.coordinates.plotArea
+        val plot = context.cartesian.plotArea
         if (plot.isEmpty) return
 
         val style = context.typography.valueLabel.copy(color = context.colors.valueLabel)

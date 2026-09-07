@@ -11,6 +11,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.snapshots.SnapshotStateSet
 import androidx.compose.runtime.mutableStateSetOf
 import io.devkit.chartkit.geometry.ChartOffset
+import io.devkit.chartkit.model.ChartRangeSelection
 import io.devkit.chartkit.model.ChartSelection
 
 /**
@@ -51,6 +52,17 @@ class ChartState<T> internal constructor(
      * points, for instance.
      */
     var pointerPosition: ChartOffset? by mutableStateOf(null)
+        internal set
+
+    /**
+     * The domain interval the reader has dragged out, or `null`.
+     *
+     * Lives alongside the point selection rather than replacing it: a chart can
+     * have a selected point *and* a selected range, and they answer different
+     * questions — "what is this value" against "what happened between these
+     * two dates".
+     */
+    var rangeSelection: ChartRangeSelection<T>? by mutableStateOf(null)
         internal set
 
     private val hidden: SnapshotStateSet<String> =
@@ -103,6 +115,16 @@ class ChartState<T> internal constructor(
     fun clearSelection() {
         selection = null
         pointerPosition = null
+    }
+
+    /** Sets the range programmatically — to restore a saved filter, say. */
+    fun selectRange(range: ChartRangeSelection<T>?) {
+        rangeSelection = range
+    }
+
+    /** Drops the range selection. */
+    fun clearRangeSelection() {
+        rangeSelection = null
     }
 }
 

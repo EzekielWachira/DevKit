@@ -97,6 +97,35 @@ object ChartKitPreviewData {
     val constantSeries: List<MonthlyValue> =
         listOf("Jan", "Feb", "Mar", "Apr").map { MonthlyValue(it, 42.0) }
 
+    /** A part-to-whole breakdown, for pie and donut charts. */
+    data class Share(val category: String, val amount: Double)
+
+    /** A metric measured against a range, for radial bars. */
+    data class Metric(val name: String, val value: Double)
+
+    val expenseShares: List<Share> = listOf(
+        Share("Rent", 1_800.0),
+        Share("Food", 720.0),
+        Share("Transport", 540.0),
+        Share("Utilities", 360.0),
+        Share("Other", 180.0),
+    )
+
+    /** Deliberately mixes a negative and a zero, which a pie cannot represent. */
+    val invalidShares: List<Share> = listOf(
+        Share("Valid", 40.0),
+        Share("Negative", -10.0),
+        Share("Zero", 0.0),
+        Share("Also valid", 60.0),
+    )
+
+    val systemMetrics: List<Metric> = listOf(
+        Metric("CPU", 72.0),
+        Metric("Memory", 46.0),
+        Metric("Disk", 88.0),
+        Metric("Network", 31.0),
+    )
+
     /** A dense series, for checking marker thresholds and drawing cost. */
     fun dense(count: Int): List<MonthlyValue> = List(count) { index ->
         // A fixed waveform rather than a random walk: deterministic, and it

@@ -11,6 +11,7 @@ import io.devkit.chartkit.axis.ChartGrid
 import io.devkit.chartkit.axis.MeasuredAxis
 import io.devkit.chartkit.axis.MeasuredAxisLabel
 import io.devkit.chartkit.axis.selectLabelIndices
+import io.devkit.chartkit.interaction.CrosshairConfig
 import io.devkit.chartkit.coordinate.CartesianCoordinates
 import io.devkit.chartkit.coordinate.DomainAxis
 import io.devkit.chartkit.formatter.ChartDateFormatters
@@ -19,6 +20,7 @@ import io.devkit.chartkit.formatter.ChartValueFormatter
 import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.geometry.BarStacking
 import io.devkit.chartkit.geometry.ChartInsets
+import io.devkit.chartkit.geometry.ChartOffset
 import io.devkit.chartkit.geometry.ChartOrientation
 import io.devkit.chartkit.geometry.ChartRect
 import io.devkit.chartkit.geometry.LinePoint
@@ -34,7 +36,8 @@ import io.devkit.chartkit.layer.label.ValueLabelLayer
 import io.devkit.chartkit.layer.label.barLabelAnchors
 import io.devkit.chartkit.layer.line.LineLayer
 import io.devkit.chartkit.layer.line.LineSeriesGeometry
-import io.devkit.chartkit.layer.selection.SelectionLayer
+import io.devkit.chartkit.layer.crosshair.CrosshairLayer
+import io.devkit.chartkit.layer.range.RangeSelectionLayer
 import io.devkit.chartkit.layout.AxisMetrics
 import io.devkit.chartkit.layout.computeChartLayout
 import io.devkit.chartkit.model.ChartX
@@ -51,6 +54,7 @@ import io.devkit.chartkit.scale.TimeScale
 import io.devkit.chartkit.scale.apply
 import io.devkit.chartkit.theme.ChartDimensions
 import io.devkit.chartkit.theme.ChartTypography
+import io.devkit.chartkit.viewport.ChartViewport
 import java.util.Locale
 
 /**
@@ -103,7 +107,47 @@ internal class CartesianGeometry(
     val summaries: List<ChartLayerSummary>,
     val valueFormatter: ChartValueFormatter,
     val isEmpty: Boolean,
+    /**
+     * The interval the data occupies before the viewport narrows it.
+     *
+     * Published so a viewport state can turn its fractional window back into
+     * real values: "which dates am I showing" is answered from here, not from
+     * the visible domain, which is already the answer.
+     */
+    val fullDomain: NumericDomain? = null,
+    val categoryCount: Int = 0,
+    val viewport: ChartViewport = ChartViewport.Full,
+    /** Formats a full-domain fraction the way the axis labels it. */
+    val domainLabeller: (Double) -> String = { it.toString() },
+    /** Formats a domain value the way the axis does, for tooltips and chips. */
+    val formatDomainValue: (ChartX) -> String = { it.label() },
+    /** Turns a full-domain fraction into the domain value it names. */
+    private val domainValueAt: (Double) -> ChartX = { ChartX.Numeric(it) },
+    /** The caller's items whose domain position falls inside a fraction range. */
+    private val itemsBetween: (Double, Double) -> List<Any?> = { _, _ -> emptyList() },
 ) {
+    /** The full-domain fraction under a pixel, for range selection. */
+    fun domainFractionAt(position: ChartOffset): Double {
+        val plot = coordinates.plotArea
+        if (plot.isEmpty) return 0.0
+        val vertical = coordinates.orientation.isVertical
+        val extent = if (vertical) plot.width else plot.height
+        val origin = if (vertical) plot.left else plot.top
+        val along = if (vertical) position.x else position.y
+        if (extent <= 0f) return 0.0
+        val withinViewport = ((along - origin) / extent).toDouble().coerceIn(0.0, 1.0)
+        // Back out through the viewport: the plot shows a window of the domain,
+        // and a range is stored against the whole of it so it survives a zoom.
+        return (viewport.start + withinViewport * viewport.width).coerceIn(0.0, 1.0)
+    }
+
+    /** The domain value at a full-domain fraction. */
+    fun domainValueAtFraction(fraction: Double): ChartX = domainValueAt(fraction)
+
+    /** The caller's items between two full-domain fractions. */
+    fun itemsInRange(startFraction: Double, endFraction: Double): List<Any?> =
+        itemsBetween(minOf(startFraction, endFraction), maxOf(startFraction, endFraction))
+
     companion object {
         fun empty(): CartesianGeometry = CartesianGeometry(
             coordinates = CartesianCoordinates(
@@ -140,6 +184,9 @@ internal fun buildCartesianGeometry(
     valueAxisConfig: ChartAxis,
     grid: ChartGrid,
     valueDomainPolicy: DomainPolicy,
+    crosshair: CrosshairConfig,
+    viewport: ChartViewport,
+    rangeSelectable: Boolean,
     density: Density,
     textMeasurer: TextMeasurer,
     typography: ChartTypography,
@@ -200,7 +247,17 @@ internal fun buildCartesianGeometry(
         layers.mapNotNull { it.data.xDomain }
             .reduceOrNull { a, b -> NumericDomain(minOf(a.min, b.min), maxOf(a.max, b.max)) }
     }
-    val xDomain = (domainAxisConfig.domain ?: DomainPolicy.Auto(padding = 0.0)).apply(xDataDomain)
+    val fullXDomain = (domainAxisConfig.domain ?: DomainPolicy.Auto(padding = 0.0)).apply(xDataDomain)
+
+    // The viewport narrows the domain the scales map, which is the whole of
+    // how zoom works. Everything downstream — ticks, labels, geometry, hit
+    // testing, the crosshair, the range overlay — is derived from `xDomain`
+    // and is therefore correct at any zoom without knowing zoom exists.
+    val xDomain = if (axisKind == ChartXAxisKind.Category) {
+        fullXDomain
+    } else {
+        viewport.visibleDomain(fullXDomain)
+    }
 
     val isEmpty = layers.all { it.data.isEmpty }
 
@@ -220,6 +277,9 @@ internal fun buildCartesianGeometry(
             domainLabels = categories.map { transform?.invoke(it) ?: it }
         }
         ChartXAxisKind.Time -> {
+            // Ticks over the *visible* interval, so zooming into an hour
+            // relabels the axis in minutes rather than keeping the year's ticks
+            // and drawing five of them off-screen.
             val timeScale = TimeScale(xDomain, 0f, 1f)
             val ticks = timeScale.ticks(domainAxisConfig.tickCount)
             domainTickValues = ticks.map(Long::toDouble)
@@ -346,9 +406,23 @@ internal fun buildCartesianGeometry(
         .firstOrNull()?.categoryPadding ?: CategoryScale.DEFAULT_CATEGORY_PADDING
 
     val domainAxisModel: DomainAxis = when (axisKind) {
-        ChartXAxisKind.Category -> DomainAxis.Categories(
-            CategoryScale(categories, domainStart, domainEnd, categoryPadding),
-        )
+        // A category axis zooms by stretching the *whole* band run across a
+        // virtual extent and showing a window of it. Narrowing the category
+        // list instead would drop off-screen bands entirely, which breaks a
+        // line at the viewport edge rather than letting it run out of it — and
+        // would renumber every band on every pan.
+        ChartXAxisKind.Category -> {
+            val virtualExtent = (domainEnd - domainStart) / viewport.width.toFloat()
+            val virtualStart = domainStart - (viewport.start * virtualExtent).toFloat()
+            DomainAxis.Categories(
+                CategoryScale(
+                    categories = categories,
+                    rangeStart = virtualStart,
+                    rangeEnd = virtualStart + virtualExtent,
+                    categoryPadding = categoryPadding,
+                ),
+            )
+        }
         else -> DomainAxis.Continuous(LinearScale(xDomain, domainStart, domainEnd))
     }
 
@@ -375,14 +449,23 @@ internal fun buildCartesianGeometry(
         measuredDomainLabels.maxOf { it.size.height }.toFloat() + labelPadding
     }
 
+    // On a zoomed category axis only the bands inside the window can be
+    // labelled; thinning is then applied to those rather than to all of them,
+    // so a zoomed-in chart shows more labels, not the same few.
+    val candidateDomainIndices: List<Int> = if (axisKind == ChartXAxisKind.Category) {
+        viewport.visibleCategoryRange(measuredDomainLabels.size).toList()
+    } else {
+        measuredDomainLabels.indices.toList()
+    }
+
     val keptDomainIndices = when (domainAxisConfig.labelOverflow) {
-        AxisLabelOverflow.None -> measuredDomainLabels.indices.toList()
+        AxisLabelOverflow.None -> candidateDomainIndices
         else -> selectLabelIndices(
-            count = measuredDomainLabels.size,
+            count = candidateDomainIndices.size,
             available = domainAvailable,
             labelExtent = domainLabelSpacing,
             maxLabels = domainAxisConfig.maxLabels,
-        )
+        ).mapNotNull { candidateDomainIndices.getOrNull(it) }
     }
 
     val valueSpacing = if (measuredValueLabels.isEmpty()) {
@@ -432,6 +515,9 @@ internal fun buildCartesianGeometry(
     val legendSeries = ArrayList<LegendSeries>()
 
     renderers += GridLayer(grid, domainTickPositions, valueTickPositions)
+    // Behind the data: a range band drawn over the lines would hide what the
+    // reader selected it to look at.
+    if (rangeSelectable) renderers += RangeSelectionLayer()
 
     layers.forEachIndexed { layerIndex, layer ->
         when (layer) {
@@ -460,6 +546,7 @@ internal fun buildCartesianGeometry(
                         items = series.items,
                         categoryLabels = categories,
                         values = aligned[index].values,
+                        sourceIndices = aligned[index].sourceIndices,
                     )
                 }
                 val barLayer = BarLayer(
@@ -529,7 +616,43 @@ internal fun buildCartesianGeometry(
         }
     }
 
-    renderers += SelectionLayer()
+    // One formatter for the domain, shared by the crosshair chip, the range
+    // readout and the accessibility announcements. A chip that wrote a date
+    // differently from the axis beneath it would read as two quantities.
+    val formatDomain: (ChartX) -> String = when (axisKind) {
+        ChartXAxisKind.Category -> { value -> value.label() }
+        // The lambda is bound to a name before being returned: a lambda
+        // literal written straight after a `val` initialiser parses as a
+        // trailing-lambda call on that initialiser instead.
+        ChartXAxisKind.Time -> run {
+            val formatter = domainAxisConfig.timeFormatter
+                ?: ChartDateFormatters.pattern(patternForSpan(fullXDomain.span), locale)
+            val format: (ChartX) -> String = { value ->
+                when (value) {
+                    is ChartX.Time -> formatter.format(value.epochMillis)
+                    else -> value.label()
+                }
+            }
+            format
+        }
+        ChartXAxisKind.Numeric -> run {
+            val formatter = domainAxisConfig.valueFormatter
+                ?: ChartNumberFormatters.forTicks(domainTickValues, locale)
+            val format: (ChartX) -> String = { value ->
+                when (value) {
+                    is ChartX.Numeric -> formatter.format(value.value)
+                    else -> value.label()
+                }
+            }
+            format
+        }
+    }
+
+    renderers += CrosshairLayer(
+        config = crosshair,
+        domainLabel = { selection -> formatDomain(selection.x) },
+        valueLabel = valueFormatter::format,
+    )
 
     // Colours are resolved in composition, not here: the palette comes from
     // the theme, and baking it into cached geometry would leave a chart showing
@@ -552,6 +675,51 @@ internal fun buildCartesianGeometry(
         it.copy(entries = emptyList())
     }
 
+    // Turning a full-domain fraction back into the value it names, and into
+    // the caller's own items. Range selection is stated in domain values
+    // rather than pixels, and this is where that conversion lives — once,
+    // rather than in each chart that offers it.
+    val domainValueAtFraction: (Double) -> ChartX = when (axisKind) {
+        ChartXAxisKind.Category -> { fraction ->
+            val index = (fraction * categories.size).toInt().coerceIn(0, (categories.size - 1).coerceAtLeast(0))
+            ChartX.Category(categories.getOrNull(index).orEmpty())
+        }
+        ChartXAxisKind.Time -> { fraction ->
+            ChartX.Time((fullXDomain.min + fullXDomain.span * fraction).toLong())
+        }
+        ChartXAxisKind.Numeric -> { fraction ->
+            ChartX.Numeric(fullXDomain.min + fullXDomain.span * fraction)
+        }
+    }
+
+    val itemsBetween: (Double, Double) -> List<Any?> = { from, to ->
+        buildList {
+            layers.forEach { layer ->
+                layer.data.visibleSeries.forEach { series ->
+                    series.points.forEach { point ->
+                        val fraction = when (axisKind) {
+                            ChartXAxisKind.Category ->
+                                if (categories.isEmpty()) {
+                                    0.0
+                                } else {
+                                    (categories.indexOf(point.x.label()) + 0.5) / categories.size
+                                }
+                            else -> {
+                                val value = layer.data.continuousX(point)
+                                if (fullXDomain.span <= 0.0) {
+                                    0.0
+                                } else {
+                                    (value - fullXDomain.min) / fullXDomain.span
+                                }
+                            }
+                        }
+                        if (fraction in from..to) series.itemAt(point.sourceIndex)?.let(::add)
+                    }
+                }
+            }
+        }
+    }
+
     return CartesianGeometry(
         coordinates = coordinates,
         renderers = renderers,
@@ -562,6 +730,13 @@ internal fun buildCartesianGeometry(
         summaries = effectiveSummaries,
         valueFormatter = valueFormatter,
         isEmpty = isEmpty,
+        fullDomain = if (axisKind == ChartXAxisKind.Category) null else fullXDomain,
+        categoryCount = categories.size,
+        viewport = viewport,
+        domainLabeller = { fraction -> formatDomain(domainValueAtFraction(fraction)) },
+        formatDomainValue = formatDomain,
+        domainValueAt = domainValueAtFraction,
+        itemsBetween = itemsBetween,
     )
 }
 

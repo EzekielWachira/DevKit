@@ -13,13 +13,15 @@ import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.geometry.ChartOrientation
 import io.devkit.chartkit.geometry.DEFAULT_GROUP_PADDING
 import io.devkit.chartkit.geometry.LineInterpolation
-import io.devkit.chartkit.interaction.ChartSelectionBehaviour
-import io.devkit.chartkit.interaction.ChartSelectionMode
+import io.devkit.chartkit.interaction.ChartInteraction
+import io.devkit.chartkit.interaction.CrosshairConfig
 import io.devkit.chartkit.interaction.HitTestMode
 import io.devkit.chartkit.layer.line.AreaFill
 import io.devkit.chartkit.layer.line.LineStyle
 import io.devkit.chartkit.layer.line.PointMode
+import io.devkit.chartkit.model.AnyChartRangeSelection
 import io.devkit.chartkit.model.AnyChartSelection
+import io.devkit.chartkit.model.AnyChartTooltipData
 import io.devkit.chartkit.model.ChartSeries
 import io.devkit.chartkit.model.ChartXAxisKind
 import io.devkit.chartkit.model.ChartXResolver
@@ -28,7 +30,9 @@ import io.devkit.chartkit.model.normalizeSeries
 import io.devkit.chartkit.scale.CategoryScale
 import io.devkit.chartkit.scale.DomainPolicy
 import io.devkit.chartkit.state.ChartState
+import io.devkit.chartkit.state.ChartViewportState
 import io.devkit.chartkit.state.rememberChartState
+import io.devkit.chartkit.state.rememberChartViewportState
 
 /**
  * Declares the layers of a [CartesianChart].
@@ -206,14 +210,17 @@ fun CartesianChart(
     legend: LegendPosition = LegendPosition.Bottom,
     legendTogglesSeries: Boolean = false,
     animation: ChartAnimation = ChartAnimation.Default,
-    selectionMode: ChartSelectionMode = ChartSelectionMode.TapAndScrub,
-    selectionBehaviour: ChartSelectionBehaviour = ChartSelectionBehaviour.Default,
+    interaction: ChartInteraction = ChartInteraction.Default,
+    crosshair: CrosshairConfig = ChartDefaults.SelectionGuide,
+    sharedTooltip: Boolean = crosshair.enabled && crosshair.showAxisLabels,
+    viewportState: ChartViewportState = rememberChartViewportState(),
     hitTestMode: HitTestMode = HitTestMode.NearestDomain,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<Any?> = rememberChartState(),
     onSelectionChanged: ((AnyChartSelection?) -> Unit)? = null,
-    tooltip: (@Composable (AnyChartSelection) -> Unit)? = { ChartDefaults.Tooltip(it) },
+    onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)? = null,
+    tooltip: (@Composable (AnyChartTooltipData) -> Unit)? = { ChartDefaults.Tooltip(it) },
     isLoading: Boolean = false,
     error: Throwable? = null,
     loadingContent: @Composable () -> Unit = { DefaultLoadingContent() },
@@ -237,11 +244,14 @@ fun CartesianChart(
         legend = legend,
         legendTogglesSeries = legendTogglesSeries,
         animation = animation,
-        selectionMode = selectionMode,
-        selectionBehaviour = selectionBehaviour,
+        interaction = interaction,
+        crosshair = crosshair,
         hitTestMode = hitTestMode,
+        sharedTooltip = sharedTooltip,
         state = state,
+        viewportState = viewportState,
         onSelectionChanged = onSelectionChanged,
+        onRangeSelectionChanged = onRangeSelectionChanged,
         tooltip = tooltip,
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,

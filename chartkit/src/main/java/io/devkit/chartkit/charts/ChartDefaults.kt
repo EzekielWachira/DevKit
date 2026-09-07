@@ -3,9 +3,14 @@ package io.devkit.chartkit.charts
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import io.devkit.chartkit.formatter.ChartValueFormatter
+import io.devkit.chartkit.interaction.CrosshairConfig
+import io.devkit.chartkit.model.AnyChartRangeSelection
 import io.devkit.chartkit.model.AnyChartSelection
+import io.devkit.chartkit.model.AnyChartTooltipData
+import io.devkit.chartkit.model.ChartRangeSelection
 import io.devkit.chartkit.model.ChartSelection
 import io.devkit.chartkit.model.ChartSeries
+import io.devkit.chartkit.model.ChartTooltipData
 import io.devkit.chartkit.state.ChartState
 
 /**
@@ -25,6 +30,14 @@ internal fun <T> ChartState<T>.asErased(): ChartState<Any?> = this as ChartState
 @Suppress("UNCHECKED_CAST")
 internal fun <T> AnyChartSelection.asTyped(): ChartSelection<T> = this as ChartSelection<T>
 
+@Suppress("UNCHECKED_CAST")
+internal fun <T> AnyChartTooltipData.asTypedTooltip(): ChartTooltipData<T> =
+    this as ChartTooltipData<T>
+
+@Suppress("UNCHECKED_CAST")
+internal fun <T> AnyChartRangeSelection.asTypedRange(): ChartRangeSelection<T> =
+    this as ChartRangeSelection<T>
+
 /** Wraps a single list as the one-series case, so both APIs share a code path. */
 internal fun <T> singleSeries(
     data: List<T>,
@@ -39,6 +52,21 @@ object ChartDefaults {
     const val SINGLE_SERIES_ID: String = "series"
 
     /**
+     * The guide drawn through a selection when no full crosshair was asked for.
+     *
+     * A crosshair with its axis chips turned off — which is exactly what the
+     * guide line always was. Expressing it as a [CrosshairConfig] rather than
+     * as a separate concept is what let the selection guide and the crosshair
+     * become one layer.
+     */
+    val SelectionGuide: CrosshairConfig = CrosshairConfig(
+        enabled = true,
+        vertical = true,
+        horizontal = false,
+        showAxisLabels = false,
+    )
+
+    /**
      * The default tooltip.
      *
      * A value rather than a hardcoded call inside each chart, so a caller can
@@ -47,16 +75,16 @@ object ChartDefaults {
      */
     @Composable
     fun <T> Tooltip(
-        selection: ChartSelection<T>,
+        data: ChartTooltipData<T>,
         modifier: Modifier = Modifier,
         valueFormatter: ChartValueFormatter? = null,
-        showSeriesName: Boolean = true,
+        showSeriesNames: Boolean = data.isMultiSeries,
     ) {
         io.devkit.chartkit.components.tooltip.ChartTooltip(
-            selection = selection,
+            data = data,
             modifier = modifier,
             valueFormatter = valueFormatter,
-            showSeriesName = showSeriesName,
+            showSeriesNames = showSeriesNames,
         )
     }
 }

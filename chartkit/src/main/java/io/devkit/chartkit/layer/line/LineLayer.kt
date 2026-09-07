@@ -24,6 +24,7 @@ import io.devkit.chartkit.layer.ChartLayerSummary
 import io.devkit.chartkit.layer.ChartRenderContext
 import io.devkit.chartkit.model.AnyChartSelection
 import io.devkit.chartkit.model.ChartSelection
+import io.devkit.chartkit.model.ChartTooltipEntry
 import io.devkit.chartkit.model.ChartX
 import kotlin.math.abs
 
@@ -129,12 +130,12 @@ internal class LineLayer(
     private var cacheKey: Any? = null
 
     override fun draw(scope: DrawScope, context: ChartRenderContext) {
-        val plot = context.coordinates.plotArea
+        val plot = context.cartesian.plotArea
         if (plot.isEmpty || series.isEmpty()) return
 
         val paths = paths(plot, baselineWithin(context))
         val strokeWidth = context.px(lineWidthOverride ?: context.dimensions.lineWidth)
-        val vertical = context.coordinates.orientation.isVertical
+        val vertical = context.cartesian.orientation.isVertical
         val reveal = context.reveal.coerceIn(0f, 1f)
 
         // Revealing by clipping rather than by trimming the path: a path
@@ -193,8 +194,8 @@ internal class LineLayer(
         val radius = context.px(context.dimensions.pointRadius)
         val selectedRadius = context.px(context.dimensions.selectedPointRadius)
         val reveal = context.reveal.coerceIn(0f, 1f)
-        val plot = context.coordinates.plotArea
-        val vertical = context.coordinates.orientation.isVertical
+        val plot = context.cartesian.plotArea
+        val vertical = context.cartesian.orientation.isVertical
         val revealEdge = if (vertical) plot.left + plot.width * reveal else plot.top + plot.height * reveal
 
         series.forEach { s ->
@@ -238,7 +239,7 @@ internal class LineLayer(
         mode: HitTestMode,
     ): AnyChartSelection? {
         if (series.isEmpty()) return null
-        val vertical = context.coordinates.orientation.isVertical
+        val vertical = context.cartesian.orientation.isVertical
         val along = if (vertical) point.x else point.y
 
         var best: AnyChartSelection? = null
@@ -288,6 +289,29 @@ internal class LineLayer(
         return best
     }
 
+    /**
+     * Every series' value at the selected domain position.
+     *
+     * Matched on the resolved [ChartX] rather than on the point index: two
+     * series over the same months need not have the same number of points, and
+     * index matching would report February's revenue against March's expenses.
+     */
+    override fun tooltipEntriesAt(
+        selection: AnyChartSelection,
+        context: ChartRenderContext,
+    ): List<ChartTooltipEntry<Any?>> = series.mapNotNull { s ->
+        val index = s.xValues.indexOfFirst { it == selection.x }
+        if (index < 0) return@mapNotNull null
+        val point = s.points.getOrNull(index) ?: return@mapNotNull null
+        ChartTooltipEntry(
+            seriesId = s.seriesId,
+            seriesName = s.seriesName,
+            value = point.value,
+            item = s.items.getOrNull(point.sourceIndex),
+            paletteIndex = s.paletteIndex,
+        )
+    }
+
     override fun describe(): List<ChartLayerSummary> = series.map { s ->
         ChartLayerSummary(
             seriesId = s.seriesId,
@@ -332,8 +356,8 @@ internal class LineLayer(
      * zero.
      */
     private fun baselineWithin(context: ChartRenderContext): Float {
-        val plot = context.coordinates.plotArea
-        val zero = context.coordinates.baseline
+        val plot = context.cartesian.plotArea
+        val zero = context.cartesian.baseline
         return zero.coerceIn(plot.top, plot.bottom)
     }
 

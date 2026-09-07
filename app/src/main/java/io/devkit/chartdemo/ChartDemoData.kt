@@ -111,6 +111,44 @@ object ChartDemoData {
         ChartSeries(id = "churned", name = "Churned", data = churnedCustomers),
     )
 
+    /** A part-to-whole breakdown, for pie and donut charts. */
+    data class Expense(val category: String, val amount: Double)
+
+    /** A metric measured against a range, for radial bars. */
+    data class Metric(val name: String, val value: Double, val unit: String)
+
+    val expenseBreakdown: List<Expense> = listOf(
+        Expense("Rent", 1_800.0),
+        Expense("Food", 720.0),
+        Expense("Transport", 540.0),
+        Expense("Utilities", 360.0),
+        Expense("Savings", 300.0),
+        Expense("Other", 180.0),
+    )
+
+    val expenseTotal: Double = expenseBreakdown.sumOf { it.amount }
+
+    val systemMetrics: List<Metric> = listOf(
+        Metric("CPU", 72.0, "%"),
+        Metric("Memory", 46.0, "%"),
+        Metric("Disk", 88.0, "%"),
+        Metric("Network", 31.0, "%"),
+    )
+
+    /**
+     * Two years of daily readings — enough that the whole series is a smear at
+     * full extent and only becomes readable once zoomed.
+     */
+    val dailyReadings: List<Reading> = run {
+        val start = 1_700_000_000_000L
+        val day = 24 * 60 * 60 * 1000L
+        List(730) { index ->
+            val seasonal = 12.0 * kotlin.math.sin(index / 58.0)
+            val weekly = 3.0 * kotlin.math.sin(index / 1.1)
+            Reading(start + index * day, 18.0 + seasonal + weekly)
+        }
+    }
+
     /** A dense, deterministic waveform for the performance demonstration. */
     fun dense(count: Int): List<Revenue> = List(count) { index ->
         val angle = index / 40.0

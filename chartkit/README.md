@@ -1,8 +1,9 @@
 # ChartKit
 
 Compose-native data visualisation for Android. Line, area, bar, horizontal,
-grouped, stacked and 100% stacked charts — all on one Cartesian engine, with
-shared scales, axes, layout, interaction, animation, theming and accessibility.
+grouped, stacked and 100% stacked charts on a Cartesian coordinate system; pie,
+donut and radial bar on a polar one — all on **one engine**, sharing scales,
+layout, layers, interaction, animation, theming, overlays and accessibility.
 
 ChartKit charts **your** data classes. There is no entry type to convert into:
 
@@ -24,9 +25,10 @@ theming, which is the opposite of the point.
 ## Contents
 
 - [Install](#install) · [Requirements](#requirements) · [Run the sample](#run-the-sample)
-- Charts: [Line](#line-chart) · [Area](#area-chart) · [Bar](#bar-chart) · [Horizontal](#horizontal-bars) · [Grouped](#grouped-bars) · [Stacked](#stacked-bars) · [100% stacked](#100-stacked-bars) · [Multi-series](#multiple-series) · [Combined](#combined-charts)
+- Cartesian charts: [Line](#line-chart) · [Area](#area-chart) · [Bar](#bar-chart) · [Horizontal](#horizontal-bars) · [Grouped](#grouped-bars) · [Stacked](#stacked-bars) · [100% stacked](#100-stacked-bars) · [Multi-series](#multiple-series) · [Combined](#combined-charts)
+- Polar charts: [Pie](#pie-chart) · [Donut](#donut-chart) · [Radial bar](#radial-bar-chart) · [Polar coordinates](#polar-coordinates)
 - Configuration: [Axes](#axes) · [Grid](#grid-lines) · [Formatting](#formatting) · [Legends](#legends) · [Value labels](#value-labels)
-- Interaction: [Selection](#selection) · [Scrubbing](#scrubbing) · [Tooltips](#tooltips) · [State](#hoisted-state)
+- Interaction: [Interaction modes](#interaction-modes) · [Selection](#selection) · [Scrubbing](#scrubbing) · [Crosshair](#crosshair) · [Zoom and pan](#zoom-and-pan) · [Range selection](#range-selection) · [Tooltips](#tooltips) · [State](#hoisted-state)
 - Presentation: [Theming](#theming) · [Animation](#animation) · [Accessibility](#accessibility) · [Loading, empty and error](#loading-empty-and-error) · [Sizing](#sizing)
 - Data: [X values](#x-values) · [Missing values](#missing-values) · [Ordering](#ordering) · [Edge cases](#edge-cases)
 - [Architecture](#architecture) · [Performance](#performance) · [Limitations](#current-limitations) · [Roadmap](#roadmap)
@@ -95,10 +97,12 @@ Open the drawer and pick a **ChartKit** destination:
 
 | Screen | Shows |
 | --- | --- |
-| Chart gallery | Every 0.1 chart type, with live toggles for grid, points, legend, labels, smoothing and animation |
+| Chart gallery | Every Cartesian chart type, with live toggles for grid, points, legend, labels, smoothing and animation |
 | Chart interaction | Tap selection, scrubbing, a custom tooltip, legend toggling |
 | Chart theming | `ChartKitTheme` overrides, dark mode, compact/currency/percent/date formatting |
 | Chart states | Loading, empty and error slots; single-point, constant and gapped datasets; 5,000 points; accessibility semantics |
+| Polar charts | Pie, donut with live centre content, radial bars, a 270° gauge, and values a pie cannot represent |
+| Zoom, pan and range | 730 daily readings: pinch, pan, reset, animate to a window, crosshair, and range selection reported in dates |
 
 ---
 
@@ -306,6 +310,149 @@ not experimental and are not expected to change.
 
 ---
 
+## Pie chart
+
+```kotlin
+data class Expense(val category: String, val amount: Double)
+
+PieChart(
+    data = expenses,
+    value = { it.amount },
+    label = { it.category },
+    modifier = Modifier.fillMaxWidth().height(280.dp),
+)
+```
+
+No conversion step and no slice type: `data` is a `List<Expense>` and stays one,
+exactly as it does for a line or bar chart.
+
+Values are **normalised**, so they need not sum to anything in particular —
+`40, 30, 20, 10` and `0.4, 0.3, 0.2, 0.1` draw the same chart.
+
+| Parameter | Default | Notes |
+| --- | --- | --- |
+| `startAngle` | `0` | Zero is twelve o'clock |
+| `sweepAngle` | `360` | Less than a full circle for a gauge or half-donut |
+| `direction` | `Clockwise` | |
+| `sliceGap` | `0` | Degrees between slices, taken out of each slice's own sweep so the circle still closes |
+| `labelPosition` | `None` | `Inside`, `Outside`, or leave the names to the legend |
+| `labelContent` | `LabelAndPercentage` | `Label`, `Value`, `Percentage` |
+| `color` | `null` | `(T) -> Int?` for categories whose colour carries meaning |
+| `valuePolicy` | `Ignore` | See below |
+
+### Angles
+
+**Zero degrees is at twelve o'clock and angles increase clockwise.** That is not
+what a canvas does — `drawArc` measures from three o'clock — and translating it
+once, inside the engine, is what stops `startAngle = -90f` appearing in every
+call site. No ChartKit API exposes the canvas convention.
+
+### Values a pie cannot represent
+
+A share of a whole is never negative, and `NaN` is not a share at all. Such
+values are **dropped**: they contribute nothing to the total and draw no slice,
+while keeping their legend row and their palette slot so a chart whose data is
+briefly wrong does not recolour itself. Taking the absolute value instead would
+draw a positive share of a total that value reduced.
+
+```kotlin
+PieChart(..., valuePolicy = PolarValuePolicy.Reject)   // throw instead
+```
+
+Every degenerate input renders: an empty list and an all-zero dataset show the
+empty content, a single value fills the circle, and a value a millionth of the
+total still gets a real fraction rather than a division by zero.
+
+### Slice labels
+
+`SliceLabelPosition.Inside` draws a label only where the slice is genuinely big
+enough — the arc at the label's radius wider than the text, and the ring taller
+than it — so a pie with one dominant slice labels that one and leaves the
+slivers to the legend. `Outside` puts them beyond the ring with a leader line,
+skipping any whose measured box would overlap one already placed or leave the
+plot. Nothing is shrunk or ellipsised.
+
+## Donut chart
+
+```kotlin
+DonutChart(
+    data = usage,
+    value = { it.value },
+    label = { it.label },
+    innerRadiusRatio = 0.6f,
+    centerContent = {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("3,600", style = MaterialTheme.typography.headlineSmall)
+            Text("total", style = MaterialTheme.typography.labelSmall)
+        }
+    },
+)
+```
+
+Not a separate renderer: it calls `PieChart` with a non-zero inner radius,
+because a donut *is* a pie with a hole — and the hole lives in the coordinate
+system, not in the drawing.
+
+**`centerContent` is a Compose slot**, laid out inside the hole rather than
+rasterised onto the canvas, so it can hold anything: a total, a percentage, an
+icon, a small KPI. It scales with the app's text settings and is readable by a
+screen reader.
+
+It takes **no pointer input**. The hole belongs to no slice, so nothing is
+stolen from the chart, and the middle of a donut never becomes a dead zone.
+A tap in the hole selects nothing — which is the truth, and is asserted by a
+test.
+
+## Radial bar chart
+
+```kotlin
+data class Metric(val name: String, val value: Double)
+
+RadialBarChart(
+    data = metrics,
+    value = { it.value },
+    label = { it.name },
+    maxValue = 100.0,
+)
+```
+
+Concentric rings, outermost first. Each is drawn against a full **track** — the
+"out of 100" a 72% ring is read against; without it a short arc says nothing.
+
+**The range is yours.** `minValue` and `maxValue` name the domain a value's
+sweep is measured against, and neither is fixed at a percentage: storage in
+gigabytes, a score out of five, a temperature between −10 and 40 all work
+without normalising the data first. `maxValue = null` derives the maximum from
+the data, which is right for a comparison and wrong for a target — so it is not
+the default.
+
+Out-of-range values clamp; `RadialRangePolicy.Reject` throws instead. A bar
+cannot sweep past its own track, so the alternative to clamping is no bar at all.
+
+A partial sweep turns the same chart into a gauge:
+
+```kotlin
+RadialBarChart(..., startAngle = 225f, sweepAngle = 270f)
+```
+
+Hit testing picks the ring by radius: a point is in exactly one band, and the
+visible gap between two rings belongs to neither.
+
+## Polar coordinates
+
+Pie, donut and radial bar are three high-level charts on **one**
+`PolarCoordinates` — a centre, a ring between an inner and an outer radius, a
+start angle and a sweep. `PolarGeometry` holds the arithmetic: angle
+normalisation, points on the circumference, slice boundaries, centroids, arc
+containment and hit testing, all plain Kotlin and all unit-tested on the JVM.
+
+That is the sibling of `CartesianCoordinates`, and everything above the
+`CoordinateSystem` interface is shared between them: the layer model, the
+selection model, the tooltip overlay, the animation clock, the legend, the theme
+and the accessibility layer. A polar chart costs two layers, not a second engine.
+
+---
+
 ## Axes
 
 ```kotlin
@@ -433,6 +580,68 @@ nothing is shrunk or ellipsised, so what survives is always legible.
 
 ---
 
+## Interaction modes
+
+Every gesture ChartKit recognises is arbitrated by **one** pointer handler, and
+configured by one object:
+
+```kotlin
+LineChart(..., interaction = ChartInteraction.Explorable)
+```
+
+| Preset | Behaviour |
+| --- | --- |
+| `ChartInteraction.Default` | Tap selects, drag scrubs. Lines and areas |
+| `ChartInteraction.TapOnly` | Tap selects, drag does nothing. Bars |
+| `ChartInteraction.Explorable` | Pinch zooms, drag pans once zoomed, tap selects |
+| `ChartInteraction.RangeSelect` | Drag selects a domain range, pinch still zooms |
+| `ChartInteraction.None` | No pointer input at all |
+
+Or state it directly:
+
+```kotlin
+ChartInteraction(
+    tapSelects = true,
+    dragMode = ChartDragMode.PanWhenZoomed,
+    zoomEnabled = true,
+)
+```
+
+### Why a drag mode and not three booleans
+
+`ChartDragMode` is an enum because one finger moving across the plot cannot
+simultaneously scrub, pan and drag out a range. Three booleans would let a
+caller ask for all three and get whichever the implementation happened to check
+first. Everything that *can* compose still does: tapping always selects, a pinch
+always zooms when zoom is on, and the crosshair follows whatever the drag is
+doing.
+
+| `ChartDragMode` | A single-finger drag… |
+| --- | --- |
+| `None` | does nothing; the parent keeps its scroll |
+| `Scrub` | moves the selection to the nearest point |
+| `Pan` | moves the viewport |
+| `Range` | drags out an interval of the domain |
+| `PanWhenZoomed` | pans while zoomed in, scrubs at full extent |
+
+### Gesture priority
+
+```text
+two fingers             → zoom, and pan from the centroid
+one finger past slop    → whatever dragMode says
+released without moving → tap
+```
+
+A second finger wins outright: a scrub continuing underneath a pinch would move
+the selection while the reader was zooming. When the second finger lifts, a
+chart that can pan keeps panning with the remaining one rather than switching to
+scrubbing mid-gesture.
+
+**Slop is measured along the domain axis only** — horizontally for a vertical
+chart. A vertical drag therefore never passes slop, is never consumed, and the
+surrounding scrollable keeps it. That is what lets a chart live in a scrolling
+screen without trapping the finger.
+
 ## Selection
 
 ```kotlin
@@ -471,37 +680,237 @@ Dragging is detected on the **domain axis only** — horizontally for a vertical
 chart, vertically for a horizontal one — so a chart inside a vertically
 scrolling screen does not steal the scroll.
 
-## Tooltips
+## Crosshair
 
-The default tooltip shows the series, the x value and the value. Replace it
-wholesale:
+```kotlin
+LineChart(
+    series = listOf(revenueSeries, expensesSeries, forecastSeries),
+    x = { it.month },
+    y = { it.amount },
+    crosshair = CrosshairConfig.Vertical,
+)
+```
+
+| Preset | Draws |
+| --- | --- |
+| `CrosshairConfig.None` | nothing |
+| `CrosshairConfig.Vertical` | a vertical guide plus axis readouts |
+| `CrosshairConfig.Both` | vertical and horizontal guides |
+
+Or state it: `CrosshairConfig(enabled = true, vertical = true, horizontal =
+false, showAxisLabels = true)`.
+
+The crosshair is a **layer on the coordinate system**, not a feature of
+`LineChart`. It works on lines, areas, bars and combined charts, and reuses the
+same nearest-point search as scrubbing — there is no second gesture recogniser
+and no second definition of "the selected x".
+
+Its guides are expressed in domain and value terms, so on a horizontal bar chart
+they run the correct way round without a second code path. The axis readouts are
+small chips drawn in the gutter, formatted by the chart's **own axis
+formatter**, so a chip never writes a date differently from the axis beneath it.
+
+The guide drawn through a plain scrub selection is the same layer with its chips
+turned off — `ChartDefaults.SelectionGuide`, which is what every chart uses by
+default.
+
+## Zoom and pan
+
+```kotlin
+val viewport = rememberChartViewportState()
+
+LineChart(
+    data = readings,
+    x = { it.at },
+    y = { it.value },
+    interaction = ChartInteraction.Explorable,
+    viewportState = viewport,
+)
+
+Button(onClick = { viewport.reset() }) { Text("Reset zoom") }
+```
+
+Pinch to zoom, drag to pan once zoomed. A chart that does not opt in never needs
+a viewport state: the default interaction does not zoom, and charts create one
+internally when none is supplied.
+
+### Zoom changes the domain, not the canvas
+
+ChartKit does **not** zoom with `Canvas.scale()`. A canvas transform is one line
+and wrong in five places: the axis labels scale into unreadable sizes, the tick
+values stop being round, stroke widths grow with the zoom, hit testing lands on
+the wrong point, and the tooltip anchors where the data no longer is.
+
+Instead the **viewport narrows the domain the scales map**, and everything
+downstream is recomputed from it. Zoom into an hour of a year-long series and
+the axis relabels itself in minutes; tap a point and you select the point you
+tapped; drag out a range and it is reported in dates.
+
+### The viewport
+
+`ChartViewport` is a window over the full domain, expressed as `[start, end]` in
+`0..1`. One type therefore serves a numeric axis, a time axis and a category
+axis — "the middle third of the bands" is meaningful on all three — while the
+state republishes it in logical values:
+
+```kotlin
+viewport.zoom                 // 12.5
+viewport.visibleDomain        // NumericDomain(…) — epoch millis, or numbers
+viewport.visibleCategoryRange // 3..7, on a banded axis
+viewport.isFullyZoomedOut
+```
+
+### Focal-point zoom
+
+A pinch keeps the value under the fingers where it is. Put two fingers on March
+and March stays under them; zooming about the centre instead makes the data
+slide away from the gesture. The invariant is asserted directly by a test.
+
+### Limits and clamping
+
+```kotlin
+rememberChartViewportState(limits = ChartZoomLimits(maxZoom = 20.0))
+```
+
+The minimum zoom is fixed at the full domain: a chart zoomed out past its own
+data shows blank space a reader cannot distinguish from missing data. Panning is
+clamped the same way — there is no overscroll, because there is nothing out
+there to come back for.
+
+### Moving the viewport programmatically
+
+```kotlin
+viewport.viewport = ChartViewport.trailing(0.08)   // immediate
+scope.launch { viewport.animateToFull() }          // eased
+scope.launch { viewport.animateTo(ChartViewport.between(range.startFraction, range.endFraction)) }
+```
+
+Programmatic moves animate; **gesture-driven zoom and pan deliberately do not**,
+because a viewport easing towards its target lags behind the fingers driving it.
+
+`rememberSaveableChartViewportState()` survives configuration changes and
+process death — a reader who rotated the device while zoomed into March would be
+surprised to find themselves back at the whole year.
+
+## Range selection
 
 ```kotlin
 LineChart(
     ...,
-    tooltip = { selection ->
+    interaction = ChartInteraction(dragMode = ChartDragMode.Range),
+    onRangeSelectionChanged = { range ->
+        if (range?.phase == ChartRangeSelectionPhase.Completed) {
+            filterTo(range.start, range.end)
+        }
+    },
+)
+```
+
+Drag across the plot and the selected interval is drawn as a translucent band
+with marked edges — the edges are not decoration: a region distinguished only by
+a tint disappears for a reader with low contrast sensitivity.
+
+`ChartRangeSelection` is stated in **logical domain values**, not pixels:
+
+```kotlin
+range.start          // ChartX.Time(…) — 23 Sep
+range.end            // ChartX.Time(…) — 25 Oct
+range.items          // the caller's own objects inside the range
+range.startFraction  // 0.34 — what a viewport can be built from
+range.phase          // InProgress · Completed · Cleared
+```
+
+The phase matters: a range still being dragged is a preview worth showing, and a
+completed one is a decision worth acting on. Collapsing both into one callback
+makes every drag frame look like a committed choice.
+
+Because the range is held in full-domain fractions, it survives a zoom — the
+band stays over the same dates — and "zoom to the selection" is one line:
+
+```kotlin
+viewport.animateTo(ChartViewport.between(range.startFraction, range.endFraction))
+```
+
+Interactive resize handles are not implemented; a range is dragged out afresh.
+The edges are drawn as handles so that adding them later changes no geometry.
+
+## Tooltips
+
+Every chart's tooltip slot receives the same `ChartTooltipData`, whatever
+produced the selection — a tapped bar, a scrubbed line, a crosshair over four
+series, a pie slice:
+
+```kotlin
+LineChart(
+    ...,
+    tooltip = { data ->
         Card {
             Column(Modifier.padding(10.dp)) {
-                Text(selection.item.month, fontWeight = FontWeight.SemiBold)
-                Text(money.format(selection.item.amount))
+                Text(data.xLabel, fontWeight = FontWeight.SemiBold)
+                data.entries.forEach { entry ->
+                    Text("${entry.seriesName}: ${money.format(entry.value)}")
+                }
             }
         }
     },
 )
 ```
 
+`ChartTooltipData` carries:
+
+| Field | |
+| --- | --- |
+| `selection` | the nearest series — its `item` is your own object |
+| `entries` | one per reported series: name, value, palette slot, and your item |
+| `anchor` | where the tooltip should point, in pixels |
+| `xLabel` | the domain value, already formatted by the chart's axis formatter |
+| `isMultiSeries` | whether more than one series is reported |
+
 Or wrap the default rather than rewriting it:
 
 ```kotlin
-tooltip = { ChartDefaults.Tooltip(it, showSeriesName = false) }
+tooltip = { ChartDefaults.Tooltip(it, showSeriesNames = false) }
 ```
 
-Placement is **measured**: preferred above the anchor, flipped below when there
-is no room, and pulled back inside the plot horizontally — so it never leaves
-the chart at the first or last point, which on a rising series is the most
-interesting one.
-
 `tooltip = null` disables it and leaves the selection callback working.
+
+### Multi-series tooltips
+
+```kotlin
+LineChart(series = threeSeries, ..., crosshair = CrosshairConfig.Vertical)
+```
+
+```text
+Jan
+● Revenue    30,000
+● Expenses   21,000
+● Profit      9,000
+```
+
+`sharedTooltip` turns one selection into every series' value at the same domain
+position. It defaults to on when a **full** crosshair is configured — that is,
+when `showAxisLabels` is true, which only the `Vertical` and `Both` presets set
+— because a crosshair over four lines that reported one of them is half a
+feature. The plain selection guide keeps single-point tooltips. Set it directly
+to override either way.
+
+Values are matched on the resolved domain value, not on the point index: two
+series over the same months need not have the same number of points, and index
+matching would report February's revenue against March's expenses.
+
+### The overlay engine
+
+Tooltips are positioned by **one** engine, shared by every chart. Chart-specific
+code supplies an anchor and the content; none of it knows how an overlay is
+measured, flipped or clamped. That is what stops six chart types growing six
+subtly different placements, and what makes a custom Compose tooltip behave
+exactly like the built-in one.
+
+Placement is measured, not offset by a constant: preferred above the anchor,
+flipped below when there is no room, and pulled back inside the plot — so it
+never leaves the chart at the first or last point, which on a rising series is
+the most interesting one. `ChartOverlayPlacement` also offers `Below`, `Start`
+and `End` for content that should sit beside its anchor.
 
 ## Hoisted state
 
@@ -647,6 +1056,40 @@ unusable.
 upward", "a strong correlation" or any other interpretation. Those are
 statistical claims ChartKit has not computed, and a confidently wrong one is
 worse than silence for a reader who cannot check it.
+
+### Polar charts
+
+A pie announces the share, because the share is what the picture communicates:
+
+```text
+Monthly expenses. 6 data points.
+Rent (46.2%): 1,800, Food (18.5%): 720, Transport (13.8%): 540, …
+```
+
+A radial bar announces the value **against its range**, because a reader who
+cannot see the ring has no other way to learn the maximum:
+
+```text
+System utilisation. 4 data points.
+CPU: 72 out of 100, Memory: 46 out of 100, Disk: 88 out of 100, …
+```
+
+### Interaction state
+
+Selection, viewport and range all land in the **same** description, so a screen
+reader hears what is on screen and what has been selected without any of it
+being announced twice by a separate node:
+
+```text
+… Showing Sep 2025 to Nov 2025. Jan: 24,000. Selected 23 Sep 2025 to 25 Oct 2025.
+```
+
+The viewport line appears only while zoomed, and the range line only once the
+drag has **completed** — a live region updated on every pointer frame turns a
+screen reader into a stream of half-sentences.
+
+Selection information lives in the semantics whether or not a tooltip is shown,
+so turning tooltips off never hides a value from a screen reader.
 
 The current selection is announced through a polite live region as it changes.
 
@@ -828,28 +1271,55 @@ chart, `tickCount < 2`, `categoryPadding >= 1`, a `Fixed` domain with
 ## Architecture
 
 ```text
-CartesianChartCore              one engine, every chart
-├── model      ChartSeries<T>, ChartX, ChartXResolver, PlotData, ChartSelection<T>
-├── scale      LinearScale, CategoryScale, TimeScale, NumericDomain, DomainPolicy, TickGenerator
-├── coordinate CoordinateSystem → CartesianCoordinates (DomainAxis + value scale + orientation)
-├── layout     ChartLayoutEngine: bounds − axis gutters − label overhang → PlotArea
-├── axis       ChartAxis, AxisPosition, measurement, label thinning, rendering
-├── layer      grid · line (line + area + points) · bar · value labels · selection
-├── interaction ChartSelectionMode, HitTestMode
-├── animation  reveal fraction + value interpolation
-├── theme      ChartKitTheme → ChartColors / ChartTypography / ChartDimensions
-├── formatter  ChartValueFormatter, ChartTimeFormatter and built-ins
-├── state      ChartState<T>
-└── accessibility factual summaries and selection announcements
+Core
+├── model        ChartSeries<T> · ChartX · ChartXResolver · PlotData
+│                ChartSelection<T> (+ Cartesian / Polar details)
+│                ChartTooltipData<T> · ChartRangeSelection<T>
+├── scale        LinearScale · CategoryScale · TimeScale · NumericDomain
+│                DomainPolicy · TickGenerator
+├── geometry     ChartRect/Offset/Insets · bar stacking · line interpolation
+│                PolarGeometry · RadialGeometry
+├── layout       ChartLayoutEngine → Cartesian plot area (axis gutters)
+│                                  → polar plot area (largest centred square)
+├── viewport     ChartViewport · ChartZoomLimits
+├── animation    reveal fraction · value interpolation · selection emphasis
+├── theme        ChartKitTheme → ChartColors / ChartTypography / ChartDimensions
+├── formatter    ChartValueFormatter · ChartTimeFormatter and built-ins
+├── accessibility factual summaries, selection, viewport and range announcements
+└── state        ChartState<T> · ChartViewportState
+
+Coordinates
+├── CartesianCoordinates   DomainAxis + value scale + orientation
+└── PolarCoordinates       centre + inner/outer radius + start/sweep + direction
+
+Layers
+├── Cartesian   grid · line (line + area + points) · bar · value labels
+│               crosshair · range selection
+└── Polar       slice (pie + donut) · radial bar
+
+Interaction
+└── ChartGestureCoordinator   tap · scrub · pan · pinch · range, arbitrated once
+    ChartInteraction · ChartDragMode · CrosshairConfig · HitTestMode
+
+Overlay
+└── ChartOverlay              measured placement for tooltips and custom content
+
+High-level charts
+├── LineChart · AreaChart · BarChart · HorizontalBarChart · CartesianChart
+└── PieChart · DonutChart · RadialBarChart
 ```
 
 `LineChart`, `AreaChart`, `BarChart`, `HorizontalBarChart` and `CartesianChart`
-all reduce to one call into `CartesianChartCore`. There is one plot area, one
-pair of scales, one hit-testing pass and one animation clock in the library.
+all reduce to one call into `CartesianChartCore`; `PieChart`, `DonutChart` and
+`RadialBarChart` to one call into `PolarChartCore`. The two cores differ in
+exactly three things — the layout call, the coordinate construction and the hit
+test. Everything else is the same code.
 
 **A line chart is** a Cartesian chart + a line layer + optional points + axes +
 grid. **A bar chart is** a Cartesian chart + a bar layer + axes + grid. **A
-horizontal bar chart is** the same bar layer with the orientation flipped.
+horizontal bar chart is** the same bar layer with the orientation flipped. **A
+pie chart is** a polar chart + a slice layer. **A donut is** a pie with an inner
+radius. **A radial bar chart is** a polar chart + a radial layer.
 
 ### Portability
 
@@ -862,16 +1332,22 @@ converts at the boundary.
 
 ### Room to grow
 
-`CoordinateSystem` is an abstraction *over* Cartesian, not a synonym for it, so
-a polar system for pie, donut, radar and radial bar is a sibling rather than a
-rewrite. `ChartLayerRenderer` is small and defaulted, so an annotation rule, an
-event marker or a candlestick is a new implementation and not a change to the
-coordinate system, the layout engine or the interaction model.
+The architecture was built for a second coordinate system, and then got one:
+`PolarCoordinates` is a sibling of `CartesianCoordinates` under the same
+`CoordinateSystem` interface, and adding it changed nothing in the layer model,
+the selection model, the overlay, the animation clock, the theme or the
+accessibility layer.
+
+`ChartLayerRenderer` is small and defaulted, so an annotation rule, an event
+marker or a candlestick is a new implementation rather than a change to the
+coordinate system, the layout engine or the interaction model. The crosshair and
+the range overlay are both ordinary layers, which is why they work on every
+Cartesian chart rather than on the one they were written for.
 
 ## Performance
 
-ChartKit 0.1 does not downsample and does not claim a million points. What it
-does claim is that nothing degrades catastrophically as the dataset grows.
+ChartKit does not downsample and does not claim a million points. What it does
+claim is that nothing degrades catastrophically as the dataset grows.
 
 **Drawing primitives, not composables.** Paths, bars, grid lines, axes and
 points are `DrawScope` calls. Composables are used for the tooltip, the legend
@@ -890,7 +1366,20 @@ re-interpolate its curve every frame.
 
 **Hit testing is sublinear where it can be.** Bars are a rectangle test; line
 points use binary search when the series is x-ordered — 14 comparisons over
-10,000 points against 10,000 for a scan, on every pointer move during a scrub.
+10,000 points against 10,000 for a scan, on every pointer move during a scrub
+or a crosshair drag. Pie slices are an angle comparison after one radius
+rejection; radial bars are a radius comparison. None of it inspects pixels.
+
+**Zoom narrows the domain, and the geometry follows.** A zoomed chart's scales
+map only the visible interval, so its layers produce only the geometry inside
+it, and the data layers are clipped to the plot so nothing off-screen is
+painted across the axes. Panning rebuilds that geometry once per frame of the
+drag from cached, already-normalised series — not from the caller's original
+list.
+
+**Gestures allocate nothing per frame.** The coordinator resolves a gesture's
+meaning once, at the start of the drag, and then reports intent — "pan by this
+fraction" — rather than re-deriving chart geometry on every pointer event.
 
 ```kotlin
 ChartPerformance(
@@ -912,25 +1401,36 @@ These are sanity bounds, not benchmarks: the repository has no benchmarking
 infrastructure, and standing one up for a single library would have been a
 larger change than the library.
 
+**Polar rendering.** Slices and rings are `drawArc` and path calls — one per
+slice or per track. There is no composable per wedge: fine for four slices,
+ruinous for forty, and unnecessary for a shape the canvas draws natively.
+Compose content is used only for the legend, the tooltip and a donut's centre.
+
 Practical guidance: up to a few thousand points per series is comfortable. Past
-that, downsample in your own layer — 0.1 has no built-in decimation.
+that, downsample in your own layer — ChartKit has no built-in decimation.
 
 ## Current limitations
 
 Stated plainly, because a roadmap read as a feature list is how a library gets
 adopted for something it cannot do.
 
-**Not implemented in 0.1:**
+**Not supported:**
 
-- Pie, donut, radial bar, radar — no polar coordinate system yet
+- Radar and polar-area charts. The polar coordinate system is here and both are
+  layers on it, but neither layer is written
 - Scatter, bubble, histogram, box plot, violin, heatmap
 - Candlestick and OHLC
 - Sankey, sunburst, treemap, funnel, network graphs
-- Zoom, pinch, pan, range selection
-- A full financial crosshair (the scrub guide line is its foundation)
 - Stacked **areas** — multi-series areas overlap, each measured from the baseline
 - Public annotations (rules, ranges, event markers, text)
-- Secondary axes (the architecture supports them; the API does not expose them)
+- Secondary axes — the architecture supports them; the API does not expose them
+- Interactive range **handles**: a range is dragged out afresh rather than
+  resized by its edges
+- Zoom and pan on polar charts. Pie, donut and radial bar take tap selection and
+  tooltips only; a viewport over an angle is a different interaction, not a
+  reuse of this one
+- Y-axis zoom. The viewport narrows the domain axis only
+- Fling/inertial panning — a drag pans directly and stops when it stops
 - Keyboard chart exploration (selection is architected for it; not wired)
 - Downsampling or decimation
 - GPU/`RenderNode` rendering
@@ -951,37 +1451,36 @@ adopted for something it cannot do.
   one theme against the system gets a palette tuned for the other. Pass
   `materialDerivedChartColors(isDark = …)` explicitly in that case
 - Toggling a series through the legend hides or shows it immediately; it does
-  not fade in or out. Enter/exit transitions are 0.2 work
+  not fade in or out
+- A polar legend is display-only. Hiding one slice of a part-to-whole chart
+  would renormalise the rest, so the remaining shares would become percentages
+  of a different total — a different chart, not a filtered one
+- Outside slice labels are skipped rather than repositioned when they collide.
+  Nothing is shrunk or ellipsised, so what survives is legible, but a very
+  crowded pie will label fewer slices than it has
 
 ## Roadmap
 
-**0.2 — polar and the visualisation grammar**
-
-- `PolarCoordinates` alongside `CartesianCoordinates`; pie, donut, radial bar,
-  radar on it
+- Radar and polar-area layers on the existing polar coordinate system
 - Scatter and bubble layers, which need the layer model to carry more than one
   y per mark
 - Public annotation layers: horizontal and vertical rules, ranges, event markers
-- Zoom, pan and a viewport state, with a range-selection API
-- A full crosshair, built on the existing selection guide
 - Stacked areas
 - Secondary value axes
-- Stabilising the `CartesianChart` layer DSL and dropping the experimental marker
-
-**Later**
-
+- Interactive range handles
 - Statistical layers (histogram, box plot) once the layer model carries
   distributions
 - Financial layers (candlestick, OHLC)
 - Downsampling for very large series
 - Keyboard and focus-based chart exploration
+- Stabilising the `CartesianChart` layer DSL and dropping the experimental marker
 - Compose Multiplatform, if DevKit adopts KMP
 
 ## Testing
 
 ```bash
-./gradlew :chartkit:testDebugUnitTest          # 187 JVM tests
-./gradlew :chartkit:connectedDebugAndroidTest  # 35 Compose UI tests
+./gradlew :chartkit:testDebugUnitTest          # 294 JVM tests
+./gradlew :chartkit:connectedDebugAndroidTest  # 74 Compose UI tests
 ```
 
 | Suite | Covers |
@@ -990,15 +1489,21 @@ adopted for something it cannot do.
 | `TickGeneratorTest` | Round steps, negatives, small decimals, large values, constants, absurd counts |
 | `BarGeometryTest` | Stacking, sign separation, percent normalisation, rectangles, orientation, reveal, corners |
 | `LineGeometryTest` | Segmentation, monotone overshoot, binary search, ordering |
+| `PolarGeometryTest` | Angle convention, wrap-around, slice normalisation, invalid values, gaps, hit testing, donut holes |
+| `RadialGeometryTest` | Value-to-sweep mapping, custom ranges, out-of-range policy, concentric track lookup |
+| `ViewportTest` | Zoom in and out, focal-point preservation, limits, pan clamping, reset, domain and category conversion |
 | `NormalizationTest` | Axis inference, missing values, ordering, visibility, palette slots, duplicate ids |
 | `LayoutAndAxisTest` | Gutters, titles, overhang, squeezed plots, label thinning |
 | `FormatterTest` | Locale behaviour, compaction, percent, currency, dates, time zones |
 | `AccessibilityAndPaletteTest` | Summary content, absence of statistical claims, palette separation, HSL round-trip |
-| `CoordinatesAndOverlayTest` | Orientation mapping, baselines, tooltip placement |
+| `SelectionModelTest` | Shared selection shape across coordinate systems, tooltip data, range model, interaction config |
+| `CoordinatesAndOverlayTest` | Orientation mapping, baselines, overlay placement and flipping |
 | `MissingValuePolicyTest` | That `Break`, `Connect` and `Zero` genuinely differ |
 | `LargeDatasetTest` | 1,000 / 5,000 / 10,000-point behaviour |
-| `ChartRenderingTest` | Every chart type, edge-case datasets, states, animated frames |
+| `ChartRenderingTest` | Every Cartesian chart type, edge-case datasets, states, animated frames |
 | `ChartInteractionTest` | Tap, scrub, tooltips, hoisted state, legend toggling |
+| `ChartPolarTest` | Pie and donut selection by angle, donut holes, centre content, radial track selection, invalid values, polar semantics |
+| `ChartViewportInteractionTest` | Pinch zoom, pan, clamping, reset, crosshair, shared tooltips, range selection in both directions |
 | `ChartSemanticsAndThemeTest` | Announcements, custom summaries, theme precedence, light and dark |
 
 ## Licence

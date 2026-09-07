@@ -33,6 +33,21 @@ import androidx.compose.ui.unit.dp
  * @param tooltipContent text on the tooltip.
  * @param valueLabel text for value labels drawn on bars and points.
  * @param emptyContent the muted colour for the built-in empty and error states.
+ * @param radialTrack the unfilled part of a radial bar's ring — the "100%" a
+ *   72% bar is measured against. Quiet by default: a track competing with its
+ *   bar is a track drawn wrong.
+ * @param crosshairGuide the crosshair's rules. Defaults to [selectionGuide],
+ *   because a crosshair *is* a selection made visible.
+ * @param crosshairLabelContainer the surface behind a crosshair's axis readout.
+ * @param crosshairLabelContent text on that readout.
+ * @param rangeFill the wash over a selected domain range.
+ * @param rangeBorder the range's edges. Drawn as well as the fill, not instead
+ *   of it: a region distinguished only by a tint is invisible to a reader with
+ *   low contrast sensitivity.
+ *
+ * The last five all default to values derived from the ones above them, so a
+ * `ChartColors(...)` written before polar and crosshair support existed still
+ * compiles and still looks right.
  */
 @Immutable
 data class ChartColors(
@@ -47,6 +62,12 @@ data class ChartColors(
     val tooltipContent: Color,
     val valueLabel: Color,
     val emptyContent: Color,
+    val radialTrack: Color = gridLine,
+    val crosshairGuide: Color = selectionGuide,
+    val crosshairLabelContainer: Color = tooltipContainer,
+    val crosshairLabelContent: Color = tooltipContent,
+    val rangeFill: Color = selectionHighlight,
+    val rangeBorder: Color = selectionGuide,
 ) {
     init {
         require(palette.isNotEmpty()) {
@@ -74,6 +95,10 @@ data class ChartTypography(
     val valueLabel: TextStyle,
     val tooltipTitle: TextStyle,
     val tooltipValue: TextStyle,
+    /** Labels drawn on pie and donut slices. */
+    val sliceLabel: TextStyle = valueLabel,
+    /** The value readout a crosshair puts on an axis. */
+    val crosshairLabel: TextStyle = axisLabel,
 )
 
 /**
@@ -100,6 +125,36 @@ data class ChartDimensions(
     val contentPadding: Dp = 4.dp,
     /** The height a chart falls back to when its caller constrains neither. */
     val defaultChartHeight: Dp = 200.dp,
+
+    // ---- polar ----------------------------------------------------------
+
+    /**
+     * How far a selected pie or donut slice lifts out of the ring.
+     *
+     * Displacement rather than a colour change, because it survives being
+     * printed, screenshotted or read by somebody who cannot distinguish the
+     * two colours involved.
+     */
+    val sliceSelectionOffset: Dp = 6.dp,
+
+    /** The ring a radial bar sweeps within. */
+    val radialBarThickness: Dp = 16.dp,
+
+    /** Space between concentric radial tracks. */
+    val radialBarSpacing: Dp = 6.dp,
+
+    /** Padding between a polar chart's outer radius and its plot area. */
+    val polarPadding: Dp = 8.dp,
+
+    // ---- interaction overlays -------------------------------------------
+
+    val crosshairWidth: Dp = 1.dp,
+
+    /** Padding inside a crosshair's axis readout. */
+    val crosshairLabelPadding: Dp = 4.dp,
+
+    /** The width of a range selection's edge markers. */
+    val rangeHandleWidth: Dp = 2.dp,
 )
 
 /**
@@ -227,6 +282,14 @@ fun materialDerivedChartColors(
         tooltipContent = scheme.inverseOnSurface,
         valueLabel = scheme.onSurfaceVariant,
         emptyContent = scheme.onSurfaceVariant,
+        // A radial track reads as the empty half of a measurement, so it takes
+        // the scheme's own container role rather than a tint of the bar.
+        radialTrack = scheme.surfaceVariant,
+        crosshairGuide = scheme.onSurface.copy(alpha = 0.55f),
+        crosshairLabelContainer = scheme.inverseSurface,
+        crosshairLabelContent = scheme.inverseOnSurface,
+        rangeFill = scheme.primary.copy(alpha = 0.16f),
+        rangeBorder = scheme.primary,
     )
 }
 

@@ -14,10 +14,12 @@ import io.devkit.chartkit.formatter.ChartValueFormatter
 import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.geometry.ChartOrientation
 import io.devkit.chartkit.geometry.DEFAULT_GROUP_PADDING
-import io.devkit.chartkit.interaction.ChartSelectionBehaviour
-import io.devkit.chartkit.interaction.ChartSelectionMode
+import io.devkit.chartkit.interaction.ChartInteraction
+import io.devkit.chartkit.interaction.CrosshairConfig
 import io.devkit.chartkit.interaction.HitTestMode
+import io.devkit.chartkit.model.ChartRangeSelection
 import io.devkit.chartkit.model.ChartSelection
+import io.devkit.chartkit.model.ChartTooltipData
 import io.devkit.chartkit.model.ChartSeries
 import io.devkit.chartkit.model.ChartXAxisKind
 import io.devkit.chartkit.model.ChartXResolver
@@ -26,7 +28,9 @@ import io.devkit.chartkit.model.normalizeSeries
 import io.devkit.chartkit.scale.CategoryScale
 import io.devkit.chartkit.scale.DomainPolicy
 import io.devkit.chartkit.state.ChartState
+import io.devkit.chartkit.state.ChartViewportState
 import io.devkit.chartkit.state.rememberChartState
+import io.devkit.chartkit.state.rememberChartViewportState
 
 /**
  * A bar chart over the caller's own data.
@@ -71,16 +75,19 @@ fun <T> BarChart(
     valueLabels: Boolean = false,
     valueFormatter: ChartValueFormatter? = null,
     animation: ChartAnimation = ChartAnimation.Default,
-    selectionMode: ChartSelectionMode = ChartSelectionMode.Tap,
-    selectionBehaviour: ChartSelectionBehaviour = ChartSelectionBehaviour.Default,
+    interaction: ChartInteraction = ChartInteraction.TapOnly,
+    crosshair: CrosshairConfig = ChartDefaults.SelectionGuide,
+    sharedTooltip: Boolean = crosshair.enabled && crosshair.showAxisLabels,
+    viewportState: ChartViewportState = rememberChartViewportState(),
     missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
     xResolver: ChartXResolver = ChartXResolver.Default,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
-    tooltip: (@Composable (ChartSelection<T>) -> Unit)? = {
-        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter, showSeriesName = false)
+    onRangeSelectionChanged: ((ChartRangeSelection<T>?) -> Unit)? = null,
+    tooltip: (@Composable (ChartTooltipData<T>) -> Unit)? = {
+        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter)
     },
     isLoading: Boolean = false,
     error: Throwable? = null,
@@ -107,14 +114,17 @@ fun <T> BarChart(
         valueLabels = valueLabels,
         valueFormatter = valueFormatter,
         animation = animation,
-        selectionMode = selectionMode,
-        selectionBehaviour = selectionBehaviour,
+        interaction = interaction,
+        crosshair = crosshair,
+        sharedTooltip = sharedTooltip,
+        viewportState = viewportState,
         missingValuePolicy = missingValuePolicy,
         xResolver = xResolver,
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
         onSelectionChanged = onSelectionChanged,
+        onRangeSelectionChanged = onRangeSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,
         error = error,
@@ -169,16 +179,19 @@ fun <T> BarChart(
     valueLabels: Boolean = false,
     valueFormatter: ChartValueFormatter? = null,
     animation: ChartAnimation = ChartAnimation.Default,
-    selectionMode: ChartSelectionMode = ChartSelectionMode.Tap,
-    selectionBehaviour: ChartSelectionBehaviour = ChartSelectionBehaviour.Default,
+    interaction: ChartInteraction = ChartInteraction.TapOnly,
+    crosshair: CrosshairConfig = ChartDefaults.SelectionGuide,
+    sharedTooltip: Boolean = crosshair.enabled && crosshair.showAxisLabels,
+    viewportState: ChartViewportState = rememberChartViewportState(),
     missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
     xResolver: ChartXResolver = ChartXResolver.Default,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
-    tooltip: (@Composable (ChartSelection<T>) -> Unit)? = {
-        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter, showSeriesName = series.size > 1)
+    onRangeSelectionChanged: ((ChartRangeSelection<T>?) -> Unit)? = null,
+    tooltip: (@Composable (ChartTooltipData<T>) -> Unit)? = {
+        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter)
     },
     isLoading: Boolean = false,
     error: Throwable? = null,
@@ -253,14 +266,19 @@ fun <T> BarChart(
         legend = legend,
         legendTogglesSeries = legendTogglesSeries,
         animation = animation,
-        selectionMode = selectionMode,
-        selectionBehaviour = selectionBehaviour,
+        interaction = interaction,
+        crosshair = crosshair,
         hitTestMode = HitTestMode.Contains,
+        sharedTooltip = sharedTooltip,
         state = state.asErased(),
+        viewportState = viewportState,
         onSelectionChanged = onSelectionChanged?.let { callback ->
             { erased -> callback(erased?.asTyped()) }
         },
-        tooltip = tooltip?.let { slot -> { erased -> slot(erased.asTyped()) } },
+        onRangeSelectionChanged = onRangeSelectionChanged?.let { callback ->
+            { erased -> callback(erased?.asTypedRange()) }
+        },
+        tooltip = tooltip?.let { slot -> { erased -> slot(erased.asTypedTooltip()) } },
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         isLoading = isLoading,
@@ -298,12 +316,16 @@ fun <T> HorizontalBarChart(
     valueLabels: Boolean = false,
     valueFormatter: ChartValueFormatter? = null,
     animation: ChartAnimation = ChartAnimation.Default,
-    selectionMode: ChartSelectionMode = ChartSelectionMode.Tap,
+    interaction: ChartInteraction = ChartInteraction.TapOnly,
+    crosshair: CrosshairConfig = ChartDefaults.SelectionGuide,
+    sharedTooltip: Boolean = crosshair.enabled && crosshair.showAxisLabels,
+    viewportState: ChartViewportState = rememberChartViewportState(),
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
-    tooltip: (@Composable (ChartSelection<T>) -> Unit)? = {
-        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter, showSeriesName = false)
+    onRangeSelectionChanged: ((ChartRangeSelection<T>?) -> Unit)? = null,
+    tooltip: (@Composable (ChartTooltipData<T>) -> Unit)? = {
+        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter)
     },
     isLoading: Boolean = false,
     error: Throwable? = null,
@@ -327,10 +349,14 @@ fun <T> HorizontalBarChart(
         valueLabels = valueLabels,
         valueFormatter = valueFormatter,
         animation = animation,
-        selectionMode = selectionMode,
+        interaction = interaction,
+        crosshair = crosshair,
+        sharedTooltip = sharedTooltip,
+        viewportState = viewportState,
         accessibility = accessibility,
         state = state,
         onSelectionChanged = onSelectionChanged,
+        onRangeSelectionChanged = onRangeSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,
         error = error,

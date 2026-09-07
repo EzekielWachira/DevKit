@@ -68,9 +68,10 @@ devKitPublishing {
     displayName.set("ChartKit")
     description.set(
         "Compose-native data visualisation for Android: line, area, bar, horizontal, grouped, " +
-            "stacked and 100% stacked charts on one Cartesian engine, with scales, axes, " +
-            "legends, tooltips, tap and scrub selection, animation, theming and accessibility " +
-            "semantics. Release-safe.",
+            "stacked and 100% stacked charts on a Cartesian coordinate system, and pie, donut " +
+            "and radial bar on a polar one, sharing one engine. Axes, legends, tooltips, " +
+            "crosshair, tap, scrub, pinch zoom, pan and range selection, animation, theming " +
+            "and accessibility semantics. Release-safe.",
     )
     versionKey.set("chartkit")
 }

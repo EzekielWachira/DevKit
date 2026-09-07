@@ -24,7 +24,14 @@ import io.devkit.chartkit.geometry.ChartOffset
  * @param y the value.
  * @param item the caller's data object at [pointIndex].
  * @param position where the selection landed in the plot, in pixels, for
- *   anchoring a tooltip or a marker.
+ *   anchoring a tooltip or a marker. The **common anchor**: a bar's top edge, a
+ *   line vertex, a pie slice's mid-ring point and a crosshair's intersection
+ *   all arrive here, which is what lets one overlay engine position a tooltip
+ *   for any of them.
+ * @param details geometry specific to the coordinate system the selection came
+ *   from. Cartesian selections carry nothing extra; a polar selection carries
+ *   its share of the whole and its arc, which a pie tooltip needs and a line
+ *   tooltip has no meaning for.
  */
 data class ChartSelection<out T>(
     val seriesId: String,
@@ -35,7 +42,12 @@ data class ChartSelection<out T>(
     val y: Double,
     val item: T,
     val position: ChartOffset,
+    val details: ChartSelectionDetails = ChartSelectionDetails.Cartesian,
 ) {
+    /** The polar geometry of this selection, or `null` for a Cartesian one. */
+    val polar: ChartSelectionDetails.Polar?
+        get() = details as? ChartSelectionDetails.Polar
+
     /** The x value as a label, for tooltips and accessibility text. */
     val xLabel: String
         get() = when (val value = x) {
@@ -43,6 +55,41 @@ data class ChartSelection<out T>(
             is ChartX.Numeric -> value.value.toString()
             is ChartX.Time -> value.epochMillis.toString()
         }
+}
+
+/**
+ * Coordinate-specific detail hung off a [ChartSelection].
+ *
+ * A sealed hierarchy rather than a bag of nullable fields, and an *addition*
+ * rather than a split of [ChartSelection] into `CartesianSelection` and
+ * `PolarSelection`. The common shape — which series, which item, where on
+ * screen — is genuinely common: the tooltip overlay, the accessibility layer,
+ * the selection callbacks and the hoisted state all work on it without knowing
+ * which coordinate system produced it. Only the extra geometry differs, and
+ * only the code that needs it looks.
+ */
+sealed interface ChartSelectionDetails {
+
+    /** A point, a bar or a crosshair intersection. Nothing to add. */
+    data object Cartesian : ChartSelectionDetails
+
+    /**
+     * A pie or donut slice, or a radial bar.
+     *
+     * @param fraction the value's share of the total, in `0..1`. For a radial
+     *   bar this is its progress between the configured minimum and maximum.
+     * @param label the slice's own label, which on a polar chart is the
+     *   identity a reader has rather than a series name.
+     * @param startAngle where the arc begins, in ChartKit's convention — zero
+     *   at the top, increasing clockwise.
+     * @param sweepAngle how far it sweeps.
+     */
+    data class Polar(
+        val fraction: Double,
+        val label: String,
+        val startAngle: Float,
+        val sweepAngle: Float,
+    ) : ChartSelectionDetails
 }
 
 /**

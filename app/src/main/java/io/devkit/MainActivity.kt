@@ -86,7 +86,9 @@ import io.devkit.fillkit.fillScenario
 import io.devkit.fillkit.generatorPack
 import io.devkit.fillkit.personaPack
 import io.devkit.fillkit.scenarioPack
+import io.devkit.chartdemo.ChartExploreScreen
 import io.devkit.chartdemo.ChartGalleryScreen
+import io.devkit.chartdemo.ChartPolarScreen
 import io.devkit.chartdemo.ChartInteractionScreen
 import io.devkit.chartdemo.ChartStatesScreen
 import io.devkit.chartdemo.ChartStylingScreen
@@ -421,7 +423,7 @@ private enum class SampleScreen(
         "Chart gallery",
         "G",
         SampleKit.ChartKit,
-        "Every 0.1 chart type, with live controls",
+        "Every Cartesian chart type, with live controls",
     ),
     ChartInteraction(
         "Chart interaction",
@@ -440,6 +442,18 @@ private enum class SampleScreen(
         "E",
         SampleKit.ChartKit,
         "Loading, empty, error, edge cases and semantics",
+    ),
+    ChartPolar(
+        "Polar charts",
+        "P",
+        SampleKit.ChartKit,
+        "Pie, donut, radial bars and a gauge",
+    ),
+    ChartExplore(
+        "Zoom, pan and range",
+        "Z",
+        SampleKit.ChartKit,
+        "Pinch, pan, crosshair and range selection",
     ),
 }
 
@@ -563,6 +577,8 @@ private fun FillKitSampleApp() {
                 SampleScreen.ChartInteraction -> ChartInteractionScreen(Modifier.padding(padding))
                 SampleScreen.ChartStyling -> ChartStylingScreen(Modifier.padding(padding))
                 SampleScreen.ChartStates -> ChartStatesScreen(Modifier.padding(padding))
+                SampleScreen.ChartPolar -> ChartPolarScreen(Modifier.padding(padding))
+                SampleScreen.ChartExplore -> ChartExploreScreen(Modifier.padding(padding))
             }
         }
     }

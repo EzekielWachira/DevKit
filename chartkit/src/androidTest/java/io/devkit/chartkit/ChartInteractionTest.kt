@@ -21,7 +21,7 @@ import androidx.compose.ui.unit.dp
 import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.charts.BarChart
 import io.devkit.chartkit.charts.LineChart
-import io.devkit.chartkit.interaction.ChartSelectionMode
+import io.devkit.chartkit.interaction.ChartInteraction
 import io.devkit.chartkit.model.ChartSelection
 import io.devkit.chartkit.model.ChartSeries
 import io.devkit.chartkit.preview.ChartKitPreviewData
@@ -116,7 +116,7 @@ class ChartInteractionTest {
                     x = { it.month },
                     y = { it.amount },
                     animation = ChartAnimation.None,
-                    selectionMode = ChartSelectionMode.TapAndScrub,
+                    interaction = ChartInteraction.Default,
                     onSelectionChanged = { selection -> selection?.let { seen += it.xLabel } },
                     modifier = Modifier.testTag(CHART).fillMaxWidth().height(200.dp),
                 )
@@ -139,7 +139,7 @@ class ChartInteractionTest {
                     category = { it.month },
                     value = { it.amount },
                     animation = ChartAnimation.None,
-                    selectionMode = ChartSelectionMode.None,
+                    interaction = ChartInteraction.None,
                     onSelectionChanged = { selected = it },
                     modifier = Modifier.testTag(CHART).fillMaxWidth().height(200.dp),
                 )
@@ -180,7 +180,7 @@ class ChartInteractionTest {
                     category = { it.month },
                     value = { it.amount },
                     animation = ChartAnimation.None,
-                    tooltip = { selection -> Text("Picked ${selection.item.month}") },
+                    tooltip = { data -> Text("Picked ${data.item.month}") },
                     modifier = Modifier.testTag(CHART).fillMaxWidth().height(220.dp),
                 )
             }

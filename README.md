@@ -6,7 +6,7 @@ with it.
 
 | Library | Ships in | What it does |
 | --- | --- | --- |
-| **ChartKit** | release + debug | Compose-native charts — line, area, bar, horizontal, grouped, stacked and 100% stacked — over your own data classes, on one shared engine. Documented in **[chartkit/README.md](chartkit/README.md)** |
+| **ChartKit** | release + debug | Compose-native charts over your own data classes — line, area, bar, horizontal, grouped, stacked and 100% stacked on Cartesian coordinates, pie, donut and radial bar on polar ones — with crosshair, pinch zoom, pan and range selection, on one shared engine. Documented in **[chartkit/README.md](chartkit/README.md)** |
 | **FillKit** | debug (release-safe API half) | Fills Jetpack Compose forms with coherent synthetic data, and turns any interesting form state into something you can reproduce, share, launch and convert into an automated regression test. Documented below |
 | **NetKit** | debug | Simulates difficult network conditions (offline, latency, timeouts, forced HTTP responses) inside a running app, per endpoint, without touching the backend. Documented in **[netkit/README.md](netkit/README.md)** |
 
@@ -42,7 +42,7 @@ Automation  → activate the same scenario from a Compose UI test
 | Module | Maven artifact | Ships in | Contents |
 | --- | --- | --- | --- |
 | `:core` | `core` | release + debug | DevKit version metadata and the runtime/debug/test distribution classification |
-| `:chartkit` | `chartkit` | release + debug | Charting engine — scales, coordinates, layout, layers, axes, interaction, animation, theming — and the `LineChart` / `AreaChart` / `BarChart` composables. See [chartkit/README.md](chartkit/README.md) |
+| `:chartkit` | `chartkit` | release + debug | Visualisation engine — scales, Cartesian and polar coordinates, layout, layers, axes, viewport, interaction, overlays, animation, theming — and the `LineChart` / `AreaChart` / `BarChart` / `PieChart` / `DonutChart` / `RadialBarChart` composables. See [chartkit/README.md](chartkit/README.md) |
 | `:fillkit:api` | `fillkit-api` | release + debug | Pure models, DSLs, the Compose modifier, semantics keys, reproduction specs and token codec, activation requests, and a no-op release runtime |
 | `:fillkit:engine` | `fillkit-engine` | debug | Locale registries, persona and value generation, scenario composition, deterministic random streams |
 | `:fillkit:debug` | `fillkit-debug` | debug | Developer panel, QA scenario launcher, activation engine, pending activations, deep-link entry point, local persistence |
@@ -82,10 +82,12 @@ The sample application id is `io.devkit`. Tap the ⚡ trigger on any screen to o
 | Checkout address | Address generation, persona-driven values |
 | Smart Fields | `TextFieldState`, `ContentType` mapping, field suggestions |
 | QA and reproduction | Scenario catalog, launching by seed, tokens, deep links, ADB commands |
-| Chart gallery | Every ChartKit chart type, with live controls for grid, points, legend, labels and animation |
+| Chart gallery | Every Cartesian chart type, with live controls for grid, points, legend, labels and animation |
 | Chart interaction | Tap selection, scrubbing, custom tooltips, legend toggling |
 | Chart theming | `ChartKitTheme` overrides, dark mode, compact/currency/percent/date formatting |
 | Chart states | Loading, empty and error slots; edge-case datasets; accessibility semantics |
+| Polar charts | Pie, donut with live centre content, radial bars and a gauge |
+| Zoom, pan and range | Pinch zoom, pan, crosshair and range selection over a long time series |
 
 ## Install and release safety
 
@@ -173,7 +175,7 @@ debug panel to production.
 | Artifact | Ships in | Version | Contents |
 | --- | --- | --- | --- |
 | `core` | release + debug | `0.1.0` | Ecosystem version metadata and the runtime/debug/test classification. Arrives transitively; you rarely add it yourself |
-| `chartkit` | release + debug | `0.1.0` | Compose charting engine and chart composables — see [chartkit/README.md](chartkit/README.md) |
+| `chartkit` | release + debug | `0.1.0` | Compose visualisation engine and chart composables, Cartesian and polar — see [chartkit/README.md](chartkit/README.md) |
 | `fillkit-api` | release + debug | `0.1.0` | Models, DSLs, the Compose modifier, semantics keys, reproduction specs, and a no-op release runtime |
 | `fillkit-engine` | debug | `0.1.0` | Locale registries, persona and value generation, deterministic random streams |
 | `fillkit-debug` | debug | `0.1.0` | Developer panel, QA scenario launcher, deep links, local persistence |

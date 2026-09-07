@@ -3,10 +3,13 @@ package io.devkit.chartkit.layer
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.Density
-import io.devkit.chartkit.coordinate.CartesianCoordinates
+import io.devkit.chartkit.coordinate.CoordinateSystem
 import io.devkit.chartkit.geometry.ChartOffset
 import io.devkit.chartkit.interaction.HitTestMode
+import io.devkit.chartkit.model.AnyChartRangeSelection
 import io.devkit.chartkit.model.AnyChartSelection
+import io.devkit.chartkit.model.ChartTooltipEntry
+import io.devkit.chartkit.viewport.ChartViewport
 import io.devkit.chartkit.theme.ChartColors
 import io.devkit.chartkit.theme.ChartDimensions
 import io.devkit.chartkit.theme.ChartTypography
@@ -20,12 +23,21 @@ import io.devkit.chartkit.theme.ChartTypography
  * therefore correct by construction rather than by two implementations
  * happening to compute the same padding.
  *
+ * The [coordinates] are typed as the general [CoordinateSystem], so the same
+ * context serves Cartesian and polar layers. A layer that needs one in
+ * particular narrows it — a bar layer cannot draw without a value axis, and a
+ * slice layer cannot draw without a centre — but the context, the theme, the
+ * animation clock and the selection are shared unchanged.
+ *
  * @param reveal the `0..1` initial-draw fraction. Layers scale geometry by it.
  * @param selection the current selection, so a layer can emphasise its own item
  *   without needing to know how selection was made.
+ * @param range the domain interval being dragged out, if any.
+ * @param viewport the visible window of the domain. Layers that draw in
+ *   full-domain fractions — the range overlay — map through it.
  */
 internal class ChartRenderContext(
-    val coordinates: CartesianCoordinates,
+    val coordinates: CoordinateSystem,
     val colors: ChartColors,
     val typography: ChartTypography,
     val dimensions: ChartDimensions,
@@ -33,9 +45,27 @@ internal class ChartRenderContext(
     val textMeasurer: TextMeasurer,
     val reveal: Float,
     val selection: AnyChartSelection?,
+    val range: AnyChartRangeSelection? = null,
+    val viewport: ChartViewport = ChartViewport.Full,
 ) {
     /** [dp] in pixels, at the current density. */
     fun px(dp: androidx.compose.ui.unit.Dp): Float = with(density) { dp.toPx() }
+
+    /**
+     * The Cartesian coordinates, for a layer that cannot work without them.
+     *
+     * Throws rather than returning null: a bar layer reaching a polar chart is
+     * a wiring bug in ChartKit, not a condition a caller can recover from, and
+     * silently drawing nothing would hide it.
+     */
+    val cartesian: io.devkit.chartkit.coordinate.CartesianCoordinates
+        get() = coordinates as? io.devkit.chartkit.coordinate.CartesianCoordinates
+            ?: error("This layer requires Cartesian coordinates, got \${coordinates::class.simpleName}")
+
+    /** The polar coordinates, for a slice or radial layer. */
+    val polar: io.devkit.chartkit.coordinate.PolarCoordinates
+        get() = coordinates as? io.devkit.chartkit.coordinate.PolarCoordinates
+            ?: error("This layer requires polar coordinates, got \${coordinates::class.simpleName}")
 }
 
 /**
@@ -49,8 +79,8 @@ internal class ChartRenderContext(
  *
  * Adding a layer type — an annotation rule, an event marker, a candlestick —
  * means adding an implementation. It does not mean touching the coordinate
- * system, the layout engine or the interaction model, which is the property
- * that has to hold for 0.2 to be cheaper than 0.1.
+ * system, the layout engine or the interaction model. That property is what
+ * made the polar layers cost two classes rather than a second engine.
  */
 internal interface ChartLayerRenderer {
 
@@ -59,6 +89,16 @@ internal interface ChartLayerRenderer {
 
     /** The series this layer draws, in declaration order. */
     val seriesIds: List<String>
+
+    /**
+     * Whether the layer is clipped to the plot area.
+     *
+     * True for anything drawing data: once a viewport exists, a zoomed chart's
+     * off-screen geometry would otherwise be painted across the axes. False for
+     * overlays whose whole point is to reach outside it — a crosshair's axis
+     * chips sit in the gutter.
+     */
+    val clipToPlot: Boolean get() = true
 
     fun draw(scope: DrawScope, context: ChartRenderContext)
 
@@ -77,6 +117,20 @@ internal interface ChartLayerRenderer {
 
     /** A factual, readable description of what this layer contains. */
     fun describe(): List<ChartLayerSummary> = emptyList()
+
+    /**
+     * Every series' value at the same domain position as [selection].
+     *
+     * What turns a single-point tooltip into a multi-series one: a crosshair
+     * over four lines asks each layer what it has at the selected x, and the
+     * overlay renders them together. A layer with nothing to add — a grid, a
+     * crosshair — returns nothing, and the tooltip falls back to the selection
+     * alone.
+     */
+    fun tooltipEntriesAt(
+        selection: AnyChartSelection,
+        context: ChartRenderContext,
+    ): List<ChartTooltipEntry<Any?>> = emptyList()
 }
 
 /**
