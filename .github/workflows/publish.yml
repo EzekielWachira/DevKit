@@ -90,11 +90,17 @@ jobs:
         # note there is no `env:` dump and no `--info`, both of which would put
         # credentials in a public log.
         run: |
+          # `--no-configuration-cache` is required, not defensive. Publishing a
+          # release to Central cannot be config-cached yet — the repository spec
+          # is not serialisable, pending https://github.com/gradle/gradle/issues/22779
+          # — and the failure is a serialisation error at the end of the task
+          # graph rather than anything resembling a publishing problem. Every
+          # other job keeps the cache; only this task opts out.
           MODULE="${{ github.event_name == 'release' && 'all' || inputs.module }}"
           if [ "$MODULE" = "all" ]; then
-            ./gradlew publishToMavenCentral
+            ./gradlew publishToMavenCentral --no-configuration-cache
           else
-            ./gradlew "${MODULE}:publishToMavenCentral"
+            ./gradlew "${MODULE}:publishToMavenCentral" --no-configuration-cache
           fi
         # `ORG_GRADLE_PROJECT_*` is not decoration: Gradle turns a variable with
         # that prefix into the Gradle property of the same name, which is how
