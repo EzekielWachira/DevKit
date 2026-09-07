@@ -61,6 +61,24 @@ jobs:
       - name: Verify publication
         run: ./scripts/verify-publication.sh
 
+      # Configure the *real* publish task without running it.
+      #
+      # `verify-publication.sh` publishes to Maven Local, which touches neither
+      # the publishing plugin's build service nor the remote repository spec —
+      # so it cannot see the two things that have actually broken a release:
+      # a build service Gradle 9 refuses to inject, and a repository spec the
+      # configuration cache cannot serialise. Both surface here, in seconds,
+      # for free. A release has been lost to each of them.
+      #
+      # Dummy credentials because the task graph must be built to be checked,
+      # and the plugin wants credentials to configure the repository. They are
+      # never used: `--dry-run` executes nothing.
+      - name: Dry-run the publish task graph
+        run: ./gradlew publishToMavenCentral --dry-run --no-configuration-cache
+        env:
+          ORG_GRADLE_PROJECT_mavenCentralUsername: dry-run
+          ORG_GRADLE_PROJECT_mavenCentralPassword: dry-run
+
   publish:
     name: Publish
     needs: verify
