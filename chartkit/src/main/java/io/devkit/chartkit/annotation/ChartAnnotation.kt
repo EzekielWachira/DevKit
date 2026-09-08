@@ -24,6 +24,33 @@ enum class AnnotationOrder {
     Above,
 }
 
+/**
+ * The shape of an event marker or a callout's anchor.
+ *
+ * Shapes rather than icons. An icon is a drawable, a tint, a density and a
+ * content description — four things a canvas-drawn mark would have to be told
+ * about, and four things that go wrong differently on each. A small vocabulary
+ * of shapes covers what a marker is for, distinguishes marks *without relying
+ * on colour*, and costs one path each.
+ */
+enum class AnnotationMarkerShape {
+    Circle,
+    Diamond,
+    Square,
+    /** Points upward; the usual "something happened here" mark. */
+    Triangle,
+    /** A cross, for a mark that should not read as a data point. */
+    Cross,
+}
+
+/** Which way a callout's label sits from the point it names. */
+enum class CalloutDirection {
+    Up,
+    Down,
+    Start,
+    End,
+}
+
 /** Where an annotation's label sits along the rule or region it names. */
 enum class AnnotationLabelPlacement {
     Start,
@@ -189,6 +216,81 @@ sealed interface ChartAnnotation {
         override val order: AnnotationOrder = AnnotationOrder.Above,
         override val style: AnnotationStyle = AnnotationStyle.Marker,
         override val extendsDomain: Boolean = false,
+        val shape: AnnotationMarkerShape = AnnotationMarkerShape.Circle,
+    ) : ChartAnnotation
+
+    /**
+     * A labelled call-out pointing at one place on the plot.
+     *
+     * ```text
+     *         ┌─────────────┐
+     *         │ App launch  │
+     *         └──────┬──────┘
+     *                ↓
+     * ───────────────●──────────
+     * ```
+     *
+     * The difference from an [EventMarker] is the **connector**: a call-out's
+     * label sits away from the point it names, so it can be read where the plot
+     * is busy, and the line is what ties the two together. A marker's label sits
+     * beside it and is lost as soon as anything else is nearby.
+     *
+     * @param direction which way the label sits from the anchor.
+     * @param connectorLength how far away. `null` takes the theme's.
+     */
+    @Immutable
+    data class Callout(
+        val at: Any?,
+        val value: Double? = null,
+        override val label: String? = null,
+        val direction: CalloutDirection = CalloutDirection.Up,
+        val connectorLength: Dp? = null,
+        val shape: AnnotationMarkerShape = AnnotationMarkerShape.Circle,
+        override val id: String = "callout-$at",
+        override val order: AnnotationOrder = AnnotationOrder.Above,
+        override val style: AnnotationStyle = AnnotationStyle.Marker,
+        override val extendsDomain: Boolean = false,
+    ) : ChartAnnotation
+
+    /**
+     * An arrow between two points on the plot.
+     *
+     * For pointing at a relationship the chart does not otherwise draw — "this
+     * peak caused that drop" — where a rule or a region would say the wrong
+     * thing. Both ends are in the chart's own coordinates, so the arrow follows
+     * the data through a zoom.
+     */
+    @Immutable
+    data class Arrow(
+        val fromAt: Any?,
+        val fromValue: Double,
+        val toAt: Any?,
+        val toValue: Double,
+        override val label: String? = null,
+        override val id: String = "arrow-$fromAt-$toAt",
+        override val order: AnnotationOrder = AnnotationOrder.Above,
+        override val style: AnnotationStyle = AnnotationStyle.Solid,
+        override val extendsDomain: Boolean = false,
+    ) : ChartAnnotation
+
+    /**
+     * A label with no mark, placed at a point on the plot.
+     *
+     * The quietest annotation there is: a caption, a units note, a "no data
+     * after here". Drawn as a chip so it stays legible over the data.
+     */
+    @Immutable
+    data class LabelBox(
+        val at: Any?,
+        val value: Double? = null,
+        override val label: String? = null,
+        override val id: String = "label-$at-$value",
+        override val order: AnnotationOrder = AnnotationOrder.Above,
+        override val style: AnnotationStyle = AnnotationStyle(
+            dashed = false,
+            labelPlacement = AnnotationLabelPlacement.Center,
+        ),
+        override val extendsDomain: Boolean = false,
     ) : ChartAnnotation
 }
 
@@ -255,6 +357,74 @@ fun region(
     domainFrom, domainTo, valueFrom, valueTo, label, id, order, style, extendsDomain,
 )
 
+/**
+ * A labelled call-out pointing at a place on the plot.
+ *
+ * @param value where on the value axis the anchor sits. `null` pins it to the
+ *   top of the plot.
+ */
+@Suppress("LongParameterList")
+fun callout(
+    at: Any?,
+    value: Double? = null,
+    label: String? = null,
+    direction: CalloutDirection = CalloutDirection.Up,
+    connectorLength: Dp? = null,
+    shape: AnnotationMarkerShape = AnnotationMarkerShape.Circle,
+    style: AnnotationStyle = AnnotationStyle.Marker,
+    order: AnnotationOrder = AnnotationOrder.Above,
+    extendsDomain: Boolean = false,
+    id: String = "callout-$at",
+): ChartAnnotation = ChartAnnotation.Callout(
+    at, value, label, direction, connectorLength, shape, id, order, style, extendsDomain,
+)
+
+/** An arrow between two points on the plot. */
+@Suppress("LongParameterList")
+fun arrow(
+    fromAt: Any?,
+    fromValue: Double,
+    toAt: Any?,
+    toValue: Double,
+    label: String? = null,
+    style: AnnotationStyle = AnnotationStyle.Solid,
+    order: AnnotationOrder = AnnotationOrder.Above,
+    extendsDomain: Boolean = false,
+    id: String = "arrow-$fromAt-$toAt",
+): ChartAnnotation =
+    ChartAnnotation.Arrow(fromAt, fromValue, toAt, toValue, label, id, order, style, extendsDomain)
+
+/** A bare label placed at a point on the plot. */
+fun labelBox(
+    at: Any?,
+    value: Double? = null,
+    label: String? = null,
+    style: AnnotationStyle = AnnotationStyle(
+        dashed = false,
+        labelPlacement = AnnotationLabelPlacement.Center,
+    ),
+    order: AnnotationOrder = AnnotationOrder.Above,
+    extendsDomain: Boolean = false,
+    id: String = "label-$at-$value",
+): ChartAnnotation = ChartAnnotation.LabelBox(at, value, label, id, order, style, extendsDomain)
+
+/**
+ * A shaded band between two values — a tolerance, an SLA, a safe range.
+ *
+ * The same annotation as [valueRange]; the name exists because "threshold band"
+ * is what the thing is called when it marks an acceptable interval rather than
+ * a measured one, and a call site reads better for saying so.
+ */
+fun thresholdBand(
+    from: Double,
+    to: Double,
+    label: String? = null,
+    style: AnnotationStyle = AnnotationStyle.Region,
+    order: AnnotationOrder = AnnotationOrder.Behind,
+    extendsDomain: Boolean = true,
+    id: String = "threshold-$from-$to",
+): ChartAnnotation = ChartAnnotation.ValueRange(from, to, label, id, order, style, extendsDomain)
+
 /** A point marked on the plot at domain position [at]. */
 fun eventMarker(
     at: Any?,
@@ -264,4 +434,28 @@ fun eventMarker(
     order: AnnotationOrder = AnnotationOrder.Above,
     extendsDomain: Boolean = false,
     id: String = "event-$at",
-): ChartAnnotation = ChartAnnotation.EventMarker(at, value, label, id, order, style, extendsDomain)
+    shape: AnnotationMarkerShape = AnnotationMarkerShape.Circle,
+): ChartAnnotation =
+    ChartAnnotation.EventMarker(at, value, label, id, order, style, extendsDomain, shape)
+
+/**
+ * The annotation this selection came from, or `null` for a data selection.
+ *
+ * ```kotlin
+ * LineChart(
+ *     data = revenue, x = { it.month }, y = { it.amount },
+ *     annotations = listOf(eventMarker(at = "Mar", label = "Launch")),
+ *     onSelectionChanged = { selection ->
+ *         selection?.chartAnnotation?.let { openReleaseNotes(it.id) }
+ *     },
+ * )
+ * ```
+ *
+ * Annotations arrive through the **same** selection channel as the data rather
+ * than through a callback of their own. One channel means one set of clearing
+ * rules, one tooltip, one live region and one thing for a caller to observe —
+ * and it means a marker and a data point cannot both be "selected" at once,
+ * which is a state nothing on screen could represent.
+ */
+val io.devkit.chartkit.model.ChartSelection<*>.chartAnnotation: ChartAnnotation?
+    get() = item as? ChartAnnotation

@@ -19,6 +19,9 @@ import io.devkit.chartkit.model.ChartSelection
 import io.devkit.chartkit.model.ChartTooltipData
 import io.devkit.chartkit.scale.ColorScale
 import io.devkit.chartkit.scale.NumericDomain
+import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.render.ChartStaticOptions
+import io.devkit.chartkit.state.ChartPlotAlignment
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.rememberChartState
 import io.devkit.chartkit.theme.ChartColorScales
@@ -86,6 +89,9 @@ fun <T> CalendarHeatmap(
     animation: ChartAnimation = ChartAnimation.Default,
     interaction: ChartInteraction = ChartInteraction.TapOnly,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -140,6 +146,9 @@ fun <T> CalendarHeatmap(
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
         onSelectionChanged = onSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,

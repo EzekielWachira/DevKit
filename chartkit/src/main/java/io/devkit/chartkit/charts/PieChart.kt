@@ -15,8 +15,12 @@ import io.devkit.chartkit.layer.polar.SliceLabelContent
 import io.devkit.chartkit.layer.polar.SliceLabelPosition
 import io.devkit.chartkit.layer.polar.SliceLayer
 import io.devkit.chartkit.layer.polar.SliceSeriesEntry
+import io.devkit.chartkit.layer.custom.CustomPolarLayer
+import io.devkit.chartkit.layer.custom.CustomPolarLayerRenderer
 import io.devkit.chartkit.model.ChartSelection
 import io.devkit.chartkit.model.ChartTooltipData
+import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.render.ChartStaticOptions
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.rememberChartState
 
@@ -85,6 +89,9 @@ fun <T> PieChart(
     tapSelects: Boolean = true,
     clearOnTapOutside: Boolean = true,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    customLayers: List<CustomPolarLayer> = emptyList(),
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -141,7 +148,7 @@ fun <T> PieChart(
                     labelContent = labelContent,
                     valueFormatter = valueFormatter,
                 ),
-            )
+            ) + customLayers.map(::CustomPolarLayerRenderer)
         },
         modifier = modifier,
         innerRadiusRatio = innerRadiusRatio,
@@ -151,7 +158,7 @@ fun <T> PieChart(
         legend = legend,
         legendItems = remember(entries) {
             entries.mapIndexed { index, entry ->
-                PolarLegendItem(
+                ChartKeyItem(
                     id = "$seriesId-$index",
                     label = entry.label,
                     paletteIndex = entry.paletteIndex,
@@ -176,6 +183,8 @@ fun <T> PieChart(
         loadingContent = loadingContent,
         emptyContent = emptyContent,
         errorContent = errorContent,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
         centerContent = centerContent,
     )
 }
@@ -221,6 +230,9 @@ fun <T> DonutChart(
     animation: ChartAnimation = ChartAnimation.Default,
     tapSelects: Boolean = true,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    customLayers: List<CustomPolarLayer> = emptyList(),
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -263,6 +275,9 @@ fun <T> DonutChart(
         emptyContent = emptyContent,
         errorContent = errorContent,
         centerContent = centerContent,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        customLayers = customLayers,
     )
 }
 

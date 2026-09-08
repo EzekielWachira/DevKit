@@ -324,6 +324,215 @@ object ChartDemoData {
         }
     }
 
+
+    // ---- hierarchy, flow, relationships, time -----------------------------
+
+    /** A consumer's own recursive model, exactly as a real one would be. */
+    data class Department(
+        val id: String,
+        val name: String,
+        val revenue: Double? = null,
+        val teams: List<Department> = emptyList(),
+    )
+
+    data class FlowStage(val id: String, val name: String)
+
+    data class FlowStep(val from: String, val to: String, val users: Double)
+
+    data class FunnelStep(val name: String, val users: Double)
+
+    data class Movement(val name: String, val amount: Double, val kind: String)
+
+    data class TeamChange(val team: String, val before: Double, val after: Double)
+
+    data class Kpi(val name: String, val actual: Double, val target: Double)
+
+    data class Task(
+        val name: String,
+        val stream: String,
+        val startMillis: Long,
+        val endMillis: Long?,
+        val progress: Double? = null,
+        val milestone: Boolean = false,
+    )
+
+    data class ServiceNode(val name: String, val requests: Double)
+
+    data class ServiceEdge(val from: String, val to: String, val calls: Double)
+
+    val company: Department = Department(
+        id = "company",
+        name = "Acme",
+        teams = listOf(
+            Department(
+                id = "eng",
+                name = "Engineering",
+                teams = listOf(
+                    Department("android", "Android", 4_200_000.0),
+                    Department("ios", "iOS", 3_800_000.0),
+                    Department(
+                        id = "web",
+                        name = "Web",
+                        teams = listOf(
+                            Department("web-core", "Core", 1_900_000.0),
+                            Department("web-growth", "Growth", 1_100_000.0),
+                        ),
+                    ),
+                ),
+            ),
+            Department(
+                id = "sales",
+                name = "Sales",
+                teams = listOf(
+                    Department("emea", "EMEA", 6_400_000.0),
+                    Department("amer", "AMER", 5_100_000.0),
+                    Department("apac", "APAC", 2_300_000.0),
+                ),
+            ),
+            Department(
+                id = "support",
+                name = "Support",
+                teams = listOf(
+                    Department("tier1", "Tier 1", 1_400_000.0),
+                    Department("tier2", "Tier 2", 900_000.0),
+                ),
+            ),
+        ),
+    )
+
+    val flowStages: List<FlowStage> = listOf(
+        FlowStage("search", "Search"),
+        FlowStage("social", "Social"),
+        FlowStage("product", "Product page"),
+        FlowStage("basket", "Basket"),
+        FlowStage("checkout", "Checkout"),
+        FlowStage("purchase", "Purchase"),
+        FlowStage("abandoned", "Abandoned"),
+    )
+
+    val flowSteps: List<FlowStep> = listOf(
+        FlowStep("search", "product", 8_200.0),
+        FlowStep("social", "product", 3_400.0),
+        FlowStep("product", "basket", 4_900.0),
+        FlowStep("product", "abandoned", 6_700.0),
+        FlowStep("basket", "checkout", 3_100.0),
+        FlowStep("basket", "abandoned", 1_800.0),
+        FlowStep("checkout", "purchase", 2_050.0),
+        FlowStep("checkout", "abandoned", 1_050.0),
+    )
+
+    val funnelSteps: List<FunnelStep> = listOf(
+        FunnelStep("Visited", 12_000.0),
+        FunnelStep("Signed up", 4_800.0),
+        FunnelStep("Activated", 3_100.0),
+        FunnelStep("Subscribed", 940.0),
+        FunnelStep("Renewed", 720.0),
+    )
+
+    val movements: List<Movement> = listOf(
+        Movement("Opening", 100_000.0, "increase"),
+        Movement("New business", 48_000.0, "increase"),
+        Movement("Expansion", 21_000.0, "increase"),
+        Movement("Churn", 17_500.0, "decrease"),
+        Movement("Gross", 0.0, "subtotal"),
+        Movement("Costs", 63_000.0, "decrease"),
+        Movement("Tax", 9_400.0, "decrease"),
+        Movement("Closing", 0.0, "total"),
+    )
+
+    val teamChanges: List<TeamChange> = listOf(
+        TeamChange("Android", 41.0, 68.0),
+        TeamChange("iOS", 52.0, 61.0),
+        TeamChange("Web", 74.0, 59.0),
+        TeamChange("Backend", 36.0, 77.0),
+        TeamChange("Data", 60.0, 63.0),
+    )
+
+    val kpis: List<Kpi> = listOf(
+        Kpi("Revenue", 72.0, 80.0),
+        Kpi("Retention", 88.0, 85.0),
+        Kpi("NPS", 41.0, 55.0),
+        Kpi("Uptime", 99.2, 99.5),
+    )
+
+    val roadmap: List<Task> = run {
+        val day = 24 * 60 * 60 * 1000L
+        val start = 1_700_000_000_000L
+        listOf(
+            Task("Discovery", "Product", start, start + 12 * day, 1.0),
+            Task("Design", "Product", start + 10 * day, start + 26 * day, 0.8),
+            Task("Spec sign-off", "Product", start + 26 * day, null, milestone = true),
+            Task("Foundation", "Engineering", start + 18 * day, start + 40 * day, 0.55),
+            Task("Feature work", "Engineering", start + 34 * day, start + 62 * day, 0.2),
+            Task("Hardening", "Engineering", start + 58 * day, start + 70 * day, 0.0),
+            Task("Beta", "Launch", start + 62 * day, start + 74 * day, 0.0),
+            Task("Public launch", "Launch", start + 76 * day, null, milestone = true),
+        )
+    }
+
+    val incidents: List<Task> = run {
+        val hour = 60 * 60 * 1000L
+        val start = 1_700_000_000_000L
+        listOf(
+            Task("Deploy 4.2", "Releases", start + 2 * hour, null, milestone = true),
+            Task("Latency spike", "Auth", start + 3 * hour, start + 5 * hour),
+            Task("Rate limiting", "Auth", start + 4 * hour, start + 7 * hour),
+            Task("Cache miss storm", "Search", start + 6 * hour, start + 9 * hour),
+            Task("Rollback", "Releases", start + 8 * hour, null, milestone = true),
+            Task("Recovered", "Search", start + 11 * hour, null),
+        )
+    }
+
+    val services: List<ServiceNode> = listOf(
+        ServiceNode("gateway", 9_400.0),
+        ServiceNode("auth", 7_100.0),
+        ServiceNode("catalogue", 5_600.0),
+        ServiceNode("basket", 3_900.0),
+        ServiceNode("payments", 2_400.0),
+        ServiceNode("search", 6_200.0),
+        ServiceNode("inventory", 1_800.0),
+        ServiceNode("notifications", 1_200.0),
+        ServiceNode("reporting", 700.0),
+    )
+
+    val serviceCalls: List<ServiceEdge> = listOf(
+        ServiceEdge("gateway", "auth", 9_400.0),
+        ServiceEdge("gateway", "catalogue", 5_600.0),
+        ServiceEdge("gateway", "search", 6_200.0),
+        ServiceEdge("catalogue", "inventory", 1_800.0),
+        ServiceEdge("search", "catalogue", 2_100.0),
+        ServiceEdge("gateway", "basket", 3_900.0),
+        ServiceEdge("basket", "payments", 2_400.0),
+        ServiceEdge("basket", "inventory", 900.0),
+        ServiceEdge("payments", "notifications", 1_200.0),
+        ServiceEdge("auth", "notifications", 400.0),
+        ServiceEdge("payments", "reporting", 700.0),
+    )
+
+    /**
+     * Two quantities that differ by four orders of magnitude.
+     *
+     * The case a linear axis cannot show and a log one can: without it the
+     * demo's log-scale toggle would be a switch with no visible effect.
+     */
+    val latencyPercentiles: List<Revenue> = listOf(
+        Revenue("p50", 12.0),
+        Revenue("p75", 34.0),
+        Revenue("p90", 180.0),
+        Revenue("p99", 2_400.0),
+        Revenue("p99.9", 26_000.0),
+    )
+
+    /** Revenue in pounds and conversion in percent: the dual-axis case. */
+    val conversion: List<Revenue> = listOf(
+        Revenue("Jan", 2.4),
+        Revenue("Feb", 2.9),
+        Revenue("Mar", 3.6),
+        Revenue("Apr", 3.1),
+        Revenue("May", 4.2),
+        Revenue("Jun", 4.8),
+    )
+
     /**
      * Deterministic pseudo-samples with a controlled centre, spread and tail.
      *

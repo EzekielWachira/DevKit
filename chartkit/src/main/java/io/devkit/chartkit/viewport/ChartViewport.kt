@@ -178,6 +178,24 @@ data class ChartViewport(
         }
 
         /** The window between two fractions, ordered and clamped. */
+        /**
+         * A window of [width] starting at [start], slid inside `[0, 1]`.
+         *
+         * Slid rather than clipped: dragging a navigator's window past the end
+         * should stop it at the end, not shrink it — a window that narrowed as
+         * it was dragged would change how much data is on screen for a gesture
+         * that only asked to move.
+         */
+        fun startingAt(start: Double, width: Double): ChartViewport {
+            val bounded = ChartMath.clamp(width, MIN_WIDTH * 2, 1.0)
+            val low = ChartMath.clamp(start, 0.0, 1.0 - bounded)
+            return ChartViewport(low, low + bounded)
+        }
+
+        /** A window of [width] centred on [centre], slid inside `[0, 1]`. */
+        fun centredOn(centre: Double, width: Double): ChartViewport =
+            startingAt(centre - width / 2.0, width)
+
         fun between(from: Double, to: Double): ChartViewport {
             val low = ChartMath.clamp(minOf(from, to), 0.0, 1.0)
             val high = ChartMath.clamp(maxOf(from, to), 0.0, 1.0)

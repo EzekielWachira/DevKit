@@ -106,6 +106,162 @@ data class ChartAnnotationColors(
 )
 
 /**
+ * Colours for treemaps and sunbursts.
+ *
+ * The tiles and arcs themselves take the series palette, so a branch and its
+ * children read as one family; only the furniture is here.
+ *
+ * @param tileBorder the hairline between adjacent tiles or arcs. Drawn in the
+ *   surface colour rather than an outline colour, so it reads as a gap.
+ * @param tileLabel text written inside a tile. Chosen to survive both ends of
+ *   the depth shading, which is why it is not simply `onSurface`.
+ * @param breadcrumbCurrent the breadcrumb entry the chart is showing.
+ * @param breadcrumbAncestor the entries above it, which are tappable.
+ */
+@Immutable
+data class ChartHierarchyColors(
+    val tileBorder: Color,
+    val tileLabel: Color,
+    val breadcrumbCurrent: Color,
+    val breadcrumbAncestor: Color,
+)
+
+/**
+ * Colours for Sankey diagrams and funnels.
+ *
+ * @param node a flow node's box, and a funnel stage's body.
+ * @param nodeBorder its outline.
+ * @param link a flow band at rest.
+ * @param linkHighlight a band connected to the selection.
+ * @param linkMuted a band that is not. Muted with a *colour*, not only with
+ *   opacity: connection state conveyed by alpha alone disappears on a dense
+ *   diagram and for a reader with low contrast sensitivity.
+ * @param label text drawn beside a node or inside a stage.
+ */
+@Immutable
+data class ChartFlowColors(
+    val node: Color,
+    val nodeBorder: Color,
+    val link: Color,
+    val linkHighlight: Color,
+    val linkMuted: Color,
+    val label: Color,
+)
+
+/**
+ * Colours for network graphs.
+ *
+ * @param node a node at rest.
+ * @param nodeBorder its outline, which is also what marks a pinned node.
+ * @param edge an edge at rest.
+ * @param edgeHighlight an edge touching the selection.
+ * @param neighbour a node one hop from the selection.
+ * @param label a node's name.
+ */
+@Immutable
+data class ChartGraphColors(
+    val node: Color,
+    val nodeBorder: Color,
+    val edge: Color,
+    val edgeHighlight: Color,
+    val neighbour: Color,
+    val label: Color,
+)
+
+/**
+ * Semantic colours for the comparison charts.
+ *
+ * ### Not green and red
+ *
+ * The same reasoning as [ChartFinancialColors]: the convention is not
+ * universal, and it is invisible to the readers who most need the distinction.
+ * A waterfall asks for [increase] and [decrease] by name, and an application
+ * that needs the opposite convention swaps two values.
+ *
+ * @param increase a positive contribution.
+ * @param decrease a negative one.
+ * @param subtotal a checkpoint measured from zero.
+ * @param total the final figure.
+ * @param connector the line joining one waterfall bar to the next.
+ * @param target a bullet graph's target mark, and a dumbbell's end marker.
+ * @param stem a lollipop's stem, and a dumbbell's connector.
+ * @param qualitativeBands a bullet graph's background ranges, quiet to loud.
+ *   Ordered rather than named "good/fair/poor": the meaning of a band is the
+ *   application's, and a library that named them would be asserting it.
+ */
+@Immutable
+data class ChartComparisonColors(
+    val increase: Color,
+    val decrease: Color,
+    val subtotal: Color,
+    val total: Color,
+    val connector: Color,
+    val target: Color,
+    val stem: Color,
+    val qualitativeBands: List<Color>,
+) {
+    init {
+        require(qualitativeBands.isNotEmpty()) {
+            "A bullet graph needs at least one qualitative band colour"
+        }
+    }
+
+    /** The colour for band [index], wrapping when there are more bands than colours. */
+    fun band(index: Int): Color =
+        qualitativeBands[((index % qualitativeBands.size) + qualitativeBands.size) % qualitativeBands.size]
+}
+
+/**
+ * Colours for gauges.
+ *
+ * @param track the unfilled arc — the maximum a value is measured against.
+ * @param progress the filled arc, when no threshold band applies.
+ * @param needle the indicator, where one is drawn.
+ */
+@Immutable
+data class ChartGaugeColors(
+    val track: Color,
+    val progress: Color,
+    val needle: Color,
+)
+
+/**
+ * Colours for timelines, range charts and Gantt-style views.
+ *
+ * @param interval a duration bar.
+ * @param progress the completed part drawn inside one.
+ * @param milestone a moment marker.
+ * @param laneSeparator the rule between two lanes.
+ * @param laneLabel a lane's name.
+ */
+@Immutable
+data class ChartTimelineColors(
+    val interval: Color,
+    val progress: Color,
+    val milestone: Color,
+    val laneSeparator: Color,
+    val laneLabel: Color,
+)
+
+/**
+ * Colours for the overview navigator.
+ *
+ * @param window the selected window's fill.
+ * @param windowBorder its edges.
+ * @param mask the wash over what is *not* selected. Dimming the outside rather
+ *   than tinting the inside keeps the data inside the window at its true
+ *   colours, which is the part the reader is about to look at.
+ * @param handle the draggable edges.
+ */
+@Immutable
+data class ChartNavigatorColors(
+    val window: Color,
+    val windowBorder: Color,
+    val mask: Color,
+    val handle: Color,
+)
+
+/**
  * The colours every ChartKit chart draws with.
  *
  * @param palette one colour per series, taken by index. Series keep their slot
@@ -138,6 +294,13 @@ data class ChartAnnotationColors(
  * @param heatmap the ramp ends and the "no data" colour for heatmaps.
  * @param statistical box, whisker, median, outlier and density colours.
  * @param annotation rules, regions and annotation labels.
+ * @param hierarchy treemap and sunburst furniture, and breadcrumb text.
+ * @param flow Sankey nodes and links, and funnel stages.
+ * @param graph network-graph nodes, edges and highlighting.
+ * @param comparison waterfall, dumbbell, lollipop and bullet semantics.
+ * @param gauge a gauge's track, progress arc and needle.
+ * @param timeline interval bars, progress overlays and milestones.
+ * @param navigator the overview chart's window and mask.
  *
  * Every parameter after [emptyContent] defaults to a value derived from the
  * ones above it, so a `ChartColors(...)` written against an earlier surface
@@ -192,6 +355,63 @@ data class ChartColors(
         labelContainer = tooltipContainer,
         labelContent = tooltipContent,
     ),
+    val hierarchy: ChartHierarchyColors = ChartHierarchyColors(
+        tileBorder = Color.Transparent,
+        tileLabel = tooltipContent,
+        breadcrumbCurrent = axisTitle,
+        breadcrumbAncestor = axisLabel,
+    ),
+    val flow: ChartFlowColors = ChartFlowColors(
+        node = palette[0],
+        nodeBorder = axisLine,
+        link = palette[0].copy(alpha = 0.35f),
+        linkHighlight = palette[0],
+        linkMuted = gridLine.copy(alpha = 0.35f),
+        label = axisLabel,
+    ),
+    val graph: ChartGraphColors = ChartGraphColors(
+        node = palette[0],
+        nodeBorder = axisLine,
+        edge = gridLine,
+        edgeHighlight = selectionGuide,
+        neighbour = palette[palette.size / 2],
+        label = axisLabel,
+    ),
+    val comparison: ChartComparisonColors = ChartComparisonColors(
+        increase = financial.increase,
+        decrease = financial.decrease,
+        subtotal = axisLabel,
+        total = palette[0],
+        connector = gridLine,
+        target = axisTitle,
+        stem = gridLine,
+        // Three steps of one hue rather than three hues: a bullet graph's
+        // bands are an ordered scale, and three unrelated colours would read
+        // as three categories.
+        qualitativeBands = listOf(
+            gridLine.copy(alpha = 0.35f),
+            gridLine.copy(alpha = 0.22f),
+            gridLine.copy(alpha = 0.12f),
+        ),
+    ),
+    val gauge: ChartGaugeColors = ChartGaugeColors(
+        track = radialTrack,
+        progress = palette[0],
+        needle = axisTitle,
+    ),
+    val timeline: ChartTimelineColors = ChartTimelineColors(
+        interval = palette[0],
+        progress = palette[0].copy(alpha = 0.55f),
+        milestone = axisTitle,
+        laneSeparator = gridLine,
+        laneLabel = axisLabel,
+    ),
+    val navigator: ChartNavigatorColors = ChartNavigatorColors(
+        window = rangeFill,
+        windowBorder = rangeBorder,
+        mask = emptyContent.copy(alpha = 0.18f),
+        handle = rangeBorder,
+    ),
 ) {
     init {
         require(palette.isNotEmpty()) {
@@ -227,6 +447,10 @@ data class ChartTypography(
     val cellLabel: TextStyle = valueLabel,
     /** An annotation's own label. */
     val annotationLabel: TextStyle = axisLabel,
+    /** One entry of a hierarchy breadcrumb trail. */
+    val breadcrumbLabel: TextStyle = legendLabel,
+    /** A flow node's, graph node's or funnel stage's name. */
+    val nodeLabel: TextStyle = valueLabel,
 )
 
 /**
@@ -343,6 +567,113 @@ data class ChartDimensions(
 
     /** Padding inside an annotation's label chip. */
     val annotationLabelPadding: Dp = 4.dp,
+
+    /** The length of a callout's connector before it turns toward its label. */
+    val calloutConnectorLength: Dp = 24.dp,
+
+    /** The size of an arrow annotation's head. */
+    val annotationArrowHead: Dp = 7.dp,
+
+    // ---- hierarchy ------------------------------------------------------
+
+    /** The corner rounding of a treemap tile. */
+    val treemapCornerRadius: Dp = 3.dp,
+
+    /** The hairline drawn around a treemap tile. */
+    val treemapTileBorderWidth: Dp = 1.dp,
+
+    /** Space inset inside a treemap branch before its children are packed. */
+    val treemapNestingPadding: Dp = 2.dp,
+
+    /** The gap left between sibling treemap tiles. */
+    val treemapTileGap: Dp = 2.dp,
+
+    /** The gap left between two sunburst rings. */
+    val sunburstRingSpacing: Dp = 1.dp,
+
+    /** Angular space between sibling sunburst arcs, in degrees. */
+    val sunburstSliceGap: Float = 0.6f,
+
+    // ---- flow -----------------------------------------------------------
+
+    /** The width of a Sankey node's box. */
+    val sankeyNodeWidth: Dp = 12.dp,
+
+    /** Vertical space between two Sankey nodes in one column. */
+    val sankeyNodePadding: Dp = 10.dp,
+
+    /** Vertical space between two funnel stages. */
+    val funnelStageSpacing: Dp = 3.dp,
+
+    // ---- comparison -----------------------------------------------------
+
+    /** The line joining one waterfall bar to the next. */
+    val waterfallConnectorWidth: Dp = 1.dp,
+
+    /** The bar joining a dumbbell's two markers. */
+    val dumbbellConnectorWidth: Dp = 3.dp,
+
+    /** The radius of a dumbbell's end markers. */
+    val dumbbellMarkerRadius: Dp = 5.dp,
+
+    /** The stem of a lollipop. */
+    val lollipopStemWidth: Dp = 2.dp,
+
+    /** The head of a lollipop. */
+    val lollipopMarkerRadius: Dp = 5.dp,
+
+    /** The thickness of a bullet graph's measure bar. */
+    val bulletBarThickness: Dp = 10.dp,
+
+    /** The thickness of its target mark. */
+    val bulletTargetWidth: Dp = 3.dp,
+
+    /** The height of one bullet graph row, bands included. */
+    val bulletRowHeight: Dp = 28.dp,
+
+    // ---- gauge ----------------------------------------------------------
+
+    /** The thickness of a gauge's arc. */
+    val gaugeThickness: Dp = 18.dp,
+
+    /** The width of a gauge's needle at its base. */
+    val gaugeNeedleWidth: Dp = 4.dp,
+
+    // ---- timeline -------------------------------------------------------
+
+    /** The height of one timeline row. */
+    val timelineRowHeight: Dp = 22.dp,
+
+    /** The vertical gap between two timeline rows. */
+    val timelineRowSpacing: Dp = 6.dp,
+
+    /** The corner rounding of an interval bar. */
+    val timelineBarCornerRadius: Dp = 4.dp,
+
+    /** The half-diagonal of a milestone diamond. */
+    val milestoneRadius: Dp = 6.dp,
+
+    // ---- graph ----------------------------------------------------------
+
+    /** The radius of a graph node with no weight encoding. */
+    val graphNodeRadius: Dp = 7.dp,
+
+    /** The smallest a weighted graph node is drawn. */
+    val graphNodeMinRadius: Dp = 4.dp,
+
+    /** The largest a weighted graph node is drawn. */
+    val graphNodeMaxRadius: Dp = 18.dp,
+
+    /** The width of a graph edge. */
+    val graphEdgeWidth: Dp = 1.dp,
+
+    // ---- navigator ------------------------------------------------------
+
+    /** The height an overview navigator falls back to. */
+    val navigatorHeight: Dp = 56.dp,
+
+    /** The width of the navigator window's draggable edges. */
+    val navigatorHandleWidth: Dp = 8.dp,
 )
 
 /**
@@ -519,6 +850,75 @@ fun materialDerivedChartColors(
             region = scheme.secondary.copy(alpha = 0.14f),
             labelContainer = scheme.inverseSurface,
             labelContent = scheme.inverseOnSurface,
+        ),
+        hierarchy = ChartHierarchyColors(
+            // The gap between tiles is the surface showing through, not a
+            // drawn outline: an outline in a third colour turns a dense
+            // treemap into a grid of borders.
+            tileBorder = scheme.surface,
+            // `onSurface` rather than the tooltip's content colour: a treemap
+            // shades its tiles toward the background with depth, so the label
+            // has to stay readable at the pale end as well as the saturated
+            // one.
+            tileLabel = scheme.onSurface,
+            breadcrumbCurrent = scheme.onSurface,
+            breadcrumbAncestor = scheme.primary,
+        ),
+        flow = ChartFlowColors(
+            node = scheme.primary,
+            nodeBorder = scheme.outlineVariant,
+            // A band is translucent so overlapping flows remain legible, and
+            // so a node's box reads as solid against them.
+            link = scheme.primary.copy(alpha = 0.30f),
+            linkHighlight = scheme.primary,
+            // A different colour, not merely a fainter one: connection state
+            // carried by opacity alone vanishes on a busy diagram.
+            linkMuted = scheme.outlineVariant.copy(alpha = 0.30f),
+            label = scheme.onSurfaceVariant,
+        ),
+        graph = ChartGraphColors(
+            node = scheme.primary,
+            nodeBorder = scheme.surface,
+            edge = scheme.outlineVariant,
+            edgeHighlight = scheme.onSurface,
+            neighbour = scheme.tertiary,
+            label = scheme.onSurfaceVariant,
+        ),
+        comparison = ChartComparisonColors(
+            increase = scheme.tertiary,
+            decrease = scheme.error,
+            subtotal = scheme.onSurfaceVariant,
+            total = scheme.primary,
+            connector = scheme.outlineVariant,
+            target = scheme.onSurface,
+            stem = scheme.outlineVariant,
+            qualitativeBands = listOf(
+                scheme.surfaceVariant,
+                scheme.surfaceVariant.copy(alpha = 0.6f),
+                scheme.surfaceVariant.copy(alpha = 0.3f),
+            ),
+        ),
+        gauge = ChartGaugeColors(
+            track = scheme.surfaceVariant,
+            progress = scheme.primary,
+            needle = scheme.onSurface,
+        ),
+        timeline = ChartTimelineColors(
+            interval = scheme.primary,
+            // Drawn over the bar, so it needs to differ from it without
+            // becoming a second category colour.
+            progress = scheme.onPrimary.copy(alpha = 0.45f),
+            milestone = scheme.onSurface,
+            laneSeparator = scheme.outlineVariant.copy(alpha = 0.5f),
+            laneLabel = scheme.onSurfaceVariant,
+        ),
+        navigator = ChartNavigatorColors(
+            window = scheme.primary.copy(alpha = 0.12f),
+            windowBorder = scheme.primary,
+            // The *outside* is dimmed, so the data inside the window keeps its
+            // true colours — that is the part the reader is about to look at.
+            mask = scheme.surface.copy(alpha = if (isDark) 0.55f else 0.65f),
+            handle = scheme.primary,
         ),
     )
 }

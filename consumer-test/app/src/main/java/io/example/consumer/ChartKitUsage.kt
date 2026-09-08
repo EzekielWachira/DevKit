@@ -3,7 +3,25 @@ package io.example.consumer
 import io.devkit.chartkit.ChartKitVersion
 import io.devkit.chartkit.accessibility.chartDataTable
 import io.devkit.chartkit.accessibility.ohlcDataTable
+import androidx.compose.ui.graphics.Color
 import io.devkit.chartkit.data.LttbDownsampler
+import io.devkit.chartkit.export.ChartSvg
+import io.devkit.chartkit.flow.buildSankeyGraph
+import io.devkit.chartkit.geometry.ChartOffset
+import io.devkit.chartkit.geometry.ChartRect
+import io.devkit.chartkit.graph.GraphLayout
+import io.devkit.chartkit.graph.GraphLayoutStrategy
+import io.devkit.chartkit.graph.buildChartGraph
+import io.devkit.chartkit.hierarchy.SunburstLayout
+import io.devkit.chartkit.hierarchy.TreemapLayout
+import io.devkit.chartkit.hierarchy.buildHierarchy
+import io.devkit.chartkit.scale.LogScale
+import io.devkit.chartkit.scale.SymlogScale
+import io.devkit.chartkit.scene.ChartSceneNode
+import io.devkit.chartkit.scene.buildChartScene
+import io.devkit.chartkit.timeline.buildTimeline
+import io.devkit.chartkit.transform.FunnelTransform
+import io.devkit.chartkit.transform.WaterfallTransform
 import io.devkit.chartkit.data.VisibleRange
 import io.devkit.chartkit.formatter.ChartNumberFormatters
 import io.devkit.chartkit.geometry.CalendarGeometry
@@ -158,6 +176,138 @@ object ChartKitUsage {
 
     /** The rolling window behind a streaming chart. */
     fun windowSize(): Int = (ChartWindow.Count(500) as ChartWindow.Count).size
+
+    // ---- hierarchy, flow, relationships, time ------------------------------
+    //
+    // All plain Kotlin, and all reached through the *public* surface — which is
+    // the point of this file: a class that is `internal` by design would not
+    // compile here, and one missing from the AAR would not link.
+
+    private data class Team(val id: String, val name: String, val spend: Double?, val teams: List<Team> = emptyList())
+
+    private val company = Team(
+        "root",
+        "Company",
+        null,
+        listOf(
+            Team("eng", "Engineering", null, listOf(Team("a", "Android", 40.0), Team("i", "iOS", 30.0))),
+            Team("sales", "Sales", 60.0),
+        ),
+    )
+
+    /** A hierarchy normalised from a consumer's own recursive model. */
+    fun hierarchyTotal(): Double = buildHierarchy(
+        root = company,
+        children = { it.teams },
+        value = { it.spend },
+        label = { it.name },
+        key = { it.id },
+    ).root.value
+
+    /** The squarified packing, over a plain rectangle. */
+    fun treemapTiles(): Int = TreemapLayout.layout(
+        root = buildHierarchy(
+            root = company,
+            children = { it.teams },
+            value = { it.spend },
+            label = { it.name },
+            key = { it.id },
+        ).root,
+        bounds = ChartRect(0f, 0f, 200f, 100f),
+    ).size
+
+    /** Sunburst arcs, in the chart's own angle convention. */
+    fun sunburstArcs(): Int = SunburstLayout.layout(
+        root = buildHierarchy(
+            root = company,
+            children = { it.teams },
+            value = { it.spend },
+            label = { it.name },
+            key = { it.id },
+        ).root,
+        innerRadius = 10f,
+        outerRadius = 50f,
+    ).size
+
+    private data class Stage(val id: String)
+    private data class Move(val from: String, val to: String, val count: Double)
+
+    /** A flow graph, with its columns assigned. */
+    fun sankeyColumns(): Int = buildSankeyGraph(
+        nodes = listOf(Stage("a"), Stage("b"), Stage("c")),
+        links = listOf(Move("a", "b", 10.0), Move("b", "c", 4.0)),
+        nodeId = { it.id },
+        nodeLabel = { it.id },
+        source = { it.from },
+        target = { it.to },
+        value = { it.count },
+    ).columnCount
+
+    /** Funnel conversion metrics. */
+    fun funnelConversion(): Double? = FunnelTransform.overallConversion(
+        FunnelTransform.resolve(
+            data = listOf("Visited" to 100.0, "Bought" to 25.0),
+            label = { it.first },
+            value = { it.second },
+        ),
+    )
+
+    /** A waterfall's running total. */
+    fun waterfallTotal(): Double = WaterfallTransform.resolve(
+        data = listOf("Open" to 100.0, "Costs" to -30.0),
+        label = { it.first },
+        value = { it.second },
+        kind = { WaterfallTransform.signedKind(it.second) },
+    ).last().runningTotal
+
+    private data class Svc(val name: String)
+    private data class Call(val from: String, val to: String)
+
+    /** A relationship graph, laid out deterministically. */
+    fun graphPositions(): Int = GraphLayout.compute(
+        graph = buildChartGraph(
+            nodes = listOf(Svc("a"), Svc("b"), Svc("c")),
+            edges = listOf(Call("a", "b"), Call("b", "c")),
+            nodeId = { it.name },
+            source = { it.from },
+            target = { it.to },
+        ),
+        strategy = GraphLayoutStrategy.Circular(),
+    ).size
+
+    /** Timeline lanes and overlap-stacked rows. */
+    fun timelineRows(): Int = buildTimeline(
+        data = listOf(Triple("A", 0L, 10L), Triple("B", 5L, 15L)),
+        start = { it.second },
+        label = { it.first },
+        end = { it.third },
+        lane = { "lane" },
+    ).rowCount
+
+    /** A logarithmic position scale. */
+    fun logDecadeSpacing(): Float {
+        val scale = LogScale(NumericDomain(1.0, 1000.0), rangeStart = 0f, rangeEnd = 300f)
+        return scale.scale(100.0) - scale.scale(10.0)
+    }
+
+    /** A symmetric-log scale, which represents zero and negatives. */
+    fun symlogAtZero(): Float =
+        SymlogScale(NumericDomain(-100.0, 100.0), rangeStart = 0f, rangeEnd = 200f).scale(0.0)
+
+    /** The renderer-neutral scene model, written as SVG. */
+    fun svgLength(): Int = ChartSvg.render(
+        buildChartScene(width = 100f, height = 50f) {
+            add(
+                ChartSceneNode.Line(
+                    from = ChartOffset(0f, 0f),
+                    to = ChartOffset(100f, 50f),
+                    color = Color.Black,
+                    strokeWidth = 1f,
+                ),
+            )
+        },
+        title = "Consumer check",
+    ).length
 
     private val SAMPLES: List<Double> =
         listOf(120.0, 135.0, 140.0, 155.0, 160.0, 178.0, 190.0, 210.0, 260.0, 480.0)

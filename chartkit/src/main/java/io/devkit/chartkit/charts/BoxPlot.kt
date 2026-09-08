@@ -18,6 +18,9 @@ import io.devkit.chartkit.model.ChartSelection
 import io.devkit.chartkit.model.ChartTooltipData
 import io.devkit.chartkit.model.ChartXResolver
 import io.devkit.chartkit.scale.DomainPolicy
+import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.render.ChartStaticOptions
+import io.devkit.chartkit.state.ChartPlotAlignment
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.ChartViewportState
 import io.devkit.chartkit.state.rememberChartState
@@ -75,6 +78,9 @@ fun <T> BoxPlot(
     viewportState: ChartViewportState = rememberChartViewportState(),
     annotations: List<ChartAnnotation> = emptyList(),
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -111,6 +117,9 @@ fun <T> BoxPlot(
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
         onSelectionChanged = onSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,
@@ -169,6 +178,9 @@ fun <T> BoxPlot(
     viewportState: ChartViewportState = rememberChartViewportState(),
     annotations: List<ChartAnnotation> = emptyList(),
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -202,6 +214,9 @@ fun <T> BoxPlot(
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
         onSelectionChanged = onSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,
@@ -234,6 +249,9 @@ private fun <T> BoxPlotInternal(
     viewportState: ChartViewportState,
     annotations: List<ChartAnnotation>,
     accessibility: ChartAccessibility,
+    renderMode: ChartRenderMode,
+    staticOptions: ChartStaticOptions,
+    plotAlignment: ChartPlotAlignment?,
     accessibilitySummary: (() -> String)?,
     state: ChartState<T>,
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)?,
@@ -296,6 +314,9 @@ private fun <T> BoxPlotInternal(
         annotations = remember(annotations) {
             resolveAnnotations(annotations, ChartXResolver.Default)
         },
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
         onSelectionChanged = onSelectionChanged?.let { callback ->
             { erased -> callback(erased?.asTyped()) }
         },

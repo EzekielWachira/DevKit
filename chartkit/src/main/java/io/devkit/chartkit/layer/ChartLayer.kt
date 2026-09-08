@@ -58,6 +58,16 @@ internal class ChartRenderContext(
      * fraction would put the same pixel, not the same date, under both guides.
      */
     val externalDomain: io.devkit.chartkit.model.ChartX? = null,
+    /**
+     * Whether this frame is being drawn for a reader or for a picture.
+     *
+     * Layers that draw something transient — a crosshair following a pointer,
+     * a highlight that only makes sense mid-gesture — check it and skip. See
+     * [io.devkit.chartkit.render.ChartRenderMode] for why the whole decision is
+     * one value rather than several flags.
+     */
+    val renderMode: io.devkit.chartkit.render.ChartRenderMode =
+        io.devkit.chartkit.render.ChartRenderMode.Interactive,
 ) {
     /** [dp] in pixels, at the current density. */
     fun px(dp: androidx.compose.ui.unit.Dp): Float = with(density) { dp.toPx() }
@@ -77,6 +87,50 @@ internal class ChartRenderContext(
     val polar: io.devkit.chartkit.coordinate.PolarCoordinates
         get() = coordinates as? io.devkit.chartkit.coordinate.PolarCoordinates
             ?: error("This layer requires polar coordinates, got \${coordinates::class.simpleName}")
+
+    /** The planar coordinates, for a treemap, flow, funnel or graph layer. */
+    val planar: io.devkit.chartkit.coordinate.PlanarCoordinates
+        get() = coordinates as? io.devkit.chartkit.coordinate.PlanarCoordinates
+            ?: error("This layer requires planar coordinates, got \${coordinates::class.simpleName}")
+
+    /**
+     * A copy at its settled state, with no selection.
+     *
+     * What an export is built from: a picture that depended on a running
+     * animation clock or on the pointer's position would differ between two
+     * captures of the same chart.
+     */
+    internal fun settledForExport(): ChartRenderContext = ChartRenderContext(
+        coordinates = coordinates,
+        colors = colors,
+        typography = typography,
+        dimensions = dimensions,
+        density = density,
+        textMeasurer = textMeasurer,
+        reveal = 1f,
+        selection = null,
+        range = null,
+        viewport = viewport,
+        externalDomain = null,
+        renderMode = io.devkit.chartkit.render.ChartRenderMode.Static,
+    )
+
+    /** A copy drawing against [other], for a layer bound to a second axis. */
+    internal fun withCoordinates(other: CoordinateSystem): ChartRenderContext =
+        ChartRenderContext(
+            coordinates = other,
+            colors = colors,
+            typography = typography,
+            dimensions = dimensions,
+            density = density,
+            textMeasurer = textMeasurer,
+            reveal = reveal,
+            selection = selection,
+            range = range,
+            viewport = viewport,
+            externalDomain = externalDomain,
+            renderMode = renderMode,
+        )
 }
 
 /**
@@ -111,7 +165,38 @@ internal interface ChartLayerRenderer {
      */
     val clipToPlot: Boolean get() = true
 
+    /**
+     * Which value axis this layer is measured against.
+     *
+     * Only meaningful on a Cartesian chart that declared a second one. The
+     * chart hands a layer bound to the secondary axis a render context built
+     * over the secondary scale, so the layer itself needs no knowledge of the
+     * arrangement — see [io.devkit.chartkit.axis.ValueAxisBinding] for why the
+     * binding is explicit rather than inferred.
+     */
+    val valueAxis: io.devkit.chartkit.axis.ValueAxisBinding
+        get() = io.devkit.chartkit.axis.ValueAxisBinding.Primary
+
     fun draw(scope: DrawScope, context: ChartRenderContext)
+
+    /**
+     * Adds this layer's geometry to a renderer-neutral scene, or does nothing.
+     *
+     * Returns `true` when the layer contributed a faithful representation of
+     * what it draws. A layer that returns `false` is named in
+     * [io.devkit.chartkit.scene.ChartScene.unexportedLayers], so a vector export
+     * says which parts of the chart are missing from it rather than shipping a
+     * picture with data quietly absent.
+     *
+     * Optional on purpose. Implementing it for a layer whose drawing does not
+     * reduce to the scene's primitives would mean either approximating the
+     * picture — the worst outcome, because the difference is invisible — or
+     * growing the scene model into a second rendering API.
+     */
+    fun renderScene(
+        builder: io.devkit.chartkit.scene.ChartSceneBuilder,
+        context: ChartRenderContext,
+    ): Boolean = false
 
     /**
      * The item at [point], or `null` when the layer has nothing there.
@@ -128,6 +213,22 @@ internal interface ChartLayerRenderer {
 
     /** A factual, readable description of what this layer contains. */
     fun describe(): List<ChartLayerSummary> = emptyList()
+
+    /**
+     * The sentence a screen reader announces for [selection], or `null` to let
+     * the chart build its own.
+     *
+     * The default is right for anything whose selection is one series, one x
+     * and one number. It is not right for a flow — "Search to Checkout: 1,240
+     * users" — a hierarchy node, whose share of its parent is the point, or a
+     * graph node, whose connections are. Those layers know what their selection
+     * means and say so here, rather than every chart engine growing a case for
+     * each of them.
+     */
+    fun describeSelection(
+        selection: AnyChartSelection,
+        formatter: io.devkit.chartkit.formatter.ChartValueFormatter,
+    ): String? = null
 
     /**
      * Every series' value at the same domain position as [selection].

@@ -212,6 +212,82 @@ internal class LineLayer(
         drawMarkers(scope, context)
     }
 
+    /**
+     * Segments as polylines, and the area beneath them as closed polygons.
+     *
+     * Straight-line interpolation only. A curved line is a Bézier the layer
+     * hands to Compose, and flattening it into points here would produce a
+     * *different* curve from the one on screen — subtly, and invisibly, which is
+     * the worst kind of export error. A curved chart is reported as unexported
+     * and a caller falls back to a raster capture.
+     */
+    override fun renderScene(
+        builder: io.devkit.chartkit.scene.ChartSceneBuilder,
+        context: ChartRenderContext,
+    ): Boolean {
+        if (interpolation != LineInterpolation.Linear) {
+            builder.unexported(id)
+            return false
+        }
+        val plot = context.cartesian.plotArea
+        if (plot.isEmpty || series.isEmpty()) return true
+        val strokeWidth = context.px(lineWidthOverride ?: context.dimensions.lineWidth)
+        val baseline = baselineWithin(context)
+
+        builder.group(id, clip = plot) {
+            series.forEach { entry ->
+                val colour = context.seriesColor(entry)
+                entry.segments.forEach { segment ->
+                    val points = segment.points.map { it.position }
+                    if (points.size < 2) return@forEach
+                    if (fill != null) {
+                        // Closed down to the baseline and back, which is the
+                        // same polygon the area path describes.
+                        add(
+                            io.devkit.chartkit.scene.ChartSceneNode.Path(
+                                points = points +
+                                    io.devkit.chartkit.geometry.ChartOffset(points.last().x, baseline) +
+                                    io.devkit.chartkit.geometry.ChartOffset(points.first().x, baseline),
+                                color = colour.copy(alpha = colour.alpha * AREA_EXPORT_ALPHA),
+                                style = io.devkit.chartkit.scene.PaintStyle.Fill,
+                                closed = true,
+                            ),
+                        )
+                    }
+                    add(
+                        io.devkit.chartkit.scene.ChartSceneNode.Path(
+                            points = points,
+                            color = colour,
+                            style = io.devkit.chartkit.scene.PaintStyle.Stroke,
+                            strokeWidth = strokeWidth,
+                            dash = if (style == LineStyle.Dashed) {
+                                floatArrayOf(strokeWidth * 3f, strokeWidth * 2f)
+                            } else {
+                                null
+                            },
+                        ),
+                    )
+                }
+
+                if (pointMode != PointMode.None &&
+                    pointMode.drawsAll(entry.presentPoints.size, pointMarkerThreshold)
+                ) {
+                    val radius = context.px(context.dimensions.pointRadius)
+                    entry.presentPoints.forEach { point ->
+                        add(
+                            io.devkit.chartkit.scene.ChartSceneNode.Circle(
+                                center = point.position,
+                                radius = radius,
+                                color = colour,
+                            ),
+                        )
+                    }
+                }
+            }
+        }
+        return true
+    }
+
     private fun drawMarkers(scope: DrawScope, context: ChartRenderContext) {
         if (pointMode == PointMode.None) return
         val radius = context.px(context.dimensions.pointRadius)
@@ -553,3 +629,14 @@ internal fun ChartX?.labelOrIndex(index: Int): String = when (this) {
     is ChartX.Time -> epochMillis.toString()
     null -> index.toString()
 }
+
+/**
+ * The flat opacity a gradient area fill is exported at.
+ *
+ * SVG gradients are expressible, but the fill on screen is a vertical ramp
+ * whose stops depend on the plot's height — reproducing it exactly would mean
+ * emitting a `<linearGradient>` per series keyed on a layout that the exported
+ * file no longer has. A single translucent fill is visibly the same shape and
+ * honestly a simplification.
+ */
+private const val AREA_EXPORT_ALPHA = 0.25f

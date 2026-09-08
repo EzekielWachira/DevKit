@@ -59,4 +59,48 @@ internal class GridLayer(
             }
         }
     }
+
+    override fun renderScene(
+        builder: io.devkit.chartkit.scene.ChartSceneBuilder,
+        context: ChartRenderContext,
+    ): Boolean {
+        if (grid == ChartGrid.None) return true
+        val plot = context.cartesian.plotArea
+        if (plot.isEmpty) return true
+        val strokeWidth = context.px(context.dimensions.gridLineWidth)
+        val color = context.colors.gridLine
+        val vertical = context.cartesian.orientation.isVertical
+        val horizontalRules = if (vertical) valueTicks else domainTicks
+        val verticalRules = if (vertical) domainTicks else valueTicks
+
+        builder.group(id) {
+            if (grid.hasHorizontal) {
+                horizontalRules.filter { it.isFinite() && it >= plot.top - 0.5f && it <= plot.bottom + 0.5f }
+                    .forEach { y ->
+                        add(
+                            io.devkit.chartkit.scene.ChartSceneNode.Line(
+                                from = io.devkit.chartkit.geometry.ChartOffset(plot.left, y),
+                                to = io.devkit.chartkit.geometry.ChartOffset(plot.right, y),
+                                color = color,
+                                strokeWidth = strokeWidth,
+                            ),
+                        )
+                    }
+            }
+            if (grid.hasVertical) {
+                verticalRules.filter { it.isFinite() && it >= plot.left - 0.5f && it <= plot.right + 0.5f }
+                    .forEach { x ->
+                        add(
+                            io.devkit.chartkit.scene.ChartSceneNode.Line(
+                                from = io.devkit.chartkit.geometry.ChartOffset(x, plot.top),
+                                to = io.devkit.chartkit.geometry.ChartOffset(x, plot.bottom),
+                                color = color,
+                                strokeWidth = strokeWidth,
+                            ),
+                        )
+                    }
+            }
+        }
+        return true
+    }
 }

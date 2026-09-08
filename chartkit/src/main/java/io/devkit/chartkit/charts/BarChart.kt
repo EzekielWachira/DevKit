@@ -28,6 +28,10 @@ import io.devkit.chartkit.model.MissingValuePolicy
 import io.devkit.chartkit.model.normalizeSeries
 import io.devkit.chartkit.scale.CategoryScale
 import io.devkit.chartkit.scale.DomainPolicy
+import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.scene.ChartSceneState
+import io.devkit.chartkit.render.ChartStaticOptions
+import io.devkit.chartkit.state.ChartPlotAlignment
 import io.devkit.chartkit.state.ChartSharedCrosshairState
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.ChartViewportState
@@ -86,6 +90,10 @@ fun <T> BarChart(
     annotations: List<ChartAnnotation> = emptyList(),
     sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
+    sceneState: ChartSceneState? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -129,6 +137,10 @@ fun <T> BarChart(
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
+        sceneState = sceneState,
         onSelectionChanged = onSelectionChanged,
         onRangeSelectionChanged = onRangeSelectionChanged,
         tooltip = tooltip,
@@ -194,6 +206,10 @@ fun <T> BarChart(
     annotations: List<ChartAnnotation> = emptyList(),
     sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
+    sceneState: ChartSceneState? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -282,6 +298,10 @@ fun <T> BarChart(
         viewportState = viewportState,
         sharedCrosshair = sharedCrosshair,
         annotations = remember(annotations, xResolver) { resolveAnnotations(annotations, xResolver) },
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
+        sceneState = sceneState,
         onSelectionChanged = onSelectionChanged?.let { callback ->
             { erased -> callback(erased?.asTyped()) }
         },
@@ -333,6 +353,10 @@ fun <T> HorizontalBarChart(
     annotations: List<ChartAnnotation> = emptyList(),
     sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
+    sceneState: ChartSceneState? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
     onRangeSelectionChanged: ((ChartRangeSelection<T>?) -> Unit)? = null,
@@ -369,6 +393,10 @@ fun <T> HorizontalBarChart(
         sharedCrosshair = sharedCrosshair,
         accessibility = accessibility,
         state = state,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
+        sceneState = sceneState,
         onSelectionChanged = onSelectionChanged,
         onRangeSelectionChanged = onRangeSelectionChanged,
         tooltip = tooltip,

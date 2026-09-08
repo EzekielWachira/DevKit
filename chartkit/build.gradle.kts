@@ -76,11 +76,15 @@ devKitPublishing {
     description.set(
         "Compose-native data visualisation for Android, on one engine: line, area, bar, " +
             "scatter, bubble, histogram, box plot, violin, heatmap, calendar heatmap, " +
-            "candlestick, OHLC and volume on Cartesian coordinates, and pie, donut, radial " +
-            "bar and radar on polar ones. Axes, legends, annotations, tooltips, crosshair, " +
-            "tap, scrub, pinch zoom, pan and range selection, linked charts, viewport culling " +
-            "and downsampling for large datasets, Flow-based streaming, animation, theming " +
-            "and accessibility semantics. Release-safe.",
+            "candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet, timeline, " +
+            "range and Gantt on Cartesian coordinates; pie, donut, radial bar, radar, " +
+            "sunburst and gauge on polar ones; treemap, Sankey, funnel and network graphs " +
+            "on planar ones. Axes, logarithmic and symmetric-log scales, secondary value " +
+            "axes, legends, annotations, tooltips, crosshair, tap, scrub, pinch zoom, pan " +
+            "and range selection, hierarchical drill-down, linked charts, cross-filtering, " +
+            "an overview navigator, custom layers, viewport culling and downsampling for " +
+            "large datasets, Flow-based streaming, animation, theming, accessibility " +
+            "semantics, static report rendering and image export. Release-safe.",
     )
     versionKey.set("chartkit")
 }

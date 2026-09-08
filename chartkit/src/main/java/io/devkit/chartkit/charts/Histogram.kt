@@ -18,6 +18,10 @@ import io.devkit.chartkit.model.ChartSelection
 import io.devkit.chartkit.model.ChartTooltipData
 import io.devkit.chartkit.model.ChartXResolver
 import io.devkit.chartkit.scale.DomainPolicy
+import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.scene.ChartSceneState
+import io.devkit.chartkit.render.ChartStaticOptions
+import io.devkit.chartkit.state.ChartPlotAlignment
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.ChartViewportState
 import io.devkit.chartkit.state.rememberChartState
@@ -85,6 +89,10 @@ fun <T> Histogram(
     viewportState: ChartViewportState = rememberChartViewportState(),
     annotations: List<ChartAnnotation> = emptyList(),
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
+    sceneState: ChartSceneState? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<List<T>> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<List<T>>?) -> Unit)? = null,
@@ -144,6 +152,10 @@ fun <T> Histogram(
         annotations = remember(annotations) {
             resolveAnnotations(annotations, ChartXResolver.Default)
         },
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
+        sceneState = sceneState,
         onSelectionChanged = onSelectionChanged?.let { callback ->
             { erased -> callback(erased?.asTyped()) }
         },

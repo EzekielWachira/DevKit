@@ -118,13 +118,39 @@ fun rememberChartSharedCrosshairState(): ChartSharedCrosshairState =
 class ChartInteractionGroup internal constructor(
     val viewport: ChartViewportState,
     val crosshair: ChartSharedCrosshairState,
+    /**
+     * Selections shared across the group's charts.
+     *
+     * ChartKit coordinates *which* selections are active; the application does
+     * the filtering, over its own data. See [ChartFilterState].
+     */
+    val filter: ChartFilterState,
+    /** The domain window a reader has brushed out, shared. */
+    val brush: ChartBrushState,
+    /**
+     * Keeps the group's plot areas lined up when their value labels differ in
+     * width.
+     *
+     * Opt-in per chart, through each chart's `plotAlignment` parameter, because
+     * alignment only makes sense between charts that are actually stacked —
+     * two charts side by side share a time axis but not a left edge.
+     */
+    val alignment: ChartPlotAlignment,
 )
 
-/** Remembers a [ChartInteractionGroup]. */
+/**
+ * Remembers a [ChartInteractionGroup].
+ *
+ * Each member can still be created and passed on its own; the group is one call
+ * instead of five, and a name for what a dashboard's charts have in common.
+ */
 @Composable
 fun rememberChartInteractionGroup(
     viewport: ChartViewportState = rememberChartViewportState(),
     crosshair: ChartSharedCrosshairState = rememberChartSharedCrosshairState(),
-): ChartInteractionGroup = remember(viewport, crosshair) {
-    ChartInteractionGroup(viewport, crosshair)
+    filter: ChartFilterState = rememberChartFilterState(),
+    brush: ChartBrushState = rememberChartBrushState(),
+    alignment: ChartPlotAlignment = rememberChartPlotAlignment(),
+): ChartInteractionGroup = remember(viewport, crosshair, filter, brush, alignment) {
+    ChartInteractionGroup(viewport, crosshair, filter, brush, alignment)
 }

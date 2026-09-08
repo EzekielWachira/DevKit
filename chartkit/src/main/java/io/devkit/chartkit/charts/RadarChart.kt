@@ -14,10 +14,14 @@ import io.devkit.chartkit.layer.polar.RadarSeriesEntry
 import io.devkit.chartkit.layer.polar.RadarWebLayer
 import io.devkit.chartkit.geometry.PolarDirection
 import io.devkit.chartkit.geometry.PolarGeometry
+import io.devkit.chartkit.layer.custom.CustomPolarLayer
+import io.devkit.chartkit.layer.custom.CustomPolarLayerRenderer
 import io.devkit.chartkit.model.ChartSelection
 import io.devkit.chartkit.model.ChartSeries
 import io.devkit.chartkit.model.ChartTooltipData
 import io.devkit.chartkit.scale.NumericDomain
+import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.render.ChartStaticOptions
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.rememberChartState
 
@@ -87,6 +91,9 @@ fun <T> RadarChart(
     animation: ChartAnimation = ChartAnimation.Default,
     tapSelects: Boolean = true,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    customLayers: List<CustomPolarLayer> = emptyList(),
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -127,6 +134,9 @@ fun <T> RadarChart(
         loadingContent = loadingContent,
         emptyContent = emptyContent,
         errorContent = errorContent,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        customLayers = customLayers,
     )
 }
 
@@ -170,6 +180,9 @@ fun <T> RadarChart(
     animation: ChartAnimation = ChartAnimation.Default,
     tapSelects: Boolean = true,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    customLayers: List<CustomPolarLayer> = emptyList(),
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -291,7 +304,7 @@ fun <T> RadarChart(
                     showPoints = showPoints,
                     valueFormatter = valueFormatter,
                 ),
-            )
+            ) + customLayers.map(::CustomPolarLayerRenderer)
         },
         modifier = modifier,
         // A radar has no hole: the centre is the origin of every spoke.
@@ -302,7 +315,7 @@ fun <T> RadarChart(
         legend = legend,
         legendItems = remember(entries) {
             entries.map { entry ->
-                PolarLegendItem(
+                ChartKeyItem(
                     id = entry.seriesId,
                     label = entry.seriesName.ifBlank { entry.seriesId },
                     paletteIndex = entry.paletteIndex,
@@ -327,6 +340,8 @@ fun <T> RadarChart(
         loadingContent = loadingContent,
         emptyContent = emptyContent,
         errorContent = errorContent,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
         centerContent = null,
         // Measured, not guessed: the ring shrinks by whatever the widest metric
         // name actually needs, so "Reliability" and "Cost" are both drawn

@@ -1,14 +1,20 @@
 # ChartKit
 
-Compose-native data visualisation for Android. Line, area, bar, scatter,
-bubble, histogram, box plot, violin, heatmap, calendar heatmap, candlestick,
-OHLC and volume on a Cartesian coordinate system; pie, donut, radial bar and
-radar on a polar one — all on **one engine**, sharing scales, layout, layers,
-viewport, interaction, animation, theming, overlays and accessibility.
+Compose-native data visualisation for Android, on **one engine**.
+
+Line, area, bar, scatter, bubble, histogram, box plot, violin, heatmap, calendar
+heatmap, candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet,
+timeline, range and Gantt on Cartesian coordinates; pie, donut, radial bar,
+radar, sunburst and gauge on polar ones; treemap, Sankey, funnel and network
+graphs on planar ones. All three coordinate systems share the same scales,
+layout, layers, viewport, interaction, animation, theming, overlays and
+accessibility.
 
 It also handles the parts that decide whether a chart survives real data:
-annotations, linked charts, viewport culling and downsampling for datasets in
-the tens of thousands, and a Flow adapter for live streams.
+annotations, hierarchical drill-down, linked charts and cross-filtering, viewport
+culling and downsampling for datasets in the tens of thousands, a Flow adapter
+for live streams, custom layers, log and symmetric-log scales, second value axes,
+deterministic report rendering and image export.
 
 ChartKit charts **your** data classes. There is no entry type to convert into:
 
@@ -35,11 +41,18 @@ theming, which is the opposite of the point.
 - Statistical: [Scatter](#scatter-chart) · [Bubble](#bubble-chart) · [Histogram](#histogram) · [Box plot](#box-plot) · [Violin](#violin-plot) · [Statistics API](#statistics-api)
 - Density: [Heatmap](#heatmap) · [Calendar heatmap](#calendar-heatmap) · [Colour scales](#colour-scales)
 - Financial: [Candlestick](#candlestick-chart) · [OHLC](#ohlc-chart) · [Volume](#volume-chart) · [Linked charts](#linked-charts)
+- Hierarchy: [Treemap](#treemap) · [Sunburst](#sunburst) · [State and breadcrumbs](#hierarchy-state-and-breadcrumbs)
+- Flow: [Sankey](#sankey-diagram) · [Funnel](#funnel-chart)
+- Comparison: [Waterfall](#waterfall-chart) · [Dumbbell and lollipop](#dumbbell-and-lollipop) · [Bullet](#bullet-graph) · [Gauge](#gauge-chart)
+- Time: [Timeline, range and Gantt](#timeline-range-and-gantt-charts)
+- Relationships: [Network graph](#network-graph)
+- Dashboards: [Coordination](#dashboard-coordination) · [Navigator](#overview-navigator)
 - [Annotations](#annotations)
-- Configuration: [Axes](#axes) · [Grid](#grid-lines) · [Formatting](#formatting) · [Legends](#legends) · [Value labels](#value-labels)
+- Configuration: [Axes](#axes) · [Scales](#scales) · [Secondary axes](#secondary-value-axes) · [Grid](#grid-lines) · [Formatting](#formatting) · [Legends](#legends) · [Value labels](#value-labels)
 - Interaction: [Interaction modes](#interaction-modes) · [Selection](#selection) · [Scrubbing](#scrubbing) · [Crosshair](#crosshair) · [Zoom and pan](#zoom-and-pan) · [Range selection](#range-selection) · [Tooltips](#tooltips) · [State](#hoisted-state)
+- Extending: [Custom layers](#custom-layers)
 - Scale: [Large datasets](#large-datasets) · [Downsampling](#downsampling) · [Streaming](#streaming)
-- Presentation: [Theming](#theming) · [Animation](#animation) · [Accessibility](#accessibility) · [Data tables](#data-tables) · [Capture](#capture) · [Loading, empty and error](#loading-empty-and-error) · [Sizing](#sizing)
+- Presentation: [Theming](#theming) · [Animation](#animation) · [Accessibility](#accessibility) · [Data tables](#data-tables) · [Capture](#capture) · [Static rendering](#static-rendering) · [Export](#export) · [Loading, empty and error](#loading-empty-and-error) · [Sizing](#sizing)
 - Data: [X values](#x-values) · [Missing values](#missing-values) · [Ordering](#ordering) · [Edge cases](#edge-cases)
 - [Architecture](#architecture) · [Performance](#performance) · [Limitations](#current-limitations) · [Roadmap](#roadmap)
 
@@ -113,6 +126,21 @@ Open the drawer and pick a **ChartKit** destination:
 | Chart states | Loading, empty and error slots; single-point, constant and gapped datasets; 5,000 points; accessibility semantics |
 | Polar charts | Pie, donut with live centre content, radial bars, a 270° gauge, and values a pie cannot represent |
 | Zoom, pan and range | 730 daily readings: pinch, pan, reset, animate to a window, crosshair, and range selection reported in dates |
+| Statistical | Scatter, bubble, histogram with every binning rule, box plot and violin |
+| Density | Heatmap, calendar heatmap and the colour scales behind them |
+| Radar | Per-axis and shared normalisation, filled and outlined |
+| Financial | Candlesticks, OHLC, volume and a moving average on one chart |
+| Annotations | Rules, bands, regions, markers and callouts on live data |
+| Large datasets | 50,000 points, with culling and every downsampling strategy side by side |
+| Streaming | A live `Flow` with rolling windows, throttling and backpressure |
+| Accessibility | Generated summaries, custom summaries and the data table |
+| Hierarchy | Treemap and sunburst over **one** tree and one navigation state, with breadcrumbs and drill-down |
+| Flow | A Sankey diagram with node and link selection, and a funnel with conversion and drop-off |
+| Comparison | Waterfall, dumbbell, lollipop, bullet and gauge |
+| Time and intervals | A point timeline, durations in lanes, and a Gantt chart with progress and milestones |
+| Relationships | A service graph, circular and force directed, draggable and zoomable, with its data table |
+| Dashboard | Linked candlestick and volume charts with aligned plots, an overview navigator, and cross-filtering |
+| Advanced | A custom layer, log and linear axes side by side, a second value axis, static report mode, and PNG and SVG export |
 
 ---
 
@@ -1044,6 +1072,585 @@ crosshair.publish(ChartX.Time(selectedRow.timestamp))
 crosshair.clear()
 ```
 
+## Dashboard coordination
+
+`rememberChartInteractionGroup()` is five hoistable states with one name:
+
+```kotlin
+val group = rememberChartInteractionGroup()
+
+CandlestickChart(…, viewportState = group.viewport, sharedCrosshair = group.crosshair,
+                 plotAlignment = group.alignment)
+VolumeChart(…,      viewportState = group.viewport, sharedCrosshair = group.crosshair,
+                 plotAlignment = group.alignment)
+```
+
+| Member | Shared |
+| --- | --- |
+| `viewport` | the visible window of the domain |
+| `crosshair` | the domain position under the pointer |
+| `filter` | which selections are active, across the screen |
+| `brush` | the domain interval a reader dragged out |
+| `alignment` | the plot gutters, so stacked charts line up |
+
+Each can still be created and passed on its own; the group is one call instead
+of five, and a name for what a dashboard's charts have in common.
+
+**Selection is deliberately not in the group.** Two charts over different
+quantities have different value domains, and a shared selected *point* would
+assert that a price of 182 and a volume of 4.1 million are the same selection.
+
+### Aligned plot areas
+
+```text
+without                     with
+182 ┤▇▇▇▇▇▇▇▇▇▇▇▇▇▇        182 ┤▇▇▇▇▇▇▇▇▇▇▇
+  4.1M ┤▇▇▇▇▇▇▇▇▇▇       4.1M ┤▇▇▇▇▇▇▇▇▇▇▇
+       ↑ misaligned                       ↑ aligned
+```
+
+Two stacked charts whose value labels differ in width get plot areas starting at
+different x, so the reader compares two time axes that do not line up — precisely
+what a stacked financial or monitoring dashboard exists to make possible.
+
+Each chart reports the gutters it *naturally* needs; the group publishes the
+largest, and every chart pads out to it. It is a **measurement exchange, not a
+layout engine**: Compose still does all the measuring and arranging, and the
+charts remain ordinary siblings that can be wrapped in cards or separated by
+other content. It settles in one extra frame and cannot oscillate, because a
+chart's natural gutter does not depend on the padding added outside it.
+
+### Cross-filtering
+
+```text
+Chart A selection
+        ↓
+ChartFilterState        ← ChartKit's part ends here
+        ↓
+the app transforms its data
+        ↓
+Charts B and C redraw
+```
+
+```kotlin
+val filters = rememberChartFilterState()
+
+BarChart(
+    data = byRegion, category = { it.region }, value = { it.revenue },
+    onSelectionChanged = { filters.toggle(ChartFilter("region", it?.item?.region)) },
+)
+
+val visible = remember(orders, filters.filters) {
+    filters.apply(orders, "region") { it.region }
+}
+LineChart(data = visible, x = { it.month }, y = { it.amount })
+```
+
+ChartKit coordinates **which selections are active**. The filtering itself happens
+in your code, over your data, with your semantics — because "filter orders by
+region" means joining a table in one app and re-querying a server in another, and
+a charting library that owned that decision would be wrong in both.
+
+The vocabulary is deliberately thin: a dimension, a key, a label and which chart
+published it. A richer schema would be ChartKit inventing a query language that
+every application would then have to translate out of.
+
+Dimensions combine with **and**; keys within a dimension with **or**. Toggling
+the same key twice returns to where it started, which — together with the chart
+writing only from its **own** gesture — makes a feedback loop structurally
+impossible rather than merely unlikely.
+
+### Brush selection
+
+A brush is a range selection hoisted so more than one chart can see it:
+
+```kotlin
+val brush = rememberChartBrushState()
+
+LineChart(
+    data = readings, x = { it.at }, y = { it.value },
+    interaction = ChartInteraction.RangeSelect,
+    onRangeSelectionChanged = { brush.set(it) },
+)
+Button(onClick = { brush.zoom(viewport) }) { Text("Zoom to selection") }
+```
+
+Zooming to the brush is an explicit call rather than automatic behaviour:
+"select these three days" and "zoom to these three days" are different
+intentions, and a chart cannot tell which one a drag meant.
+
+## Overview navigator
+
+```text
+MAIN
+──────────────────────────
+
+OVERVIEW
+──────[██████]────────────
+```
+
+```kotlin
+val viewport = rememberChartViewportState()
+
+LineChart(
+    data = readings, x = { it.at }, y = { it.value },
+    interaction = ChartInteraction.Explorable,
+    viewportState = viewport,
+)
+ChartNavigator(data = readings, x = { it.at }, y = { it.value }, viewportState = viewport)
+```
+
+The navigator writes the **same** `ChartViewportState` the main chart reads.
+There is no second viewport, no synchronisation and no callback bouncing.
+
+Drag the window to move it, drag its edges to resize it, or tap to recentre.
+Dragging past an end **slides** rather than shrinking: a window that narrowed as
+it was dragged would change how much data is on screen for a gesture that only
+asked to move.
+
+The overview draws with `ChartPerformance.Dense` — a whole dataset in a strip
+fifty pixels tall, where every pixel column can hold one point.
+
+The second overload takes any content as the overview, for a candlestick chart
+navigated by a volume strip:
+
+```kotlin
+ChartNavigator(viewportState = viewport) {
+    VolumeChart(data = candles, x = { it.time }, volume = { it.volume }, /* … */)
+}
+```
+
+## Treemap
+
+Nested rectangles whose **areas** are proportional to their values. Charts your
+own recursive model — there is no node type to convert into:
+
+```kotlin
+data class Department(
+    val id: String,
+    val name: String,
+    val revenue: Double?,
+    val teams: List<Department> = emptyList(),
+)
+
+Treemap(
+    data = company,
+    children = { it.teams },
+    value = { it.revenue },
+    label = { it.name },
+    key = { it.id },
+    modifier = Modifier.fillMaxWidth().height(300.dp),
+)
+```
+
+The packing is the **squarified** algorithm of Bruls, Huizing and van Wijk. The
+naive alternative — slice the strip, take one slice per child — is a few lines
+and produces rectangles of aspect ratio 200:1 the moment one child dominates; a
+3-pixel sliver cannot be labelled, tapped or compared by eye.
+
+```text
+sliced                    squarified
+┌─┬─┬───────────────┐     ┌────────┬──────┐
+│ │ │               │     │        ├──┬───┤
+│ │ │               │     │        │  │   │
+└─┴─┴───────────────┘     └────────┴──┴───┘
+```
+
+| Parameter | Meaning |
+| --- | --- |
+| `children` | the node's children. An empty list is a leaf |
+| `value` | the leaf's magnitude. A branch's own value is optional |
+| `key` | stable identity. **Strongly preferred** — drill-down, selection and animation are keyed on it |
+| `maxDepth` | levels below the current root to draw. Two by default |
+| `labels` | `None`, `Label`, `LabelAndValue`, `LabelAndPercentage` |
+| `valuePolicy` | how a parent's own value is reconciled with its children's |
+| `interaction` | whether a tap, a double tap or nothing drills in |
+
+### Areas that sum
+
+A parent's value is the **sum of its children's** by default, because that is the
+only arrangement in which comparing two rectangles means anything. A parent that
+supplies its own value and disagrees with its children is reported through
+`ChartHierarchy.valueConflicts` rather than silently honoured; pass
+`HierarchyValuePolicy.PreferExplicit` when the parent genuinely measures
+something the children do not account for.
+
+Negative and non-finite values are **dropped** and counted: area encodes
+magnitude, and a negative area does not exist. `HierarchyValueGuard.Reject`
+throws instead.
+
+### Malformed hierarchies
+
+A `children` lambda that eventually returns an ancestor makes the input a graph,
+and a naive traversal of it never terminates. The repeated reference is cut and
+counted in `cyclesBroken`; the rest of the tree still draws. Depth is capped at
+`maxDepth` for the same reason.
+
+Identity is compared by **reference**, not by `equals` — two sibling nodes that
+compare equal are legitimate data, and rejecting the second would silently delete
+it.
+
+## Sunburst
+
+The same hierarchy as rings:
+
+```kotlin
+SunburstChart(
+    data = company,
+    children = { it.teams },
+    value = { it.revenue },
+    label = { it.name },
+    key = { it.id },
+    centerContent = { Text(hierarchy.currentRoot?.label.orEmpty()) },
+)
+```
+
+```text
+angle  = the node's share of its parent
+radius = how far below the visible root it sits
+```
+
+Built on `PolarChartCore` — the same engine as pie, donut and radial bar — so the
+coordinate system, the tooltip overlay, the legend, the selection state, the
+centre-content slot and the accessibility layer are shared. What a sunburst adds
+is one layout function.
+
+`centerContent` is a Compose slot inside the hole: a total, the current level's
+name, a back button. Double-tapping the centre goes back up a level.
+
+## Hierarchy state and breadcrumbs
+
+Hoist a `ChartHierarchyState` to control the level, read it, or keep a treemap
+and a sunburst **in step**:
+
+```kotlin
+val hierarchy = rememberHierarchyChartState()
+
+ChartBreadcrumbs(hierarchy)
+Treemap(data = company, /* … */, hierarchyState = hierarchy)
+SunburstChart(data = company, /* … */, hierarchyState = hierarchy)
+```
+
+```text
+Company  ›  Engineering  ›  Android
+```
+
+Nothing synchronises anything: there is **one** piece of state and two charts
+observing it. The state stores the current root's **id**, not the node, so a
+refresh that produces new objects for the same logical tree does not reset the
+view — which is why supplying `key` matters.
+
+`ChartBreadcrumbs` renders each ancestor as a real `Text` with its own click
+target and semantics node, so a screen reader announces "Company, button" and a
+keyboard can reach it. The `entry` slot replaces the appearance entirely while
+keeping the navigation.
+
+`rememberSaveableHierarchyChartState()` survives configuration changes and
+process death.
+
+## Sankey diagram
+
+Weighted flows between nodes, from two of your own lists:
+
+```kotlin
+SankeyChart(
+    nodes = stages,
+    links = transitions,
+    nodeId = { it.id },
+    nodeLabel = { it.name },
+    source = { it.from },
+    target = { it.to },
+    value = { it.users },
+    modifier = Modifier.fillMaxWidth().height(300.dp),
+)
+```
+
+```text
+Search ▇▇▇▇▇▇▇▇▇▇▇ Product ▇▇▇▇▇▇ Checkout ▇▇▇ Purchase
+       ▒▒▒▒▒▒▒            ▒▒▒▒            ▒
+```
+
+A link's **width is its weight**. That is the entire claim the diagram makes, so
+links are filled ribbons rather than strokes.
+
+Columns come from each node's **longest** distance from a source. Shortest-path
+assignment would let a link that skips a stage drag its target backwards, and the
+diagram would then show flow running right to left.
+
+### What it will not draw
+
+A **cycle**: "A before B" and "B before A" cannot both hold, so the links closing
+one are cut — deterministically, by a depth-first traversal in your own link
+order — and the rest is drawn. Unknown node references, self-links and
+non-positive weights are dropped for related reasons. All four are counted on the
+graph, and `SankeyValidation.Reject` throws instead of repairing.
+
+### Selecting
+
+Tapping a node emphasises everything it connects to and lists its flows in the
+tooltip; tapping a band selects that flow. Both hand back a typed selection —
+`SankeyNodeSelection` or `SankeyLinkSelection` — carrying your own object.
+Unconnected flows take a different **colour** as well as a lower opacity,
+because connection state carried by opacity alone is invisible on a dense diagram.
+
+## Funnel chart
+
+```kotlin
+FunnelChart(
+    data = stages,
+    label = { it.name },
+    value = { it.users },
+    labels = FunnelLabels.LabelAndConversion,
+)
+```
+
+```text
+▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇▇  Visited     12,000  100%
+  ▇▇▇▇▇▇▇▇▇▇      Signed up    4,800   40%
+    ▇▇▇▇▇▇        Activated    3,100   65%
+      ▇▇          Subscribed     940   30%
+```
+
+Each stage narrows toward the next one's width, so the **slope** between two
+bands is the drop-off. A stack of rectangles would show the same numbers and hide
+the thing a funnel exists to show.
+
+All four figures are computed whether or not they are drawn — the count, the
+share of the first stage, the conversion from the previous stage and the number
+lost — and the tooltip, the labels and the screen-reader announcement each read
+the one they need from the same transform.
+
+**A funnel need not decrease.** A stage counted from a different source, a
+re-entry or a cohort that grew all produce a stage larger than the one before it.
+The conversion is then above `1` and the drop-off is negative; nothing is clamped.
+`FunnelTransform.isMonotonic` lets you check.
+
+## Waterfall chart
+
+```kotlin
+WaterfallChart(
+    data = movements,
+    label = { it.name },
+    value = { it.amount },
+    kind = { WaterfallTransform.signedKind(it.amount) },
+)
+```
+
+```text
+         ┌──┐
+ ┌───┐   │  │╌╌┌──┐            ┌────┐
+ │   │╌╌╌┘  │  │  │╌╌┌──┐╌╌╌╌╌╌│    │
+ └───┘      └──┘  └──┘  └──┘   └────┘
+ Start     Rev   Cost  Tax     Total
+```
+
+Four step kinds — `Increase`, `Decrease`, `Subtotal`, `Total`. The **kind**
+decides the direction and your value supplies the magnitude, so `Decrease` with
+`20` and `Decrease` with `-20` both fall by twenty. Requiring you to negate your
+own decreases is the convention that produces a chart wrong in exactly one bar.
+
+A subtotal is drawn from zero and does not reset the running total; the
+connectors are what turn a row of floating bars into a running total.
+
+Colours are the four semantic roles in `ChartComparisonColors`, so an application
+whose convention runs the other way swaps two values rather than forking a layer.
+
+## Dumbbell and lollipop
+
+```kotlin
+DumbbellChart(
+    data = teams,
+    category = { it.name },
+    start = { it.lastYear },
+    end = { it.thisYear },
+    startLabel = "2024",
+    endLabel = "2025",
+)
+```
+
+```text
+Android   ○───────●
+iOS         ○──●
+Web       ●──────────○
+```
+
+The **distance** is the reading: two bars side by side show the same numbers and
+leave you to subtract. Before against after, actual against target, any two
+comparable measurements of the same thing.
+
+`LollipopChart` is the same layer with the stem starting at the baseline rather
+than at a second value — a bar chart with the ink removed, which is better when
+the categories are many and the values are close together.
+
+The two ends differ in **shape** as well as colour, so a reader who cannot
+distinguish the two colours can still tell before from after.
+
+## Bullet graph
+
+```kotlin
+BulletChart(
+    data = metrics,
+    label = { it.name },
+    actual = { it.value },
+    target = { it.target },
+    ranges = {
+        listOf(
+            BulletRange(0.0, 50.0, "Below"),
+            BulletRange(50.0, 75.0, "On track"),
+            BulletRange(75.0, 100.0, "Ahead"),
+        )
+    },
+)
+```
+
+```text
+Revenue  ░░░░░▒▒▒▒▓▓▓▓
+         ██████████│
+                   ↑ target
+```
+
+Stephen Few's replacement for the gauge, which spends a whole circle on one
+number. Several stack into the space one dial would take and — because they share
+an axis — can be compared with each other.
+
+The target is a perpendicular **tick**, not a second bar: as a bar it would
+compete for attention and turn "did we hit it" into a comparison of two lengths.
+
+Ranges are intervals you name. Whether a high number is good is your knowledge,
+not ChartKit's.
+
+## Gauge chart
+
+```kotlin
+GaugeChart(
+    value = 72.0,
+    min = 0.0,
+    max = 100.0,
+    bands = listOf(
+        GaugeBand(0.0, 50.0, "Below target"),
+        GaugeBand(50.0, 75.0, "On target"),
+        GaugeBand(75.0, 100.0, "Ahead"),
+    ),
+    shape = GaugeShape.ThreeQuarter,
+    indicator = GaugeIndicator.Arc,
+    centerContent = { Text("72", style = MaterialTheme.typography.headlineMedium) },
+)
+```
+
+`GaugeShape` covers `SemiCircle`, `ThreeQuarter`, `FullCircle` and `Custom`.
+`GaugeIndicator` is `Arc`, `Needle` or both.
+
+Built on the polar engine, not a second one. A value outside `[min, max]` is
+drawn at the end of the arc — there is nowhere else — but is **announced and
+reported as itself**: a gauge that renamed 130% as 100% would hide the reading
+most worth seeing.
+
+## Timeline, range and Gantt charts
+
+One layer behind three charts, because a point event is an interval with no end
+and a task is an interval with a progress overlay.
+
+```kotlin
+RangeChart(
+    data = bookings,
+    start = { it.from },
+    end = { it.to },
+    lane = { it.room },
+    label = { it.guest },
+)
+```
+
+```text
+Room A   ▐████████▌      ▐██████▌
+Room B        ▐██████████▌     ◆
+Room C   ▐███▌      ▐███████████▌
+         09:00   12:00   15:00
+```
+
+- `TimelineChart` — point events, no end accessor
+- `RangeChart` — durations in lanes
+- `GanttChart` — durations with progress, milestones and a dependency model
+
+**Not tied to project management.** Bookings, shifts, machine uptime,
+appointments, deploy windows and process durations are the same shape; only your
+lambdas differ.
+
+Times are epoch milliseconds, the same currency `ChartX.Time` uses — `java.time`
+is API 26 and ChartKit's floor is 24. A caller on `LocalDate` passes
+`date.toEpochDay() * 86_400_000L`.
+
+### Rows and lanes
+
+Lanes and their rows sit at **integer positions on the value axis**, exactly as a
+heatmap's rows do, and the chart labels that axis through `ChartAxis.ticks`. That
+is what lets the whole Cartesian engine work here unchanged: the time scale, the
+viewport, zoom, pan, the crosshair, annotations and range selection.
+
+Two entries in one lane that overlap in time are stacked onto separate rows.
+Drawing them over each other would hide one, and hiding data is never the right
+default for a chart whose content is when things happened.
+
+### Gantt, and what it is not
+
+Tasks, progress, milestones, lanes and a dependency model. It does **not**
+attempt scheduling, critical-path analysis, resource levelling or automatic
+dependency routing — those are an application's concerns, and a charting library
+that guessed at them would be wrong in ways its users could not correct.
+Dependencies are drawn as direct connectors; routing them around the bars in
+between is an edge-routing pass, and doing it badly puts arrows through the tasks
+they connect.
+
+## Network graph
+
+```kotlin
+NetworkGraph(
+    nodes = services,
+    edges = dependencies,
+    nodeId = { it.name },
+    source = { it.from },
+    target = { it.to },
+    nodeWeight = { it.requests },
+)
+```
+
+Two lists and three lambdas. Nothing is required of your types: no interface, no
+conversion, no reflection, and a selection hands your own object back.
+
+### Layouts
+
+```kotlin
+GraphLayoutStrategy.Circular(GraphLayout.ByDegree)
+GraphLayoutStrategy.ForceDirected(seed = 20_240_101, iterations = 400)
+```
+
+The force layout is **seeded**, so the same graph draws the same picture every
+time — a layout that reshuffled itself on every launch would be unusable and
+untestable. It steps in batches on `Dispatchers.Default`, publishes immutable
+snapshots at a frame's cadence, stops as soon as it settles, and restarts when a
+node is dragged. Changing the data or the strategy cancels the outstanding work.
+
+Above `ForceSimulation.MAX_SIMULATED` nodes the circular layout is used instead:
+the pairwise repulsion beyond that costs more than the picture is worth, and a
+graph of ten thousand nodes is not a picture.
+
+### Dragging and the viewport
+
+Dragging a node **pins** it and lets the simulation rearrange its neighbours
+around it; `layoutState.releaseAll()` hands them back. `ChartPlanarViewportState`
+zooms and pans in two dimensions — deliberately a different type from
+`ChartViewportState`, which is a window along one axis because that is what
+zooming a time series means.
+
+Positions live in parallel arrays in a unit square, so the consumer's own list
+stays immutable and a resize does not restart the simulation.
+
+### Accessibility
+
+The summary names the size and the most connected nodes; the selection names the
+node, its degree and its neighbours. A semantics tree containing every edge of a
+three-hundred-node graph is not access, it is noise — `graphDataTable()` is how a
+reader gets at the connections.
+
 ## Annotations
 
 Reference marks in the chart's own coordinate space:
@@ -1158,6 +1765,140 @@ default.
 
 Axis gutters come from the measured labels, so `1,250,000` gets the room it
 needs and `0..5` does not waste half the width.
+
+## Scales
+
+Three kinds of scale, and they answer different questions:
+
+| Kind | Maps | Used by |
+| --- | --- | --- |
+| **position** | a value to a pixel | every axis |
+| **size** | a value to a radius | bubble charts, graph nodes |
+| **colour** | a value to a colour | heatmaps, calendar heatmaps |
+
+A position scale is stated on the **axis**, because that is what it is a
+property of — a chart with a log value axis and a linear domain axis is
+ordinary, and a parameter on the chart could not express it:
+
+```kotlin
+LineChart(
+    data = latencies,
+    x = { it.at },
+    y = { it.micros },
+    yAxis = ChartAxis(title = "Latency (µs)", scale = AxisScale.Log()),
+)
+```
+
+### Logarithmic
+
+```text
+1      10     100    1000
+├──────┼──────┼──────┤
+```
+
+Equal pixel distances are equal **ratios**. Base ten by default; two and `e` are
+the other common choices, and any base above one works.
+
+What a log axis cannot do is represent zero or a negative number — `log(0)` is
+negative infinity and `log(-1)` is not a real position. There is no correct
+silent answer, so the behaviour is stated:
+
+| `LogValuePolicy` | Behaviour |
+| --- | --- |
+| `Clamp` | pin the value to the axis floor. The default: the point stays on the chart, drawn slightly below where it belongs |
+| `Skip` | treat it as missing, so the line breaks. Right when zeros mean "no reading" |
+| `Reject` | throw, naming the value |
+
+Ticks are powers of the base, subdivided (`1 2 3 5 10`) when there are few
+enough decades for the subdivisions to be readable and strided when there are
+too many.
+
+### Symmetric log
+
+```text
+-1000  -100   -10   0   10    100   1000
+  ├──────┼─────┼────┼───┼──────┼──────┤
+             linear ↑↑↑
+```
+
+Logarithmic in both tails, linear across zero — the answer to the one thing a
+plain log axis cannot do. Profit and loss, temperature anomalies, net flows and
+score deltas all cross zero and span orders of magnitude.
+
+```kotlin
+yAxis = ChartAxis(scale = AxisScale.Symlog(linearThreshold = 1.0))
+```
+
+`linearThreshold` is the magnitude below which the axis is straight. The two
+halves are continuous at the join by construction, so no kink appears there.
+
+### Not a second scale type
+
+A logarithmic axis is a linear mapping of `log(v)`. Expressing it that way — as a
+[`ScaleTransform`](src/main/java/io/devkit/chartkit/scale/ScaleTransform.kt)
+applied before the linear step — means the grid, the axis renderer, hit testing,
+annotations, the crosshair, range selection, the viewport and **every layer**
+work on a log axis unchanged, because all of them go through `scale` and
+`invert` and neither knows the difference. A parallel `LogScale` class would have
+needed every one of those to learn about it.
+
+### A scale of your own
+
+The interface is open. A probability axis, a power scale, a perceptual lightness
+scale — implement four members and pass it:
+
+```kotlin
+val squareRoot = object : ScaleTransform {
+    override fun forward(value: Double) = sqrt(value.coerceAtLeast(0.0))
+    override fun inverse(transformed: Double) = transformed * transformed
+    override fun ticks(domain: NumericDomain, count: Int) =
+        TickGenerator.ticks(domain, count)
+}
+
+yAxis = ChartAxis(scale = AxisScale.Custom(squareRoot))
+```
+
+The one requirement is that `forward` be **strictly increasing** over the
+domain. A non-monotonic transform makes two values share a pixel, and every hit
+test, inversion and tick placement downstream then reports one of them wrongly.
+
+## Secondary value axes
+
+A second value axis on the opposite edge, with each layer bound to one
+explicitly:
+
+```kotlin
+CartesianChart(
+    valueAxis = ChartAxis(title = "Revenue", valueFormatter = money),
+    secondaryValueAxis = ChartAxis(title = "Conversion %"),
+) {
+    bars(series = listOf(revenueSeries), category = { it.month }, value = { it.amount })
+    line(
+        series = listOf(conversionSeries),
+        x = { it.month },
+        y = { it.rate },
+        valueAxis = ValueAxisBinding.Secondary,
+    )
+}
+```
+
+### Explicit, never inferred
+
+ChartKit will not guess. A revenue series in pounds and a conversion series in
+percent could be told apart by their magnitudes on Tuesday and not on Wednesday,
+and a chart that silently moved a series to the other axis when its numbers
+changed would be the worst kind of bug: invisible, intermittent, and wrong by a
+factor nobody can see.
+
+### Dual axes mislead easily
+
+Two independent scales in one plot let the author choose where the lines cross,
+which is a claim about the data that the data did not make. Reach for a second
+axis when the quantities genuinely differ in kind and a reader needs both;
+prefer two [linked charts](#linked-charts) when they do not.
+
+A layer bound to the second axis is **drawn and hit-tested** against it, so a tap
+on the conversion line resolves against percentages rather than against pounds.
 
 ## Grid lines
 
@@ -1601,6 +2342,127 @@ killed.
 
 ---
 
+## Custom layers
+
+A visualisation ChartKit does not have, drawn at your own call site, sharing the
+chart's scales, viewport, theme and animation clock:
+
+```kotlin
+@OptIn(ExperimentalChartKitApi::class)
+CartesianChart {
+    customLayer(id = "target-band") {
+        val top = positionOfValue(32_000.0)
+        val bottom = positionOfValue(24_000.0)
+        drawRect(
+            color = colors.annotation.region,
+            topLeft = Offset(plotArea.left, minOf(top, bottom)),
+            size = Size(plotArea.width, abs(bottom - top)),
+        )
+    }
+    line(series = listOf(revenue), x = { it.month }, y = { it.amount })
+}
+```
+
+The layer sits in the render list **where it was declared** — before the data
+draws it underneath, after draws it on top. It stays aligned with the data
+through a zoom, which a mark computing its own positions could not do.
+
+`CartesianLayerScope` is a `DrawScope` and a `CartesianLayerContext` at once, so
+the body reads like ordinary Compose drawing with the chart's geometry in scope:
+
+| Member | Answers |
+| --- | --- |
+| `plotArea` | where the data is drawn |
+| `positionOfValue(v)` / `valueAt(px)` | the value axis, both ways |
+| `positionOfDomain(any)` | a domain value, resolved through the chart's own `ChartXResolver` — `"Mar"` on a category axis, a timestamp on a time axis |
+| `pointAt(domain, value)` | a screen position |
+| `domainOf` / `valueOf` | the two components of a screen position |
+| `orientation`, `viewport`, `reveal`, `renderMode` | the frame's own state |
+| `colors`, `typography`, `dimensions`, `textMeasurer`, `px(dp)` | the theme |
+| `selection` | what is selected, if anything |
+
+Everything deliberately **absent** is the renderer's mutable innards — the layer
+list, other layers' geometry, the gesture coordinator, the animation
+`Animatable`. Exposing those would make every internal refactor a breaking
+change, and would let a custom layer put the chart into a state it cannot leave.
+
+### Only `draw` is required
+
+Hit testing, accessibility and legend rows are separate optional lambdas rather
+than interface members, so a two-line layer stays two lines:
+
+```kotlin
+customLayer(
+    id = "sla",
+    hitTest = { point ->
+        val y = positionOfValue(200.0)
+        if (abs(point.y - y) < 12f) CustomLayerHit("SLA", 200.0, point) else null
+    },
+    describe = { listOf(CustomLayerItem("SLA", 200.0, detail = "SLA: 200 ms")) },
+    legendEntries = listOf(CustomLayerLegendEntry("sla", "SLA")),
+) { /* draw */ }
+```
+
+`describe` takes no geometry on purpose: what a reader needs to hear is a fact
+about the data, not about pixels, and a description that depended on the plot
+size would change when the device rotated.
+
+**Geometry preparation** belongs in your own `remember`, outside the DSL — it is
+both simpler and correctly keyed on your own inputs.
+
+### Custom polar layers
+
+A parameter on the existing polar charts rather than a separate DSL, because
+what you usually want is to add a mark to *your* donut, not to reassemble one
+from parts:
+
+```kotlin
+DonutChart(
+    data = usage, value = { it.value }, label = { it.label },
+    customLayers = listOf(
+        polarLayer("target-ring") {
+            drawCircle(
+                color = colors.annotation.line,
+                radius = innerRadius + (outerRadius - innerRadius) * 0.72f,
+                center = Offset(polarCenter.x, polarCenter.y),
+                style = Stroke(width = px(1.dp)),
+            )
+        },
+    ),
+)
+```
+
+`PolarLayerContext` is deliberately **not** the Cartesian one with nullable
+halves. A polar layer has no value axis and no domain axis; forcing it to answer
+`positionOfValue` would mean either lying or returning null from half the
+methods, and a caller could not tell which were meaningful.
+
+### Overlay content
+
+For anything that has to be *composed* rather than drawn — a card, an image, a
+button, a badge with an avatar in it:
+
+```kotlin
+CartesianChart(
+    overlay = {
+        Card(Modifier.chartAnchor(domain = "Mar", value = 90_000.0)) {
+            Text("Launch", Modifier.padding(6.dp))
+        }
+    },
+) {
+    line(series = listOf(revenue), x = { it.month }, y = { it.amount })
+}
+```
+
+`chartAnchor` resolves through the chart's own scales and viewport, so the
+content stays on the value it names through a zoom — and is **not placed at all**
+when that value leaves the plot, rather than sliding along the edge claiming to
+mark something off screen.
+
+Annotations stay canvas-drawn and this exists beside them: rasterising a card
+onto a canvas would lose its layout, its theming, its click target and its
+semantics node.
+
 ## Large datasets
 
 Four mechanisms, each with a stated threshold, none of them adaptive:
@@ -2031,6 +2893,60 @@ A series past `MAX_ANNOUNCED_POINTS` is summarised by its range rather than
 listed, and past that size the entries are not even built — they would be
 allocated and never read.
 
+### Hierarchy, flow, graph and timeline
+
+Each announces itself in the terms its own picture uses:
+
+```text
+Company, Engineering, Android. 4,200,000. 37 percent of Engineering.
+16 percent of Company.
+```
+
+```text
+Search to Checkout: 1,240 users.
+```
+
+```text
+auth. 5 connections: gateway, notifications, orders, payments, search.
+```
+
+```text
+Latency spike, Auth: 09:00 to 11:00.
+```
+
+A treemap node's meaning is entirely relative — "42" is not a reading, "42, which
+is 18% of Engineering" is — so the share of the parent and of the visible root
+are announced with the value.
+
+A network graph announces its **size and its hubs**, and then whatever is
+selected. A semantics tree containing every edge of a three-hundred-node graph is
+not access, it is noise; [`graphDataTable()`](#data-tables) is how a reader gets
+at the connections.
+
+### Keyboard and screen-reader navigation
+
+Every Cartesian chart is focusable and steps its selection without a pointer:
+
+```text
+→ / ←     next / previous data point
+↑ / ↓     next / previous series
+Escape    clear the selection
+```
+
+On a horizontal chart the axes swap, so the keys always mean "along the domain"
+and "across the series" rather than "right" and "down".
+
+The same four moves are exposed as TalkBack custom actions — *Next data point*,
+*Previous data point*, *Next series*, *Previous series* — so a screen-reader user
+can walk the values without placing a finger accurately on a three-pixel line.
+
+All of it resolves through the **same** hit test a scrub uses, produces the same
+`ChartSelection`, sets the same state and moves the same shared crosshair. A
+parallel "focused index" model would have been a second notion of what is
+selected, and the two would disagree the first time a chart was driven both ways.
+
+Turn it off with `keyboardNavigation = false` where a chart is decorative.
+
 ## Data tables
 
 The summary makes a `Canvas` describable; a table makes it **navigable**. A
@@ -2080,6 +2996,37 @@ practically worse — three swipes for one fact, and the column name lost by the
 time the reader reaches the number. Repeating the column name inside the row is
 what makes the value readable out of context.
 
+### Adapters for every shape
+
+A chart whose rows are not `x, series, value` gets its own adapter, written by
+hand against the model that produced it:
+
+| Adapter | Columns |
+| --- | --- |
+| `chartDataTable` | x · series · value |
+| `ohlcDataTable` | date · open · high · low · close |
+| `boxPlotDataTable` | category · min · Q1 · median · Q3 · max |
+| `hierarchyDataTable` | path · value · of parent · of root |
+| `sankeyDataTable` | from · to · value |
+| `funnelDataTable` | stage · value · of first · conversion · lost |
+| `waterfallDataTable` | step · change · running total |
+| `timelineDataTable` | event · lane · start · end |
+| `graphDataTable` | node · connections · connected to |
+
+The alternative — walking your objects and guessing at their fields — would need
+reflection, would break under R8, and would produce column names from property
+names rather than from what the chart plotted.
+
+`ChartWithDataTable` pairs a chart with its table behind a tab strip, composing
+**one or the other** so a screen reader is never handed both the summary and the
+whole table:
+
+```kotlin
+ChartWithDataTable(table = chartDataTable(revenue, category = { it.month }, value = { it.amount })) {
+    LineChart(data = revenue, x = { it.month }, y = { it.amount })
+}
+```
+
 ## Capture
 
 ```kotlin
@@ -2112,6 +3059,104 @@ composable.
 
 `capture()` throws if the chart has not drawn yet; `captureOrNull()` returns
 `null`, and `isReady` says which it will be.
+
+## Static rendering
+
+```kotlin
+LineChart(
+    data = revenue, x = { it.month }, y = { it.amount },
+    renderMode = ChartRenderMode.Static,
+    modifier = Modifier.chartCapture(capture),
+)
+```
+
+```text
+gestures       no pointer input is installed at all
+animation      settled — drawn at its final state, never mid-reveal
+selection      drawn only if the caller set it programmatically
+tooltip        suppressed unless explicitly requested
+crosshair      suppressed: it follows a pointer that is not there
+```
+
+A report render is not "animation off". It is animation off *and* gestures off
+*and* transient selection suppressed — decisions that are only correct together,
+and which as five parameters would be set in four different combinations across a
+codebase, producing a PDF with a tooltip frozen in the middle of it.
+
+Nothing in a static render depends on a running clock or a pointer position, so
+two captures of the same chart at the same size are identical — which is what
+makes a screenshot test worth writing.
+
+`ChartStaticOptions` says what a static render still shows:
+
+| Preset | Shows |
+| --- | --- |
+| `Default` | a programmatic selection; no tooltip, no crosshair |
+| `Annotated` | selection, tooltip and crosshair, for an annotated figure |
+| `Bare` | data and furniture only |
+
+Gestures are not installed at all rather than ignored: a modifier that consumed
+events would still stop a parent from scrolling.
+
+## Export
+
+### Raster
+
+```kotlin
+val capture = rememberChartCaptureState()
+
+LineChart(…, modifier = Modifier.chartCapture(capture))
+Button(onClick = { scope.launch { share(capture.capture(ChartCaptureOptions.HighResolution)) } })
+```
+
+| Option | Meaning |
+| --- | --- |
+| `scale` | multiplies the output's pixel dimensions. The chart is **re-rasterised**, not upscaled, so text and strokes are genuinely sharper |
+| `background` | `null` leaves it transparent — right for compositing, wrong for an unknown surface, where a dark-theme chart is invisible on white paper |
+| `maxDimensionPx` | a ceiling on either edge. A capture at 8× of a full-screen chart is tens of megabytes, and an `OutOfMemoryError` from a share button is a poor way to find out |
+
+At `scale = 1` with no background this is the recording's own rasterisation,
+which is both faster and exact.
+
+### Vector
+
+```kotlin
+val scene = rememberChartSceneState()
+
+LineChart(…, sceneState = scene)
+Button(onClick = {
+    val current = scene.scene ?: return@Button
+    if (current.isComplete) share(ChartSvg.render(current, title = "Monthly revenue"))
+})
+```
+
+A `ChartScene` is the picture stated as **data** — lines, rectangles, circles,
+arcs, paths, text and groups — which a draw call is not: once a layer has called
+`drawPath`, nothing remains to serialise. `ChartSvg.render` writes it as SVG,
+with each layer as a named `<g>` so the output is editable in a vector tool.
+
+**Coverage is reported, not assumed.** Every layer is asked whether it can also
+*describe* itself; one that cannot is named in `ChartScene.unexportedLayers`, and
+`isComplete` is how a caller decides whether to ship the file or fall back to a
+raster capture. A vector export that silently dropped a candlestick series would
+be worse than none: the file opens, it looks like a chart, and the data is
+missing.
+
+| Exported | Not exported |
+| --- | --- |
+| grid, axes, lines, areas, straight-interpolated series | curved (monotone/step) lines — flattening a Bézier here would produce a *different* curve from the one on screen |
+| bars, circular scatter and bubble marks | non-circular scatter shapes |
+| every annotation: rules, bands, regions, markers, callouts, arrows, labels | candlestick, OHLC, volume, box plot, violin, heatmap, calendar |
+| — | anything composed rather than drawn: tooltips, overlay content, legends |
+
+Text carries the size the chart measured with and a generic `sans-serif` family.
+A viewer with different metrics lays the glyphs out slightly differently; the
+**positions** are exact, because the chart computed them, so labels stay on their
+ticks.
+
+This is a foundation rather than a finished feature, and it is one deliberately:
+rebuilding every layer against a scene model to complete it is the rewrite that
+was not worth doing. Raster capture covers every chart today.
 
 ## Loading, empty and error
 
@@ -2304,40 +3349,73 @@ Core
 │                nested: financial · heatmap · statistical · annotation
 ├── formatter    ChartValueFormatter · ChartTimeFormatter and built-ins
 ├── annotation   ChartAnnotation · AnnotationStyle · builders
+│                rules · bands · regions · markers · callouts · arrows · labels
+├── hierarchy    ChartHierarchy · HierarchyNode · TreemapLayout (squarified)
+│                SunburstLayout
+├── flow         SankeyGraph (validation, cycle cutting, column assignment)
+│                SankeyLayout (barycentre ordering, node sizing, band routing)
+├── graph        ChartGraph · GraphLayout (circular) · ForceSimulation
+├── timeline     TimelineModel · lane and row assignment · dependencies
+├── transform    WaterfallTransform · FunnelTransform
+├── scene        ChartScene · ChartSceneNode · ChartSceneBuilder
+├── export       ChartSvg
+├── render       ChartRenderMode · ChartStaticOptions
 ├── accessibility factual summaries, selection, viewport, range · ChartDataTable
-├── capture      ChartCaptureState · Modifier.chartCapture
-└── state        ChartState<T> · ChartViewportState
-                 ChartSharedCrosshairState · ChartInteractionGroup
+│                typed adapters per chart shape
+├── capture      ChartCaptureState · ChartCaptureOptions · Modifier.chartCapture
+└── state        ChartState<T> · ChartViewportState · ChartPlanarViewportState
+                 ChartSharedCrosshairState · ChartHierarchyState
+                 ChartGraphLayoutState · ChartFilterState · ChartBrushState
+                 ChartPlotAlignment · ChartInteractionGroup
 
 Coordinates
 ├── CartesianCoordinates   DomainAxis + value scale + orientation
-└── PolarCoordinates       centre + inner/outer radius + start/sweep + direction
+├── PolarCoordinates       centre + inner/outer radius + start/sweep + direction
+└── PlanarCoordinates      a plain rectangle, for layout-driven visualisations
+
+Layout engines
+├── Cartesian     axis gutters → plot rectangle
+├── Polar         largest centred square → ring
+├── Hierarchical  squarified treemap · sunburst rings
+├── Flow          Sankey columns, node placement, band routing
+└── Graph         circular · force-directed
 
 Layers
 ├── Cartesian   grid · line (line + area + points) · bar · histogram
 │               scatter (scatter + bubble) · box plot · violin · heatmap
-│               candle (candlestick + OHLC) · volume · value labels
-│               crosshair · range selection · annotations (behind and above)
-└── Polar       slice (pie + donut) · radial bar · radar web · radar
+│               candle (candlestick + OHLC) · volume · waterfall
+│               connector marks (dumbbell + lollipop) · bullet · interval
+│               value labels · crosshair · range selection
+│               annotations (behind and above) · custom
+├── Polar       slice (pie + donut) · radial bar · radar web · radar
+│               sunburst · gauge · custom
+└── Planar      treemap · Sankey · funnel · graph
 
 Interaction
 └── ChartGestureCoordinator   tap · scrub · pan · pinch · range, arbitrated once
     ChartInteraction · ChartDragMode · CrosshairConfig · HitTestMode
+    keyboard and D-pad stepping · TalkBack custom actions
 
 Overlay
 └── ChartOverlay              measured placement for tooltips and custom content
+    ChartOverlayScope         Compose content anchored in chart coordinates
 
 High-level charts
 ├── LineChart · AreaChart · BarChart · HorizontalBarChart · CartesianChart
 │   ScatterChart · BubbleChart · Histogram · BoxPlot · ViolinPlot
 │   Heatmap · CalendarHeatmap · CandlestickChart · OhlcChart · VolumeChart
-└── PieChart · DonutChart · RadialBarChart · RadarChart
+│   WaterfallChart · DumbbellChart · LollipopChart · BulletChart
+│   TimelineChart · RangeChart · GanttChart · ChartNavigator
+├── PieChart · DonutChart · RadialBarChart · RadarChart
+│   SunburstChart · GaugeChart
+└── Treemap · SankeyChart · FunnelChart · NetworkGraph
 ```
 
-Every Cartesian chart reduces to one call into `CartesianChartCore`, and every
-polar chart to one call into `PolarChartCore`. The two cores differ in exactly
-three things — the layout call, the coordinate construction and the hit test.
-Everything else is the same code.
+Every Cartesian chart reduces to one call into `CartesianChartCore`, every polar
+chart to one call into `PolarChartCore`, and every layout-driven one to a call
+into `PlanarChartCore`. The three cores differ in exactly three things — the
+layout call, the coordinate construction and the hit test. Everything else is the
+same code.
 
 **A line chart is** a Cartesian chart + a line layer + optional points + axes +
 grid. **A bar chart is** a Cartesian chart + a bar layer. **A horizontal bar
@@ -2347,6 +3425,14 @@ candlestick chart with a different mark style. **A histogram is** a bin layer on
 a continuous domain. **A pie chart is** a polar chart + a slice layer. **A donut
 is** a pie with an inner radius. **A radar chart is** a polar chart + a web layer
 + a polygon layer.
+
+**A sunburst is** the treemap's hierarchy laid out on the polar engine. **A gauge
+is** an arc on the same polar coordinates as the pie. **A lollipop is** a
+dumbbell whose first value is the baseline. **A timeline is** a range chart with
+no end accessor, and **a Gantt chart is** one with a progress overlay. **A
+logarithmic axis is** the ordinary linear scale over a transformed domain, which
+is why the grid, the crosshair, hit testing and every layer work on it
+unchanged.
 
 ### Data flows one way
 
@@ -2385,12 +3471,20 @@ canvas.
 
 ### Room to grow
 
-The architecture was built for a second coordinate system, and then got one:
-`PolarCoordinates` is a sibling of `CartesianCoordinates` under the same
-`CoordinateSystem` interface, and adding it changed nothing in the layer model,
-the selection model, the overlay, the animation clock, the theme or the
-accessibility layer. Radar then cost two layers on top of it and no new
-coordinate system at all.
+The architecture was built for a second coordinate system, and then got two.
+`PolarCoordinates` and `PlanarCoordinates` are siblings of
+`CartesianCoordinates` under the same `CoordinateSystem` interface, and adding
+either changed nothing in the layer model, the selection model, the overlay, the
+animation clock, the theme or the accessibility layer. Radar then cost two layers
+on top of the polar one and no new coordinate system at all; the treemap, Sankey,
+funnel and graph charts cost one layer each on top of the planar one.
+
+`PlanarCoordinates` answers exactly one question — "where is the plot" — and
+exists so that four layout-driven visualisations do not each get their own
+`Canvas`. The alternative would have been four copies of the selection model, the
+tooltip overlay, the legend, the animation clock, the theme lookup, the
+accessibility summary and the capture modifier, and four places for them to
+drift apart.
 
 `ChartLayerRenderer` is small and defaulted, so a candlestick, a violin, a
 heatmap or an annotation rule is a new implementation rather than a change to
@@ -2402,10 +3496,15 @@ written for.
 ## Performance
 
 **Drawing primitives, not composables.** Paths, bars, arcs, cells, candles,
-markers, grid lines and axes are `DrawScope` calls. Composables are used for the
-tooltip, the legend, a donut's centre content and custom overlays — the things
-that have to measure text and take input. There is no composable per point, per
-cell, per slice or per candle.
+markers, grid lines, treemap tiles, sunburst arcs, flow bands, graph nodes and
+axes are `DrawScope` calls. Composables are used for the tooltip, the legend, a
+donut's centre content, breadcrumbs and custom overlays — the things that have to
+measure text and take input. There is no composable per point, per cell, per
+slice, per candle, per tile, per arc or per node.
+
+A hierarchy of two thousand nodes as composables would be two thousand layout
+nodes, two thousand semantics nodes and a recomposition per selection change; as
+a canvas it is one draw pass over a precomputed list.
 
 **Geometry is cached against its inputs.** Scales, ticks, interpolated paths,
 bar rectangles, bins and spatial indices are computed inside a `remember` keyed
@@ -2470,6 +3569,43 @@ what the chart claims — so a scatter beyond a few tens of thousands wants a
 larger marker budget or fewer points. Heatmaps are bounded by their cell count
 rather than by their data: a 200 × 24 grid is 4,800 rectangles a frame.
 
+### Layout is never computed while drawing
+
+The expensive layouts are functions of the data and the plot rectangle, cached on
+exactly those:
+
+| Layout | Cost | Recomputed when |
+| --- | --- | --- |
+| squarified treemap | `O(n)` per level | the tree or the plot size changes |
+| sunburst rings | `O(n)` | the tree, the radii or the drill level change |
+| Sankey ordering | `O(passes × links × nodes)` | the graph or the plot size changes |
+| force simulation | `O(n²)` per step | the graph or the strategy changes |
+| timeline row packing | `O(n log n)` | the entries change |
+
+Selecting a node, hovering a band, animating the reveal or moving the crosshair
+does **not** touch any of them. The Sankey ordering in particular is the most
+expensive thing in that diagram, and running it per frame would be the difference
+between a diagram and a slideshow.
+
+### The force simulation runs off the composition
+
+A force layout is a loop over every pair of nodes. It steps in batches on
+`Dispatchers.Default`, publishes immutable snapshots at roughly 30 Hz, and stops
+the moment it settles — never one recomposition per iteration, and never inside a
+draw pass. Changing the graph or the strategy cancels the outstanding work
+through ordinary structured concurrency.
+
+Repulsion is `O(n²)`, which is honest for the graph sizes a phone screen can show
+anything useful of. Above `ForceSimulation.MAX_SIMULATED` (1,200) nodes the
+circular layout is used instead; a Barnes–Hut tree would be the answer for tens
+of thousands, and tens of thousands of nodes is not a picture.
+
+### Culling in the planar charts
+
+A zoomed graph skips nodes outside the plot and edges whose bounding box misses
+it entirely. At full zoom the test is skipped too, so the common case pays
+nothing for it.
+
 ## Current limitations
 
 Stated plainly, because a roadmap read as a feature list is how a library gets
@@ -2477,22 +3613,27 @@ adopted for something it cannot do.
 
 **Not supported:**
 
-- Sankey, sunburst, treemap, funnel, network graphs, geographical maps
+- Geographical maps, 3D charts, chord and arc diagrams
 - Polar-area charts, and stacked **areas** — multi-series areas overlap, each
   measured from the baseline
-- Secondary value axes — the architecture supports them; the API does not
-  expose them
-- Interactive range **handles**: a range is dragged out afresh rather than
-  resized by its edges
-- Zoom and pan on polar charts. Pie, donut, radial bar and radar take tap
-  selection and tooltips only; a viewport over an angle is a different
+- Interactive range **handles** on a chart's own range selection: a range is
+  dragged out afresh rather than resized by its edges. The overview navigator's
+  window *does* have draggable edges
+- Zoom and pan on polar charts. Pie, donut, radial bar, radar, sunburst and gauge
+  take tap selection and tooltips only; a viewport over an angle is a different
   interaction, not a reuse of this one
-- Y-axis zoom. The viewport narrows the domain axis only
+- Y-axis zoom. The Cartesian viewport narrows the domain axis only
 - Fling/inertial panning — a drag pans directly and stops when it stops
-- Keyboard chart exploration (selection is architected for it; not wired)
 - Technical indicators beyond simple and exponential moving averages
+- Automatic dependency routing on a Gantt chart. Dependencies are modelled and
+  drawn as direct connectors; routing them around the bars in between is an
+  edge-routing pass, and doing it badly puts arrows through the tasks
+- Project scheduling, critical-path analysis and resource levelling. The Gantt
+  chart is a visualisation, not a planning tool
 - Spatial indexing beyond a uniform grid — a k-d tree or an R-tree would beat it
   for a scatter with extreme clustering
+- Barnes–Hut approximation for the force layout, so graphs above 1,200 nodes fall
+  back to the circular layout
 - GPU / `RenderNode` rendering
 - Screenshot/golden tests, and benchmarks — the repository has no such
   infrastructure
@@ -2500,6 +3641,33 @@ adopted for something it cannot do.
 
 **Known behavioural limits:**
 
+- **Vector export is partial and says so.** Grid, axes, straight-interpolated
+  lines and areas, bars, circular scatter and every annotation export as SVG;
+  curved lines, non-circular scatter shapes, candlestick, OHLC, volume, box plot,
+  violin, heatmap and calendar do not. Anything *composed* rather than drawn — a
+  tooltip, overlay content, a legend — is not part of a scene at all. Layers that
+  cannot be represented are named in `ChartScene.unexportedLayers`, and
+  `isComplete` is how a caller decides whether to ship the file. Raster capture
+  covers every chart
+- A curved line is not exported because flattening its Bézier here would produce
+  a *different* curve from the one on screen — a difference nobody would see
+- An area's gradient fill exports as a flat translucent fill: the on-screen ramp
+  depends on a plot height the exported file no longer has
+- SVG text carries the measured size and a generic `sans-serif` family. The
+  glyphs may lay out differently in another viewer; the positions are exact
+- Plot alignment settles on the **second** frame — measuring something before
+  agreeing on it takes one extra pass. It cannot oscillate
+- The force layout is seeded and therefore reproducible, but its result is not a
+  documented function of the input: tuning the forces would change every picture
+- Cross-filtering coordinates *which* selections are active and performs no
+  filtering. `ChartFilterState.apply` covers the simple `equals` case; anything
+  else is the application's own code
+- A log axis cannot represent zero or a negative number. `LogValuePolicy` states
+  which of clamping, skipping or throwing happens; symmetric-log is the axis for
+  data that genuinely crosses zero
+- A second value axis is bound explicitly per layer and is never inferred.
+  Annotations extend the **primary** axis only, because an annotation has no way
+  to say which axis it is stated in
 - `compact()` suffixes (`K`/`M`/`B`) are not localised
 - `TimeScale` ticks use fixed durations, not calendar arithmetic: a month step
   is approximated at 30 days and a year at 365. Right for positioning a tick on
@@ -2517,6 +3685,10 @@ adopted for something it cannot do.
   until the process dies is not a feature
 - Automatic histogram binning is capped at 512 bins; below that a rule applied
   to tightly clustered data can ask for tens of thousands
+- Hierarchies are capped at 24 levels by default and cycles are cut rather than
+  followed. Both are counted on the result, not hidden
+- A Sankey diagram cannot lay out a cycle: the links closing one are cut
+  deterministically and counted. `SankeyValidation.Reject` throws instead
 - Downsampling applies to line and area layers. Scatter is culled to the
   viewport but never sampled
 - 100% stacked charts normalise over absolute values; designed for
@@ -2528,12 +3700,13 @@ adopted for something it cannot do.
   `materialDerivedChartColors(isDark = …)` explicitly in that case
 - Toggling a series through the legend hides or shows it immediately; it does
   not fade in or out
-- A polar legend is display-only. Hiding one slice of a part-to-whole chart
-  would renormalise the rest, so the remaining shares would become percentages
-  of a different total — a different chart, not a filtered one
-- Outside slice labels and radar spoke labels are skipped rather than
-  repositioned when they do not fit. Nothing is shrunk or ellipsised, so what
-  survives is legible, but a crowded pie will label fewer slices than it has
+- A polar, treemap or flow legend is display-only. Hiding one slice of a
+  part-to-whole chart would renormalise the rest, so the remaining shares would
+  become percentages of a different total — a different chart, not a filtered one
+- Labels that do not fit are skipped rather than repositioned — outside slice
+  labels, radar spokes, treemap tiles, sunburst arcs, Sankey nodes and interval
+  bars. Nothing is shrunk or ellipsised, so what survives is legible, but a
+  crowded chart labels fewer marks than it has
 - A captured image does not include a tooltip or dropdown drawn in a `Popup` or
   `Dialog`, because those are separate windows
 
@@ -2541,30 +3714,50 @@ adopted for something it cannot do.
 
 - Polar-area layers, and zoom over a polar angle
 - Stacked areas
-- Secondary value axes
-- Interactive range handles
-- Fling panning and keyboard chart exploration
+- Interactive range handles on a chart's own range selection
+- Fling panning
+- Completing vector export: a scene representation for the remaining layers
+- A Barnes–Hut force layout, for graphs beyond the current cap
 - A spatial index better suited to extreme clustering than a uniform grid
-- Stabilising the `CartesianChart` layer DSL and dropping the experimental marker
+- Stabilising the `CartesianChart` layer DSL and the custom-layer API, and
+  dropping the experimental marker
 - Benchmark coverage, if the repository grows benchmarking infrastructure
 - Compose Multiplatform, if DevKit adopts KMP
 
 ## Testing
 
 ```bash
-./gradlew :chartkit:testDebugUnitTest          # 495 JVM tests
-./gradlew :chartkit:connectedDebugAndroidTest  # 104 Compose UI tests
+./gradlew :chartkit:testDebugUnitTest          # 683 JVM tests
+./gradlew :chartkit:connectedDebugAndroidTest  # 124 Compose UI tests
 ```
 
 | Suite | Covers |
 | --- | --- |
 | `ScaleTest` | Linear, category and time mapping; inversion; clamping; degenerate domains |
+| `LogScaleTest` | Base 10 and 2, decade spacing, inversion, tick subdivision and striding, zero and negative policies, domain lifting |
+| `SymlogScaleTest` | Symmetry, the linear region, continuity at the threshold, decade spacing in the tails, inversion, ticks either side of zero |
 | `TickGeneratorTest` | Round steps, negatives, small decimals, large values, constants, absurd counts |
 | `BarGeometryTest` | Stacking, sign separation, percent normalisation, rectangles, orientation, reveal, corners |
 | `LineGeometryTest` | Segmentation, monotone overshoot, binary search, ordering |
 | `PolarGeometryTest` | Angle convention, wrap-around, slice normalisation, invalid values, gaps, hit testing, donut holes |
 | `RadialGeometryTest` | Value-to-sweep mapping, custom ranges, out-of-range policy, concentric track lookup |
 | `RadarGeometryTest` | Spoke placement, start angles, vertex radii, angle round-trips |
+| `HierarchyTest` | Normalisation, depth, paths, parents, aggregation, value conflicts, negative values, duplicate keys, forests, self-references, longer cycles, equal-but-distinct siblings, depth truncation |
+| `TreemapLayoutTest` | Bounds conservation, area sums, per-tile proportionality, non-overlap, single item, zero values, aspect ratios against slicing, nesting containment |
+| `SunburstLayoutTest` | Angle allocation, full-circle sums, ring depth, parent–child containment, ring radii, hit testing, the centre belonging to no arc, drill-down |
+| `SankeyGraphTest` | Column assignment by longest path, throughput, unknown references, self-links, invalid weights, cycle cutting and its determinism, neighbours |
+| `SankeyLayoutTest` | Box and band counts, column spacing, height proportionality, band thickness, bounds, stability across runs, band hit testing |
+| `FunnelTransformTest` | Share of first, conversion, drop-off in both forms, increasing stages, zero stages, monotonicity, overall conversion |
+| `FunnelGeometryTest` | Band division, stacking, zero stages, the neck, horizontal orientation |
+| `WaterfallTransformTest` | Running totals, bar anchoring, kind over sign, subtotals, totals, the sign helper, extents including zero and below it, non-finite values |
+| `ChartGraphTest` | Node order and identity, degree, symmetric adjacency, unknown endpoints, self-edges, the caller's object |
+| `CircularLayoutTest` | Placement, unit bounds, even spacing, settling, reproducibility, degree ordering, single node, mapping into a rectangle |
+| `ForceLayoutTest` | Seeded determinism, seed sensitivity, bounds, non-coincidence, settling, connected nodes ending closer, pinning, unsettling on drag, release, snapshot isolation, the simulation cap |
+| `TimelineModelTest` | Lane order, point events, intervals, inverted intervals, overlap stacking, row numbering, extents, progress clamping, milestones, dependencies |
+| `NavigatorViewportTest` | Window placement, sliding rather than shrinking at both ends, recentring, over-wide windows, edge resizing |
+| `PlotAlignmentTest` | Agreeing on the largest gutter, per-chart differences, idempotent re-reporting, forgetting a departed chart |
+| `ChartFilterStateTest` | Toggling, single and multi select, dimension independence, and/or combination, null keys, unfiltered dimensions, source identity |
+| `ChartSceneTest` | Scene size, completeness, flattening, unexported reporting, well-formed XML, dimensions and view box, scaling, every primitive, named groups, escaping, separate opacity, titles, empty scenes |
 | `ViewportTest` | Zoom in and out, focal-point preservation, limits, pan clamping, reset, domain and category conversion |
 | `NormalizationTest` | Axis inference, missing values, ordering, visibility, palette slots, duplicate ids |
 | `LayoutAndAxisTest` | Gutters, titles, overhang, squeezed plots, label thinning |
@@ -2593,6 +3786,7 @@ adopted for something it cannot do.
 | `LargeDatasetTest` | 1,000 / 5,000 / 10,000-point behaviour |
 | `ChartRenderingTest` | Every Cartesian chart type, edge-case datasets, states, animated frames |
 | `ChartAdvancedRenderingTest` | Scatter, bubble, histogram, box plot, violin, heatmap, calendar, radar, candlestick, OHLC, volume and every annotation kind — including empty datasets |
+| `ChartPlatformRenderingTest` | Treemap, sunburst, breadcrumbs, Sankey (including a cyclic one), funnel, waterfall, dumbbell, lollipop, bullet, gauge, timeline, range, Gantt, network graph in both layouts, custom layers, second axes, log and symmetric-log axes, the advanced annotations, static mode and scene production |
 | `ChartInteractionTest` | Tap, scrub, tooltips, hoisted state, legend toggling |
 | `ChartPolarTest` | Pie and donut selection by angle, donut holes, centre content, radial track selection, invalid values, polar semantics |
 | `ChartViewportInteractionTest` | Pinch zoom, pan, clamping, reset, crosshair, shared tooltips, range selection in both directions |

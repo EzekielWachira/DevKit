@@ -197,6 +197,40 @@ internal class ScatterLayer(
         close()
     }
 
+    /**
+     * Circles only.
+     *
+     * A scatter drawn with a non-circular [ScatterShape] is not exported: the
+     * scene has a circle primitive and no polygon-marker one, and approximating
+     * a triangle with a circle would change what the chart says without looking
+     * as though anything were wrong.
+     */
+    override fun renderScene(
+        builder: io.devkit.chartkit.scene.ChartSceneBuilder,
+        context: ChartRenderContext,
+    ): Boolean {
+        if (shape != ScatterShape.Circle) {
+            builder.unexported(id)
+            return false
+        }
+        builder.group(id) {
+            series.forEach { entry ->
+                val colour = entry.colorOverride?.let { Color(it) }
+                    ?: context.colors.seriesColor(entry.paletteIndex)
+                entry.points.forEach { point ->
+                    add(
+                        io.devkit.chartkit.scene.ChartSceneNode.Circle(
+                            center = point.position,
+                            radius = point.radius,
+                            color = colour,
+                        ),
+                    )
+                }
+            }
+        }
+        return true
+    }
+
     override fun hitTest(
         point: ChartOffset,
         context: ChartRenderContext,

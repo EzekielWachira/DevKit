@@ -9,6 +9,7 @@ import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.annotation.ChartAnnotation
 import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
+import io.devkit.chartkit.axis.ValueAxisBinding
 import io.devkit.chartkit.components.legend.LegendPosition
 import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.geometry.ChartOrientation
@@ -18,7 +19,22 @@ import io.devkit.chartkit.geometry.OhlcPolicy
 import io.devkit.chartkit.geometry.ScatterShape
 import io.devkit.chartkit.geometry.normalizeOhlc
 import io.devkit.chartkit.layer.financial.PriceMarkStyle
+import io.devkit.chartkit.layer.comparison.BulletEntry
+import io.devkit.chartkit.layer.comparison.BulletRange
+import io.devkit.chartkit.layer.comparison.ConnectorMarkEntry
+import io.devkit.chartkit.layer.comparison.ConnectorMarkKind
+import io.devkit.chartkit.layer.custom.CartesianLayerContext
+import io.devkit.chartkit.layer.custom.CartesianLayerScope
+import io.devkit.chartkit.layer.custom.CustomCartesianLayer
+import io.devkit.chartkit.layer.custom.CustomLayerHit
+import io.devkit.chartkit.layer.custom.CustomLayerItem
+import io.devkit.chartkit.layer.custom.CustomLayerLegendEntry
 import io.devkit.chartkit.layer.scatter.ScatterStyle
+import io.devkit.chartkit.layer.timeline.IntervalLabels
+import io.devkit.chartkit.timeline.TimelineDependency
+import io.devkit.chartkit.timeline.buildTimeline
+import io.devkit.chartkit.transform.WaterfallStepKind
+import io.devkit.chartkit.transform.WaterfallTransform
 import io.devkit.chartkit.model.ChartX
 import io.devkit.chartkit.model.resolveOrDefault
 import io.devkit.chartkit.scale.SizeScale
@@ -38,6 +54,10 @@ import io.devkit.chartkit.model.MissingValuePolicy
 import io.devkit.chartkit.model.normalizeSeries
 import io.devkit.chartkit.scale.CategoryScale
 import io.devkit.chartkit.scale.DomainPolicy
+import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.scene.ChartSceneState
+import io.devkit.chartkit.render.ChartStaticOptions
+import io.devkit.chartkit.state.ChartPlotAlignment
 import io.devkit.chartkit.state.ChartSharedCrosshairState
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.ChartViewportState
@@ -89,6 +109,7 @@ class CartesianChartScope internal constructor(
         xAxisKind: ChartXAxisKind? = null,
         dataOrder: ChartDataOrder = ChartDataOrder.InputOrder,
         performance: ChartPerformance = ChartPerformance.Default,
+        valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
     ) {
         val data = normalizeSeries(
             series = series.applyVisibility(),
@@ -113,6 +134,7 @@ class CartesianChartScope internal constructor(
             pointMarkerThreshold = performance.pointMarkerThreshold,
             missingValuePolicy = missingValuePolicy,
             performance = performance,
+            valueAxis = valueAxis,
         )
     }
 
@@ -128,6 +150,7 @@ class CartesianChartScope internal constructor(
         missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
         xResolver: ChartXResolver = ChartXResolver.Default,
         xAxisKind: ChartXAxisKind? = null,
+        valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
     ) = line(
         series = series,
         x = x,
@@ -139,6 +162,7 @@ class CartesianChartScope internal constructor(
         missingValuePolicy = missingValuePolicy,
         xResolver = xResolver,
         xAxisKind = xAxisKind,
+        valueAxis = valueAxis,
     )
 
     /** A bar layer. */
@@ -153,6 +177,7 @@ class CartesianChartScope internal constructor(
         valueLabels: Boolean = false,
         missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
         xResolver: ChartXResolver = ChartXResolver.Default,
+        valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
     ) {
         val data = normalizeSeries(
             series = series.applyVisibility(),
@@ -172,6 +197,7 @@ class CartesianChartScope internal constructor(
             categoryPadding = categoryPadding,
             groupPadding = groupPadding,
             valueLabels = valueLabels,
+            valueAxis = valueAxis,
         )
     }
 
@@ -195,6 +221,7 @@ class CartesianChartScope internal constructor(
         xResolver: ChartXResolver = ChartXResolver.Default,
         xAxisKind: ChartXAxisKind? = null,
         performance: ChartPerformance = ChartPerformance.Default,
+        valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
     ) {
         val visible = series.applyVisibility()
         val data = normalizeSeries(
@@ -216,6 +243,7 @@ class CartesianChartScope internal constructor(
             sizeScale = sizeScale,
             pointRadius = pointRadius,
             performance = performance,
+            valueAxis = valueAxis,
         )
     }
 
@@ -308,6 +336,253 @@ class CartesianChartScope internal constructor(
         )
     }
 
+    /**
+     * A waterfall layer: contributions that accumulate into a running total.
+     *
+     * @param kind the step's role. A caller whose data is already signed passes
+     *   `{ WaterfallTransform.signedKind(it.amount) }`.
+     */
+    fun <T> waterfall(
+        data: List<T>,
+        label: (T) -> String,
+        value: (T) -> Number?,
+        kind: (T) -> WaterfallStepKind = { WaterfallStepKind.Increase },
+        showConnectors: Boolean = true,
+        cornerRadius: Dp? = null,
+        seriesId: String = "waterfall",
+        seriesName: String = "Waterfall",
+        valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+    ) {
+        declaredSeries += 1
+        layers += ResolvedLayer.Waterfall(
+            key = "waterfall${layers.size}",
+            steps = WaterfallTransform.resolve(data, label, value, kind),
+            seriesId = seriesId,
+            seriesName = seriesName,
+            showConnectors = showConnectors,
+            cornerRadius = cornerRadius,
+            valueAxis = valueAxis,
+        )
+    }
+
+    /**
+     * A dumbbell layer: two values per category, joined by a bar.
+     *
+     * @param startLabel what the first value is called, in tooltips and
+     *   announcements. "Before" and "After" by default, because that is the
+     *   comparison a dumbbell is most often used for and an unlabelled pair of
+     *   numbers is not a comparison.
+     */
+    @Suppress("LongParameterList")
+    fun <T> dumbbell(
+        data: List<T>,
+        category: (T) -> String,
+        start: (T) -> Number?,
+        end: (T) -> Number?,
+        startLabel: String = "Before",
+        endLabel: String = "After",
+        color: ((T) -> Int?)? = null,
+        seriesId: String = "dumbbell",
+        seriesName: String = "Change",
+        valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+    ) {
+        val offset = declaredSeries
+        declaredSeries += 1
+        layers += ResolvedLayer.ConnectorMarks(
+            key = "dumbbell${layers.size}",
+            entries = data.mapIndexedNotNull { index, item ->
+                val to = end(item)?.toDouble()?.takeIf { it.isFinite() } ?: return@mapIndexedNotNull null
+                ConnectorMarkEntry(
+                    label = category(item),
+                    start = start(item)?.toDouble()?.takeIf { it.isFinite() },
+                    end = to,
+                    item = item,
+                    paletteIndex = offset,
+                    colorOverride = color?.invoke(item),
+                )
+            },
+            kind = ConnectorMarkKind.Dumbbell,
+            seriesId = seriesId,
+            seriesName = seriesName,
+            startLabel = startLabel,
+            endLabel = endLabel,
+            valueAxis = valueAxis,
+        )
+    }
+
+    /** A lollipop layer: a stem from the baseline to a marker, per category. */
+    fun <T> lollipop(
+        data: List<T>,
+        category: (T) -> String,
+        value: (T) -> Number?,
+        color: ((T) -> Int?)? = null,
+        seriesId: String = "lollipop",
+        seriesName: String = "",
+        valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+    ) {
+        val offset = declaredSeries
+        declaredSeries += 1
+        layers += ResolvedLayer.ConnectorMarks(
+            key = "lollipop${layers.size}",
+            entries = data.mapIndexedNotNull { index, item ->
+                val to = value(item)?.toDouble()?.takeIf { it.isFinite() }
+                    ?: return@mapIndexedNotNull null
+                ConnectorMarkEntry(
+                    label = category(item),
+                    start = null,
+                    end = to,
+                    item = item,
+                    paletteIndex = offset,
+                    colorOverride = color?.invoke(item),
+                )
+            },
+            kind = ConnectorMarkKind.Lollipop,
+            seriesId = seriesId,
+            seriesName = seriesName,
+            startLabel = "",
+            endLabel = "",
+            valueAxis = valueAxis,
+        )
+    }
+
+    /** A bullet layer: a measure against a target, on qualitative ranges. */
+    @Suppress("LongParameterList")
+    fun <T> bullet(
+        data: List<T>,
+        label: (T) -> String,
+        actual: (T) -> Number?,
+        target: ((T) -> Number?)? = null,
+        ranges: ((T) -> List<BulletRange>)? = null,
+        color: ((T) -> Int?)? = null,
+        targetLabel: String = "Target",
+        seriesId: String = "bullet",
+        seriesName: String = "Measure",
+        valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+    ) {
+        val offset = declaredSeries
+        declaredSeries += 1
+        layers += ResolvedLayer.Bullet(
+            key = "bullet${layers.size}",
+            entries = data.mapNotNull { item ->
+                val measure = actual(item)?.toDouble()?.takeIf { it.isFinite() } ?: return@mapNotNull null
+                BulletEntry(
+                    label = label(item),
+                    actual = measure,
+                    target = target?.invoke(item)?.toDouble()?.takeIf { it.isFinite() },
+                    ranges = ranges?.invoke(item).orEmpty(),
+                    item = item,
+                    paletteIndex = offset,
+                    colorOverride = color?.invoke(item),
+                )
+            },
+            seriesId = seriesId,
+            seriesName = seriesName,
+            targetLabel = targetLabel,
+            valueAxis = valueAxis,
+        )
+    }
+
+    /**
+     * An interval layer: events, durations and milestones in lanes.
+     *
+     * Times are epoch milliseconds — see
+     * [io.devkit.chartkit.timeline.TimelineEntry] for why `java.time` is absent.
+     */
+    @Suppress("LongParameterList")
+    fun <T> intervals(
+        data: List<T>,
+        start: (T) -> Long,
+        label: (T) -> String,
+        end: ((T) -> Long?)? = null,
+        lane: ((T) -> String)? = null,
+        progress: ((T) -> Number?)? = null,
+        milestone: ((T) -> Boolean)? = null,
+        color: ((T) -> Int?)? = null,
+        dependencies: List<TimelineDependency> = emptyList(),
+        labels: IntervalLabels = IntervalLabels.Inside,
+        showProgress: Boolean = true,
+        seriesId: String = "timeline",
+        seriesName: String = "Timeline",
+    ) {
+        declaredSeries += 1
+        layers += ResolvedLayer.Interval(
+            key = "intervals${layers.size}",
+            model = buildTimeline(
+                data = data,
+                start = start,
+                label = label,
+                end = end,
+                lane = lane,
+                progress = progress,
+                milestone = milestone,
+                color = color,
+                dependencies = dependencies,
+            ),
+            seriesId = seriesId,
+            seriesName = seriesName,
+            labels = labels,
+            showProgress = showProgress,
+            showDependencies = dependencies.isNotEmpty(),
+            axisKind = ChartXAxisKind.Time,
+        )
+    }
+
+    /**
+     * A layer the caller draws themselves.
+     *
+     * ```kotlin
+     * CartesianChart {
+     *     line(series = readings, x = { it.at }, y = { it.value })
+     *     customLayer(id = "sla") {
+     *         val y = positionOfValue(200.0)
+     *         drawLine(
+     *             color = colors.annotation.line,
+     *             start = Offset(plotArea.left, y),
+     *             end = Offset(plotArea.right, y),
+     *             strokeWidth = px(2.dp),
+     *         )
+     *     }
+     * }
+     * ```
+     *
+     * The layer sits in the render list where it was declared, so declaring it
+     * before the data draws it underneath and after draws it on top. It shares
+     * the chart's scales, viewport, theme and animation clock — which is the
+     * whole point: a custom mark that computed its own positions could not stay
+     * aligned with the data through a zoom.
+     *
+     * @param hitTest optional. Return a hit to make the layer selectable, with
+     *   the caller's own object carried through to the tooltip.
+     * @param describe optional accessibility items. Takes no geometry: what a
+     *   reader needs to hear is a fact about the data, not about pixels.
+     * @param legendEntries optional legend rows.
+     */
+    @Suppress("LongParameterList")
+    fun customLayer(
+        id: String,
+        seriesName: String = id,
+        clipToPlot: Boolean = true,
+        valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        hitTest: (CartesianLayerContext.(io.devkit.chartkit.geometry.ChartOffset) -> CustomLayerHit?)? = null,
+        describe: (() -> List<CustomLayerItem>)? = null,
+        legendEntries: List<CustomLayerLegendEntry> = emptyList(),
+        draw: CartesianLayerScope.() -> Unit,
+    ) {
+        layers += ResolvedLayer.Custom(
+            key = "custom${layers.size}",
+            spec = CustomCartesianLayer(
+                id = id,
+                clipToPlot = clipToPlot,
+                valueAxis = valueAxis,
+                draw = draw,
+                hitTest = hitTest,
+                describe = describe,
+                legendEntries = legendEntries,
+                seriesName = seriesName,
+            ),
+        )
+    }
+
     private fun <T> List<ChartSeries<T>>.applyVisibility(): List<ChartSeries<T>> =
         map { it.copy(visible = it.visible && it.id !in hiddenSeriesIds) }
 }
@@ -396,14 +671,35 @@ fun CartesianChart(
     viewportState: ChartViewportState = rememberChartViewportState(),
     sharedCrosshair: ChartSharedCrosshairState? = null,
     annotations: List<ChartAnnotation> = emptyList(),
+    /**
+     * A second value axis, drawn on the opposite edge.
+     *
+     * Layers bind to it explicitly through `valueAxis = ValueAxisBinding.Secondary`.
+     * Two independent scales in one plot let the author choose where the lines
+     * cross, which is a claim the data did not make — so reach for it when the
+     * quantities genuinely differ in kind, and prefer two linked charts when
+     * they do not.
+     */
+    secondaryValueAxis: ChartAxis? = null,
     xResolver: ChartXResolver = ChartXResolver.Default,
     hitTestMode: HitTestMode = HitTestMode.NearestDomain,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
+    sceneState: ChartSceneState? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<Any?> = rememberChartState(),
     onSelectionChanged: ((AnyChartSelection?) -> Unit)? = null,
     onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)? = null,
     tooltip: (@Composable (AnyChartTooltipData) -> Unit)? = { ChartDefaults.Tooltip(it) },
+    /**
+     * Compose content laid out over the plot, positioned in chart coordinates.
+     *
+     * For anything an annotation cannot be drawn as — a card, an image, a
+     * button, a badge. See [ChartOverlayScope].
+     */
+    overlay: (@Composable ChartOverlayScope.() -> Unit)? = null,
     isLoading: Boolean = false,
     error: Throwable? = null,
     loadingContent: @Composable () -> Unit = { DefaultLoadingContent() },
@@ -435,6 +731,13 @@ fun CartesianChart(
         viewportState = viewportState,
         sharedCrosshair = sharedCrosshair,
         annotations = remember(annotations, xResolver) { resolveAnnotations(annotations, xResolver) },
+        secondaryValueAxis = secondaryValueAxis,
+        xResolver = xResolver,
+        overlay = overlay,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
+        sceneState = sceneState,
         onSelectionChanged = onSelectionChanged,
         onRangeSelectionChanged = onRangeSelectionChanged,
         tooltip = tooltip,

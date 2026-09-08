@@ -56,15 +56,16 @@ import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.theme.ChartKitTheme
 
 /**
- * One legend row of a polar chart, before its colour is resolved.
+ * One legend row of a chart whose key is not its series.
  *
  * Polar charts legend their **slices**, not their series: a pie has one series
- * and the reader wants to know which wedge is rent. That is why
- * [io.devkit.chartkit.components.legend.ChartLegendEntry] is keyed by an
- * arbitrary id rather than by a series id — one legend model serves a
- * multi-series line chart and a single-series pie.
+ * and the reader wants to know which wedge is rent. A treemap, a Sankey diagram
+ * and a funnel are the same — their key names categories, nodes or stages. That
+ * is why [io.devkit.chartkit.components.legend.ChartLegendEntry] is keyed by an
+ * arbitrary id rather than by a series id: one legend model serves a
+ * multi-series line chart, a single-series pie and a flow diagram.
  */
-internal class PolarLegendItem(
+internal class ChartKeyItem(
     val id: String,
     val label: String,
     val paletteIndex: Int,
@@ -96,7 +97,7 @@ internal fun PolarChartCore(
     sweepAngle: Float,
     direction: PolarDirection,
     legend: LegendPosition,
-    legendItems: List<PolarLegendItem>,
+    legendItems: List<ChartKeyItem>,
     animation: ChartAnimation,
     tapSelects: Boolean,
     clearOnTapOutside: Boolean,
@@ -114,6 +115,12 @@ internal fun PolarChartCore(
     errorContent: @Composable (Throwable) -> Unit,
     centerContent: (@Composable () -> Unit)?,
     radiusInset: Float = 0f,
+    renderMode: io.devkit.chartkit.render.ChartRenderMode =
+        io.devkit.chartkit.render.ChartRenderMode.Interactive,
+    staticOptions: io.devkit.chartkit.render.ChartStaticOptions =
+        io.devkit.chartkit.render.ChartStaticOptions.Default,
+    onDoubleTap: ((AnyChartSelection?) -> Unit)? = null,
+    ringThickness: Float? = null,
 ) {
     val theme = ChartKitTheme.current
     val density = LocalDensity.current
@@ -171,6 +178,10 @@ internal fun PolarChartCore(
                         accessibilitySummary = accessibilitySummary,
                         centerContent = centerContent,
                         radiusInset = radiusInset,
+                        renderMode = renderMode,
+                        staticOptions = staticOptions,
+                        onDoubleTap = onDoubleTap,
+                        ringThickness = ringThickness,
                         density = density,
                         textMeasurer = textMeasurer,
                     )
@@ -205,6 +216,10 @@ private fun PolarPlot(
     accessibilitySummary: (() -> String)?,
     centerContent: (@Composable () -> Unit)?,
     radiusInset: Float,
+    renderMode: io.devkit.chartkit.render.ChartRenderMode,
+    staticOptions: io.devkit.chartkit.render.ChartStaticOptions,
+    onDoubleTap: ((AnyChartSelection?) -> Unit)?,
+    ringThickness: Float?,
     density: androidx.compose.ui.unit.Density,
     textMeasurer: androidx.compose.ui.text.TextMeasurer,
 ) {
@@ -215,6 +230,7 @@ private fun PolarPlot(
     // same caching rule the Cartesian engine follows, for the same reason.
     val coordinates = remember(
         size, innerRadiusRatio, startAngle, sweepAngle, direction, theme, density, radiusInset,
+        ringThickness,
     ) {
         val bounds = ChartRect.fromSize(size.width.toFloat(), size.height.toFloat())
         val padding = with(density) { theme.dimensions.polarPadding.toPx() }
@@ -237,7 +253,13 @@ private fun PolarPlot(
         PolarCoordinates(
             plotArea = plot,
             center = ChartOffset(plot.centerX, plot.centerY),
-            innerRadius = outer * innerRadiusRatio.coerceIn(0f, MAX_INNER_RATIO),
+            // An absolute ring width where a chart stated one — a gauge's arc
+            // is a stroke of a given thickness, not a fraction of whatever
+            // radius the layout produced — and otherwise the ratio, which is
+            // what a donut's hole is naturally expressed as.
+            innerRadius = ringThickness
+                ?.let { (outer - it).coerceIn(0f, outer * MAX_INNER_RATIO) }
+                ?: (outer * innerRadiusRatio.coerceIn(0f, MAX_INNER_RATIO)),
             outerRadius = outer,
             startAngle = startAngle,
             sweepAngle = sweepAngle,
@@ -246,7 +268,10 @@ private fun PolarPlot(
     }
 
     val renderers = remember(coordinates, layers) { layers(coordinates) }
-    val selection = state.selection
+    // A gesture cannot have produced a selection in a static render, so the
+    // only one that can exist is the caller's own — and whether it is drawn is
+    // their decision, not the engine's.
+    val selection = state.selection?.takeIf { !renderMode.isStatic || staticOptions.showSelection }
 
     val renderContext = ChartRenderContext(
         coordinates = coordinates,
@@ -255,15 +280,21 @@ private fun PolarPlot(
         dimensions = theme.dimensions,
         density = density,
         textMeasurer = textMeasurer,
-        reveal = reveal,
+        // Settled, always, in a static render: nothing about an exported
+        // picture may depend on a clock that is still running, or two captures
+        // of the same chart would differ.
+        reveal = if (renderMode.isStatic) 1f else reveal,
         selection = selection,
+        renderMode = renderMode,
     )
 
     val summaries = remember(renderers) { renderers.flatMap { it.describe() } }
     val summary = remember(summaries, accessibilitySummary, accessibility) {
         accessibilitySummary?.invoke() ?: buildChartSummary(accessibility, summaries, valueFormatter)
     }
-    val selectionText = selection?.let {
+    val selectionText = selection?.let { selected ->
+        renderers.firstNotNullOfOrNull { it.describeSelection(selected, valueFormatter) }
+    } ?: selection?.let {
         val polar = it.polar
         if (polar == null) {
             describeSelection(it.seriesName, it.xLabel, it.y, valueFormatter, multiSeries = false)
@@ -306,27 +337,41 @@ private fun PolarPlot(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
+                // No pointer input at all in a static render. Not "gestures
+                // that do nothing": a modifier that consumed events would still
+                // stop a parent from scrolling.
                 .then(
-                    if (!tapSelects) {
+                    if (renderMode.isStatic || (!tapSelects && onDoubleTap == null)) {
                         Modifier
                     } else {
-                        Modifier.pointerInput(coordinates, renderers) {
-                            detectTapGestures { offset ->
-                                val point = ChartOffset(offset.x, offset.y)
-                                val hit = renderers.firstNotNullOfOrNull {
-                                    it.hitTest(point, renderContext, HitTestMode.Contains)
+                        Modifier.pointerInput(coordinates, renderers, tapSelects) {
+                            fun hitAt(offset: androidx.compose.ui.geometry.Offset) =
+                                renderers.firstNotNullOfOrNull {
+                                    it.hitTest(
+                                        ChartOffset(offset.x, offset.y),
+                                        renderContext,
+                                        HitTestMode.Contains,
+                                    )
                                 }
-                                when {
-                                    hit != null && hit != state.selection -> {
-                                        state.selection = hit
-                                        onSelectionChanged?.invoke(hit)
+                            detectTapGestures(
+                                onTap = { offset ->
+                                    if (!tapSelects) return@detectTapGestures
+                                    val hit = hitAt(offset)
+                                    when {
+                                        hit != null && hit != state.selection -> {
+                                            state.selection = hit
+                                            onSelectionChanged?.invoke(hit)
+                                        }
+                                        hit == null && clearOnTapOutside -> {
+                                            state.clearSelection()
+                                            onSelectionChanged?.invoke(null)
+                                        }
                                     }
-                                    hit == null && clearOnTapOutside -> {
-                                        state.clearSelection()
-                                        onSelectionChanged?.invoke(null)
-                                    }
-                                }
-                            }
+                                },
+                                onDoubleTap = onDoubleTap?.let { callback ->
+                                    { offset -> callback(hitAt(offset)) }
+                                },
+                            )
                         }
                     },
                 )
@@ -343,7 +388,9 @@ private fun PolarPlot(
             CenterContent(coordinates = coordinates, density = density, content = centerContent)
         }
 
-        if (tooltipData != null && tooltip != null) {
+        if (tooltipData != null && tooltip != null &&
+            (!renderMode.isStatic || staticOptions.showTooltip)
+        ) {
             ChartOverlay(
                 anchor = tooltipData.anchor,
                 bounds = coordinates.plotArea,

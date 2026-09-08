@@ -219,4 +219,17 @@ internal class CrosshairLayer(
         )
         scope.drawText(layout, topLeft = Offset(left + padding, top + padding))
     }
+    /**
+     * Nothing, faithfully.
+     *
+     * A crosshair follows a pointer, and an exported picture has none — so an
+     * empty contribution *is* this layer's complete scene representation. That
+     * is why it returns `true`: reporting it as unexported would tell a caller
+     * their SVG was missing data when it is missing only a cursor.
+     */
+    override fun renderScene(
+        builder: io.devkit.chartkit.scene.ChartSceneBuilder,
+        context: ChartRenderContext,
+    ): Boolean = true
+
 }

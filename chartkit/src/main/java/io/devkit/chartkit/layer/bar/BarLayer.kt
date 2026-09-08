@@ -189,6 +189,40 @@ internal class BarLayer(
         )
     }
 
+    override fun renderScene(
+        builder: io.devkit.chartkit.scene.ChartSceneBuilder,
+        context: ChartRenderContext,
+    ): Boolean {
+        if (slices.isEmpty()) return true
+        val radius = context.px(cornerRadiusOverride ?: context.dimensions.barCornerRadius)
+        builder.group(id) {
+            slices.forEach { slice ->
+                val rect = slice.rect.normalized
+                if (rect.isEmpty) return@forEach
+                val source = series.getOrNull(slice.seriesIndex)
+                val colour = source?.colorOverride?.let { Color(it) }
+                    ?: context.colors.seriesColor(slice.paletteIndex)
+                add(
+                    io.devkit.chartkit.scene.ChartSceneNode.Rect(
+                        bounds = rect,
+                        color = colour,
+                        // The scene rounds every corner where the drawn bar
+                        // rounds its far one. SVG has no per-corner radius on a
+                        // rect, and a bar whose baseline end is rounded by a
+                        // pixel or two is a far smaller misrepresentation than
+                        // one drawn as a path nobody can edit.
+                        cornerRadius = if (slice.isBarEnd) {
+                            min(radius, min(abs(rect.width), abs(rect.height)) / 2f)
+                        } else {
+                            0f
+                        },
+                    ),
+                )
+            }
+        }
+        return true
+    }
+
     /** Positions of every drawn bar, for the value-label layer to sit above. */
     internal fun sliceGeometry(): List<BarSlice> = slices
 

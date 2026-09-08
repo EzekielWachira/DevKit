@@ -2,8 +2,38 @@ package io.devkit.chartkit.axis
 
 import io.devkit.chartkit.formatter.ChartTimeFormatter
 import io.devkit.chartkit.formatter.ChartValueFormatter
+import io.devkit.chartkit.scale.AxisScale
 import io.devkit.chartkit.scale.DomainPolicy
 import io.devkit.chartkit.scale.TickGenerator
+
+/**
+ * Which value axis a layer is measured against.
+ *
+ * ### Explicit, never inferred
+ *
+ * ChartKit will not guess. A revenue series in pounds and a conversion series
+ * in percent could be told apart by their magnitudes on Tuesday and not on
+ * Wednesday, and a chart that silently moved a series to the other axis when
+ * its numbers changed would be the worst kind of bug: invisible, intermittent
+ * and wrong by a factor nobody can see. A layer that does not say which axis it
+ * belongs to is on the primary one.
+ *
+ * ### Dual axes are easy to mislead with
+ *
+ * Two independent scales in one plot let the author choose where the lines
+ * cross, which is a claim about the data that the data did not make. Use a
+ * second axis when the quantities genuinely differ in kind and a reader needs
+ * both — price and volume, revenue and conversion rate — and prefer two linked
+ * charts when they do not.
+ */
+enum class ValueAxisBinding {
+
+    /** The chart's main value axis. The default for every layer. */
+    Primary,
+
+    /** The second value axis, drawn on the opposite edge. */
+    Secondary,
+}
 
 /** Which edge of the plot an axis is drawn against. */
 enum class AxisPosition {
@@ -88,6 +118,10 @@ enum class AxisLabelOverflow {
  * @param domain overrides how the axis chooses its interval. `null` takes the
  *   chart's default, which differs between bars and lines for reasons set out
  *   in [DomainPolicy].
+ * @param scale how values map to positions: linear, logarithmic, symmetric-log
+ *   or a caller's own transform. Ticks come from the scale, so a log axis is
+ *   labelled in powers without the axis renderer knowing which kind it is
+ *   drawing. See [AxisScale].
  */
 data class ChartAxis(
     val visible: Boolean = true,
@@ -104,6 +138,7 @@ data class ChartAxis(
     val timeFormatter: ChartTimeFormatter? = null,
     val categoryFormatter: ((String) -> String)? = null,
     val domain: DomainPolicy? = null,
+    val scale: AxisScale = AxisScale.Linear,
 ) {
     init {
         require(tickCount >= 2) {
@@ -127,6 +162,9 @@ data class ChartAxis(
 
         /** Labels but no line or ticks — a quieter axis for dense dashboards. */
         val LabelsOnly: ChartAxis = ChartAxis(showLine = false, showTicks = false)
+
+        /** A base-10 logarithmic axis, labelled in powers of ten. */
+        val Logarithmic: ChartAxis = ChartAxis(scale = AxisScale.Log())
     }
 }
 
