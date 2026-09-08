@@ -22,6 +22,9 @@ import io.devkit.chartkit.model.ChartXResolver
 import io.devkit.chartkit.scale.ColorScale
 import io.devkit.chartkit.scale.DomainPolicy
 import io.devkit.chartkit.scale.NumericDomain
+import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.render.ChartStaticOptions
+import io.devkit.chartkit.state.ChartPlotAlignment
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.rememberChartState
 import io.devkit.chartkit.state.rememberChartViewportState
@@ -87,6 +90,9 @@ fun <T> Heatmap(
     animation: ChartAnimation = ChartAnimation.Default,
     interaction: ChartInteraction = ChartInteraction.TapOnly,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -122,6 +128,9 @@ fun <T> Heatmap(
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
         onSelectionChanged = onSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,
@@ -211,6 +220,9 @@ internal fun <T> HeatmapCore(
     animation: ChartAnimation,
     interaction: ChartInteraction,
     accessibility: ChartAccessibility,
+    renderMode: ChartRenderMode,
+    staticOptions: ChartStaticOptions,
+    plotAlignment: ChartPlotAlignment?,
     accessibilitySummary: (() -> String)?,
     state: ChartState<T>,
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)?,
@@ -276,6 +288,9 @@ internal fun <T> HeatmapCore(
         viewportState = rememberChartViewportState(),
         sharedCrosshair = null,
         annotations = emptyList(),
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
         onSelectionChanged = onSelectionChanged?.let { callback ->
             { erased -> callback(erased?.asTyped()) }
         },

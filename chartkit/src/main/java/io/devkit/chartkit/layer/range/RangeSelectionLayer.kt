@@ -67,4 +67,16 @@ internal class RangeSelectionLayer(
             scope.drawLine(context.colors.rangeBorder, Offset(plot.left, high), Offset(plot.right, high), handleWidth)
         }
     }
+    /**
+     * Nothing, faithfully.
+     *
+     * A range overlay shows a gesture in progress; a static picture has none.
+     * See [io.devkit.chartkit.layer.crosshair.CrosshairLayer] for why that is
+     * `true` rather than "unexported".
+     */
+    override fun renderScene(
+        builder: io.devkit.chartkit.scene.ChartSceneBuilder,
+        context: ChartRenderContext,
+    ): Boolean = true
+
 }

@@ -88,6 +88,13 @@ import io.devkit.fillkit.personaPack
 import io.devkit.fillkit.scenarioPack
 import io.devkit.chartdemo.ChartExploreScreen
 import io.devkit.chartdemo.ChartAccessibilityScreen
+import io.devkit.chartdemo.ChartAdvancedScreen
+import io.devkit.chartdemo.ChartComparisonScreen
+import io.devkit.chartdemo.ChartDashboardScreen
+import io.devkit.chartdemo.ChartFlowScreen
+import io.devkit.chartdemo.ChartGraphScreen
+import io.devkit.chartdemo.ChartHierarchyScreen
+import io.devkit.chartdemo.ChartTimeScreen
 import io.devkit.chartdemo.ChartAnnotationsScreen
 import io.devkit.chartdemo.ChartDensityScreen
 import io.devkit.chartdemo.ChartFinancialScreen
@@ -511,6 +518,48 @@ private enum class SampleScreen(
         SampleKit.ChartKit,
         "Summaries, data tables and capture",
     ),
+    ChartHierarchy(
+        "Hierarchy",
+        "H",
+        SampleKit.ChartKit,
+        "Treemap and sunburst over one tree, with drill-down",
+    ),
+    ChartFlow(
+        "Flow",
+        "F",
+        SampleKit.ChartKit,
+        "Sankey diagrams and funnels",
+    ),
+    ChartComparison(
+        "Comparison",
+        "W",
+        SampleKit.ChartKit,
+        "Waterfall, dumbbell, lollipop, bullet and gauge",
+    ),
+    ChartTime(
+        "Time and intervals",
+        "M",
+        SampleKit.ChartKit,
+        "Timelines, durations and Gantt-style tasks",
+    ),
+    ChartGraph(
+        "Relationships",
+        "K",
+        SampleKit.ChartKit,
+        "Network graphs, circular and force directed",
+    ),
+    ChartDashboard(
+        "Dashboard",
+        "D",
+        SampleKit.ChartKit,
+        "Linked charts, cross-filtering and a navigator",
+    ),
+    ChartAdvanced(
+        "Advanced",
+        "X",
+        SampleKit.ChartKit,
+        "Custom layers, log scales, second axes and export",
+    ),
 }
 
 /** Destinations in display order, grouped by the kit they demonstrate. */
@@ -643,6 +692,13 @@ private fun FillKitSampleApp() {
                 SampleScreen.ChartLargeData -> ChartLargeDataScreen(Modifier.padding(padding))
                 SampleScreen.ChartStreaming -> ChartStreamingScreen(Modifier.padding(padding))
                 SampleScreen.ChartAccessibility -> ChartAccessibilityScreen(Modifier.padding(padding))
+                SampleScreen.ChartHierarchy -> ChartHierarchyScreen(Modifier.padding(padding))
+                SampleScreen.ChartFlow -> ChartFlowScreen(Modifier.padding(padding))
+                SampleScreen.ChartComparison -> ChartComparisonScreen(Modifier.padding(padding))
+                SampleScreen.ChartTime -> ChartTimeScreen(Modifier.padding(padding))
+                SampleScreen.ChartGraph -> ChartGraphScreen(Modifier.padding(padding))
+                SampleScreen.ChartDashboard -> ChartDashboardScreen(Modifier.padding(padding))
+                SampleScreen.ChartAdvanced -> ChartAdvancedScreen(Modifier.padding(padding))
             }
         }
     }

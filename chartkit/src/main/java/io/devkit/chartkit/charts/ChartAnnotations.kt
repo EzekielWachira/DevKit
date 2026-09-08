@@ -33,6 +33,19 @@ internal fun resolveAnnotations(
             domainStart = xResolver.resolveOrDefault(annotation.from),
             domainEnd = xResolver.resolveOrDefault(annotation.to),
         )
+        is ChartAnnotation.Callout -> ResolvedAnnotation(
+            annotation = annotation,
+            domainStart = xResolver.resolveOrDefault(annotation.at),
+        )
+        is ChartAnnotation.LabelBox -> ResolvedAnnotation(
+            annotation = annotation,
+            domainStart = xResolver.resolveOrDefault(annotation.at),
+        )
+        is ChartAnnotation.Arrow -> ResolvedAnnotation(
+            annotation = annotation,
+            domainStart = xResolver.resolveOrDefault(annotation.fromAt),
+            domainEnd = xResolver.resolveOrDefault(annotation.toAt),
+        )
         is ChartAnnotation.Region -> ResolvedAnnotation(
             annotation = annotation,
             domainStart = xResolver.resolveOrDefault(annotation.domainFrom),

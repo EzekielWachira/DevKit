@@ -10,7 +10,9 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.drawText
 import io.devkit.chartkit.annotation.AnnotationLabelPlacement
+import io.devkit.chartkit.annotation.AnnotationMarkerShape
 import io.devkit.chartkit.annotation.AnnotationOrder
+import io.devkit.chartkit.annotation.CalloutDirection
 import io.devkit.chartkit.annotation.ChartAnnotation
 import io.devkit.chartkit.geometry.ChartOffset
 import io.devkit.chartkit.geometry.ChartRect
@@ -100,6 +102,15 @@ internal class AnnotationLayer(
 
                 is ChartAnnotation.EventMarker ->
                     drawEventMarker(scope, context, annotation, resolved.domainStart)
+
+                is ChartAnnotation.Callout ->
+                    drawCallout(scope, context, annotation, resolved.domainStart)
+
+                is ChartAnnotation.Arrow ->
+                    drawArrow(scope, context, annotation, resolved)
+
+                is ChartAnnotation.LabelBox ->
+                    drawLabelBox(scope, context, annotation, resolved.domainStart)
             }
         }
     }
@@ -291,14 +302,17 @@ internal class AnnotationLayer(
         val radius = context.px(context.dimensions.annotationMarkerRadius)
         val colour = annotation.style.color ?: context.colors.annotation.line
 
-        scope.drawCircle(colour, radius, Offset(position.x, position.y))
-        // A hole in the middle, so the marker reads as a mark rather than as a
-        // data point of the series it sits over.
-        scope.drawCircle(
-            context.colors.annotation.labelContent,
-            radius * MARKER_HOLE_FRACTION,
-            Offset(position.x, position.y),
-        )
+        scope.drawMarker(annotation.shape, Offset(position.x, position.y), radius, colour)
+        // A hole in the middle of a round marker, so it reads as a mark rather
+        // than as a data point of the series it sits over. The other shapes are
+        // already distinct from anything a series draws.
+        if (annotation.shape == AnnotationMarkerShape.Circle) {
+            scope.drawCircle(
+                context.colors.annotation.labelContent,
+                radius * MARKER_HOLE_FRACTION,
+                Offset(position.x, position.y),
+            )
+        }
         drawLabel(
             scope,
             context,
@@ -313,6 +327,18 @@ internal class AnnotationLayer(
         context: ChartRenderContext,
         annotation: ChartAnnotation.EventMarker,
         domain: ChartX?,
+    ): ChartOffset? = anchorPosition(context, annotation.value, domain)
+
+    /**
+     * Where a mark that names a domain position and an optional value sits.
+     *
+     * Shared by the marker, the call-out and the bare label, so a tap lands
+     * where the mark was drawn rather than where a second calculation put it.
+     */
+    private fun anchorPosition(
+        context: ChartRenderContext,
+        value: Double?,
+        domain: ChartX?,
     ): ChartOffset? {
         val coordinates = context.cartesian
         val plot = coordinates.plotArea
@@ -320,11 +346,173 @@ internal class AnnotationLayer(
         if (!at.isFinite()) return null
         // No value: pinned to the top of the plot, where an event that has a
         // date but no magnitude belongs.
-        val valuePosition = annotation.value?.let { coordinates.positionOfValue(it) }
+        val valuePosition = value?.let { coordinates.positionOfValue(it) }
             ?: coordinates.valueOf(ChartOffset(plot.left, plot.top))
         if (!valuePosition.isFinite()) return null
         val point = coordinates.pointAt(at, valuePosition)
         return if (plot.contains(point)) point else null
+    }
+
+    // ---- callouts, arrows and bare labels ------------------------------------
+
+    /**
+     * A mark, a connector and a label set away from it.
+     *
+     * The connector is the whole point: a label placed beside a busy plot is
+     * ambiguous about which point it names, and a line removes the ambiguity
+     * without moving the label back into the crowd.
+     */
+    private fun drawCallout(
+        scope: DrawScope,
+        context: ChartRenderContext,
+        annotation: ChartAnnotation.Callout,
+        domain: ChartX?,
+    ) {
+        val coordinates = context.cartesian
+        val plot = coordinates.plotArea
+        val at = domain?.let(positionOfDomain) ?: return
+        if (!at.isFinite()) return
+        val valuePosition = annotation.value?.let { coordinates.positionOfValue(it) }
+            ?: coordinates.valueOf(ChartOffset(plot.left, plot.top))
+        if (!valuePosition.isFinite()) return
+        val anchor = coordinates.pointAt(at, valuePosition)
+        if (!plot.contains(anchor)) return
+
+        val colour = annotation.style.color ?: context.colors.annotation.line
+        val radius = context.px(context.dimensions.annotationMarkerRadius)
+        val length = context.px(annotation.connectorLength ?: context.dimensions.calloutConnectorLength)
+
+        val target = when (annotation.direction) {
+            CalloutDirection.Up -> Offset(anchor.x, anchor.y - length)
+            CalloutDirection.Down -> Offset(anchor.x, anchor.y + length)
+            CalloutDirection.Start -> Offset(anchor.x - length, anchor.y)
+            CalloutDirection.End -> Offset(anchor.x + length, anchor.y)
+        }
+
+        scope.drawLine(
+            color = colour,
+            start = Offset(anchor.x, anchor.y),
+            end = target,
+            strokeWidth = context.px(
+                annotation.style.lineWidth ?: context.dimensions.annotationLineWidth,
+            ),
+        )
+        scope.drawMarker(annotation.shape, Offset(anchor.x, anchor.y), radius, colour)
+        drawChip(scope, context, annotation.label, target, plot, annotation.direction)
+    }
+
+    /** A straight arrow between two points, with a head at the far end. */
+    private fun drawArrow(
+        scope: DrawScope,
+        context: ChartRenderContext,
+        annotation: ChartAnnotation.Arrow,
+        resolved: ResolvedAnnotation,
+    ) {
+        val coordinates = context.cartesian
+        val plot = coordinates.plotArea
+        val fromDomain = resolved.domainStart?.let(positionOfDomain) ?: return
+        val toDomain = resolved.domainEnd?.let(positionOfDomain) ?: return
+        val fromValue = coordinates.positionOfValue(annotation.fromValue)
+        val toValue = coordinates.positionOfValue(annotation.toValue)
+        if (!fromDomain.isFinite() || !toDomain.isFinite() ||
+            !fromValue.isFinite() || !toValue.isFinite()
+        ) {
+            return
+        }
+        val from = coordinates.pointAt(fromDomain, fromValue)
+        val to = coordinates.pointAt(toDomain, toValue)
+        if (!withinPlot(plot, from, to)) return
+
+        val colour = annotation.style.color ?: context.colors.annotation.line
+        val width = context.px(annotation.style.lineWidth ?: context.dimensions.annotationLineWidth)
+        scope.drawLine(colour, Offset(from.x, from.y), Offset(to.x, to.y), strokeWidth = width)
+
+        // The head is built from the segment's own direction, so it points the
+        // right way whichever way round the two ends were given.
+        val head = context.px(context.dimensions.annotationArrowHead)
+        val dx = to.x - from.x
+        val dy = to.y - from.y
+        val length = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (length > 0f) {
+            val ux = dx / length
+            val uy = dy / length
+            val baseX = to.x - ux * head
+            val baseY = to.y - uy * head
+            val path = androidx.compose.ui.graphics.Path().apply {
+                moveTo(to.x, to.y)
+                lineTo(baseX - uy * head * ARROW_HALF_WIDTH, baseY + ux * head * ARROW_HALF_WIDTH)
+                lineTo(baseX + uy * head * ARROW_HALF_WIDTH, baseY - ux * head * ARROW_HALF_WIDTH)
+                close()
+            }
+            scope.drawPath(path, colour)
+        }
+        drawLabel(scope, context, annotation, Offset(from.x, from.y), Offset(to.x, to.y), plot)
+    }
+
+    /** A chip with no mark, at a point on the plot. */
+    private fun drawLabelBox(
+        scope: DrawScope,
+        context: ChartRenderContext,
+        annotation: ChartAnnotation.LabelBox,
+        domain: ChartX?,
+    ) {
+        val coordinates = context.cartesian
+        val plot = coordinates.plotArea
+        val at = domain?.let(positionOfDomain) ?: return
+        if (!at.isFinite()) return
+        val valuePosition = annotation.value?.let { coordinates.positionOfValue(it) }
+            ?: coordinates.valueOf(ChartOffset(plot.left, plot.top))
+        if (!valuePosition.isFinite()) return
+        val point = coordinates.pointAt(at, valuePosition)
+        if (!plot.contains(point)) return
+        drawChip(scope, context, annotation.label, Offset(point.x, point.y), plot, null)
+    }
+
+    /**
+     * A label chip centred on a point, kept inside the plot.
+     *
+     * Shared by the call-out and the bare label, because "a chip that stays on
+     * screen" is the same problem for both and solving it twice is how two
+     * annotations come to sit differently.
+     */
+    private fun drawChip(
+        scope: DrawScope,
+        context: ChartRenderContext,
+        text: String?,
+        at: Offset,
+        plot: ChartRect,
+        direction: CalloutDirection?,
+    ) {
+        val label = text?.takeIf { it.isNotBlank() } ?: return
+        val style = context.typography.annotationLabel
+            .copy(color = context.colors.annotation.labelContent)
+        val layout = context.textMeasurer.measure(label, style, maxLines = 2)
+        val padding = context.px(context.dimensions.annotationLabelPadding)
+        val boxWidth = layout.size.width + padding * 2f
+        val boxHeight = layout.size.height + padding * 2f
+
+        // The chip sits beyond the connector's end, in the direction it points,
+        // so the line reaches the chip rather than ending inside it.
+        val centre = when (direction) {
+            CalloutDirection.Up -> Offset(at.x, at.y - boxHeight / 2f)
+            CalloutDirection.Down -> Offset(at.x, at.y + boxHeight / 2f)
+            CalloutDirection.Start -> Offset(at.x - boxWidth / 2f, at.y)
+            CalloutDirection.End -> Offset(at.x + boxWidth / 2f, at.y)
+            null -> at
+        }
+
+        val left = (centre.x - boxWidth / 2f)
+            .coerceIn(plot.left, (plot.right - boxWidth).coerceAtLeast(plot.left))
+        val top = (centre.y - boxHeight / 2f)
+            .coerceIn(plot.top, (plot.bottom - boxHeight).coerceAtLeast(plot.top))
+
+        scope.drawRoundRect(
+            color = context.colors.annotation.labelContainer,
+            topLeft = Offset(left, top),
+            size = Size(boxWidth, boxHeight),
+            cornerRadius = CornerRadius(padding, padding),
+        )
+        scope.drawText(layout, topLeft = Offset(left + padding, top + padding))
     }
 
     // ---- labels --------------------------------------------------------------
@@ -370,6 +558,155 @@ internal class AnnotationLayer(
         scope.drawText(layout, topLeft = Offset(left + padding, top + padding))
     }
 
+    // ---- export --------------------------------------------------------------
+
+    /**
+     * Rules, bands, regions and markers as scene primitives.
+     *
+     * Everything this layer draws reduces to a line, a rectangle, a circle, a
+     * polygon or a run of text, so the scene representation is exact rather
+     * than an approximation — which is the bar an export has to clear before it
+     * is worth shipping.
+     */
+    @Suppress("LongMethod", "CyclomaticComplexMethod")
+    override fun renderScene(
+        builder: io.devkit.chartkit.scene.ChartSceneBuilder,
+        context: ChartRenderContext,
+    ): Boolean {
+        val coordinates = context.cartesian
+        val plot = coordinates.plotArea
+        if (plot.isEmpty || annotations.isEmpty()) return true
+
+        val lineWidth = context.px(context.dimensions.annotationLineWidth)
+        val markerRadius = context.px(context.dimensions.annotationMarkerRadius)
+
+        builder.group(id) {
+            annotations.forEach { resolved ->
+                val annotation = resolved.annotation
+                val colour = annotation.style.color ?: context.colors.annotation.line
+                val dash = if (annotation.style.dashed) {
+                    floatArrayOf(lineWidth * 5f, lineWidth * 4f)
+                } else {
+                    null
+                }
+
+                when (annotation) {
+                    is ChartAnnotation.HorizontalRule -> {
+                        val at = coordinates.positionOfValue(annotation.value)
+                        if (!at.isFinite()) return@forEach
+                        val a = coordinates.pointAt(coordinates.domainOf(ChartOffset(plot.left, plot.top)), at)
+                        val b = coordinates.pointAt(
+                            coordinates.domainOf(ChartOffset(plot.right, plot.bottom)),
+                            at,
+                        )
+                        add(io.devkit.chartkit.scene.ChartSceneNode.Line(a, b, colour, lineWidth, dash))
+                    }
+
+                    is ChartAnnotation.VerticalRule -> {
+                        val at = resolved.domainStart?.let(positionOfDomain) ?: return@forEach
+                        if (!at.isFinite()) return@forEach
+                        val a = coordinates.pointAt(at, coordinates.valueOf(ChartOffset(plot.left, plot.top)))
+                        val b = coordinates.pointAt(
+                            at,
+                            coordinates.valueOf(ChartOffset(plot.right, plot.bottom)),
+                        )
+                        add(io.devkit.chartkit.scene.ChartSceneNode.Line(a, b, colour, lineWidth, dash))
+                    }
+
+                    is ChartAnnotation.ValueRange -> {
+                        val from = coordinates.positionOfValue(annotation.from)
+                        val to = coordinates.positionOfValue(annotation.to)
+                        if (!from.isFinite() || !to.isFinite()) return@forEach
+                        addRegion(
+                            spanRect(coordinates, plot, valueFrom = from, valueTo = to),
+                            annotation.style.color ?: context.colors.annotation.region,
+                            colour,
+                            lineWidth,
+                        )
+                    }
+
+                    is ChartAnnotation.DomainRange -> {
+                        val from = resolved.domainStart?.let(positionOfDomain) ?: return@forEach
+                        val to = resolved.domainEnd?.let(positionOfDomain) ?: return@forEach
+                        if (!from.isFinite() || !to.isFinite()) return@forEach
+                        addRegion(
+                            spanRect(coordinates, plot, domainFrom = from, domainTo = to),
+                            annotation.style.color ?: context.colors.annotation.region,
+                            colour,
+                            lineWidth,
+                        )
+                    }
+
+                    is ChartAnnotation.Region -> {
+                        val domainFrom = resolved.domainStart?.let(positionOfDomain) ?: return@forEach
+                        val domainTo = resolved.domainEnd?.let(positionOfDomain) ?: return@forEach
+                        val valueFrom = coordinates.positionOfValue(annotation.valueFrom)
+                        val valueTo = coordinates.positionOfValue(annotation.valueTo)
+                        if (!domainFrom.isFinite() || !domainTo.isFinite() ||
+                            !valueFrom.isFinite() || !valueTo.isFinite()
+                        ) {
+                            return@forEach
+                        }
+                        val a = coordinates.pointAt(domainFrom, valueFrom)
+                        val b = coordinates.pointAt(domainTo, valueTo)
+                        addRegion(
+                            ChartRect(a.x, a.y, b.x, b.y).normalized,
+                            annotation.style.color ?: context.colors.annotation.region,
+                            colour,
+                            lineWidth,
+                        )
+                    }
+
+                    is ChartAnnotation.EventMarker -> {
+                        val at = anchorPosition(context, annotation.value, resolved.domainStart)
+                            ?: return@forEach
+                        addMarker(annotation.shape, at, markerRadius, colour, lineWidth)
+                    }
+
+                    is ChartAnnotation.Callout -> {
+                        val at = anchorPosition(context, annotation.value, resolved.domainStart)
+                            ?: return@forEach
+                        val length = context.px(
+                            annotation.connectorLength ?: context.dimensions.calloutConnectorLength,
+                        )
+                        val target = when (annotation.direction) {
+                            CalloutDirection.Up -> ChartOffset(at.x, at.y - length)
+                            CalloutDirection.Down -> ChartOffset(at.x, at.y + length)
+                            CalloutDirection.Start -> ChartOffset(at.x - length, at.y)
+                            CalloutDirection.End -> ChartOffset(at.x + length, at.y)
+                        }
+                        add(io.devkit.chartkit.scene.ChartSceneNode.Line(at, target, colour, lineWidth))
+                        addMarker(annotation.shape, at, markerRadius, colour, lineWidth)
+                        addLabel(annotation.label, target, context)
+                    }
+
+                    is ChartAnnotation.Arrow -> {
+                        val fromDomain = resolved.domainStart?.let(positionOfDomain) ?: return@forEach
+                        val toDomain = resolved.domainEnd?.let(positionOfDomain) ?: return@forEach
+                        val fromValue = coordinates.positionOfValue(annotation.fromValue)
+                        val toValue = coordinates.positionOfValue(annotation.toValue)
+                        if (!fromDomain.isFinite() || !toDomain.isFinite() ||
+                            !fromValue.isFinite() || !toValue.isFinite()
+                        ) {
+                            return@forEach
+                        }
+                        val from = coordinates.pointAt(fromDomain, fromValue)
+                        val to = coordinates.pointAt(toDomain, toValue)
+                        add(io.devkit.chartkit.scene.ChartSceneNode.Line(from, to, colour, lineWidth))
+                        addArrowHead(from, to, context.px(context.dimensions.annotationArrowHead), colour)
+                    }
+
+                    is ChartAnnotation.LabelBox -> {
+                        val at = anchorPosition(context, annotation.value, resolved.domainStart)
+                            ?: return@forEach
+                        addLabel(annotation.label, at, context)
+                    }
+                }
+            }
+        }
+        return true
+    }
+
     private fun withinPlot(plot: ChartRect, a: ChartOffset, b: ChartOffset): Boolean =
         a.isFinite && b.isFinite &&
             maxOf(a.x, b.x) >= plot.left && minOf(a.x, b.x) <= plot.right &&
@@ -394,16 +731,27 @@ internal class AnnotationLayer(
         val radius = context.px(context.dimensions.annotationMarkerRadius) * MARKER_HIT_FACTOR
 
         annotations.forEach { resolved ->
-            val annotation = resolved.annotation as? ChartAnnotation.EventMarker ?: return@forEach
-            val position = markerPosition(context, annotation, resolved.domainStart) ?: return@forEach
+            // Markers and call-outs both name a moment and both have a mark to
+            // aim at. A rule and a region do not, so they are not targets.
+            val (at, value) = when (val annotation = resolved.annotation) {
+                is ChartAnnotation.EventMarker -> annotation.at to annotation.value
+                is ChartAnnotation.Callout -> annotation.at to annotation.value
+                else -> return@forEach
+            }
+            val position = anchorPosition(context, value, resolved.domainStart) ?: return@forEach
             if (abs(position.x - point.x) <= radius && abs(position.y - point.y) <= radius) {
+                val annotation = resolved.annotation
                 return ChartSelection(
                     seriesId = annotation.id,
                     seriesName = annotation.label.orEmpty(),
                     seriesIndex = 0,
                     pointIndex = 0,
                     x = resolved.domainStart ?: ChartX.Category(annotation.label.orEmpty()),
-                    y = annotation.value ?: 0.0,
+                    y = value ?: 0.0,
+                    // The annotation itself, so a caller reads
+                    // `selection.chartAnnotation` and acts on it — the same
+                    // selection channel every other mark uses, rather than a
+                    // parallel callback that would need its own clearing rules.
                     item = annotation,
                     position = position,
                 )
@@ -429,6 +777,8 @@ internal class AnnotationLayer(
                 value = when (annotation) {
                     is ChartAnnotation.HorizontalRule -> annotation.value
                     is ChartAnnotation.EventMarker -> annotation.value
+                    is ChartAnnotation.Callout -> annotation.value
+                    is ChartAnnotation.LabelBox -> annotation.value
                     else -> null
                 },
                 detail = when (annotation) {
@@ -457,5 +807,205 @@ internal class AnnotationLayer(
 
         /** Markers are small; fingers are not. */
         const val MARKER_HIT_FACTOR = 2.2f
+
+        /** Half the arrowhead's width, as a fraction of its length. */
+        const val ARROW_HALF_WIDTH = 0.5f
     }
+}
+
+/**
+ * One marker shape.
+ *
+ * Shapes rather than colours distinguish one kind of mark from another, so a
+ * reader who cannot tell two annotation colours apart can still tell a release
+ * from an incident.
+ */
+private fun DrawScope.drawMarker(
+    shape: AnnotationMarkerShape,
+    centre: Offset,
+    radius: Float,
+    colour: androidx.compose.ui.graphics.Color,
+) {
+    when (shape) {
+        AnnotationMarkerShape.Circle -> drawCircle(colour, radius, centre)
+
+        AnnotationMarkerShape.Square -> drawRect(
+            color = colour,
+            topLeft = Offset(centre.x - radius, centre.y - radius),
+            size = Size(radius * 2f, radius * 2f),
+        )
+
+        AnnotationMarkerShape.Diamond -> drawPath(
+            androidx.compose.ui.graphics.Path().apply {
+                moveTo(centre.x, centre.y - radius)
+                lineTo(centre.x + radius, centre.y)
+                lineTo(centre.x, centre.y + radius)
+                lineTo(centre.x - radius, centre.y)
+                close()
+            },
+            colour,
+        )
+
+        AnnotationMarkerShape.Triangle -> drawPath(
+            androidx.compose.ui.graphics.Path().apply {
+                moveTo(centre.x, centre.y - radius)
+                lineTo(centre.x + radius, centre.y + radius)
+                lineTo(centre.x - radius, centre.y + radius)
+                close()
+            },
+            colour,
+        )
+
+        AnnotationMarkerShape.Cross -> {
+            val width = radius * 0.45f
+            drawLine(
+                colour,
+                Offset(centre.x - radius, centre.y - radius),
+                Offset(centre.x + radius, centre.y + radius),
+                strokeWidth = width,
+            )
+            drawLine(
+                colour,
+                Offset(centre.x + radius, centre.y - radius),
+                Offset(centre.x - radius, centre.y + radius),
+                strokeWidth = width,
+            )
+        }
+    }
+}
+
+/** A filled region with its outline, the pair the layer always draws together. */
+private fun io.devkit.chartkit.scene.ChartSceneBuilder.addRegion(
+    rect: ChartRect,
+    fill: androidx.compose.ui.graphics.Color,
+    outline: androidx.compose.ui.graphics.Color,
+    strokeWidth: Float,
+) {
+    if (rect.width <= 0f || rect.height <= 0f) return
+    add(io.devkit.chartkit.scene.ChartSceneNode.Rect(rect, fill))
+    add(
+        io.devkit.chartkit.scene.ChartSceneNode.Rect(
+            bounds = rect,
+            color = outline.copy(alpha = outline.alpha * 0.6f),
+            style = io.devkit.chartkit.scene.PaintStyle.Stroke,
+            strokeWidth = strokeWidth,
+        ),
+    )
+}
+
+/** One marker shape as a scene primitive. */
+private fun io.devkit.chartkit.scene.ChartSceneBuilder.addMarker(
+    shape: AnnotationMarkerShape,
+    centre: ChartOffset,
+    radius: Float,
+    colour: androidx.compose.ui.graphics.Color,
+    strokeWidth: Float,
+) {
+    when (shape) {
+        AnnotationMarkerShape.Circle ->
+            add(io.devkit.chartkit.scene.ChartSceneNode.Circle(centre, radius, colour))
+
+        AnnotationMarkerShape.Square -> add(
+            io.devkit.chartkit.scene.ChartSceneNode.Rect(
+                ChartRect(centre.x - radius, centre.y - radius, centre.x + radius, centre.y + radius),
+                colour,
+            ),
+        )
+
+        AnnotationMarkerShape.Diamond -> add(
+            io.devkit.chartkit.scene.ChartSceneNode.Path(
+                points = listOf(
+                    ChartOffset(centre.x, centre.y - radius),
+                    ChartOffset(centre.x + radius, centre.y),
+                    ChartOffset(centre.x, centre.y + radius),
+                    ChartOffset(centre.x - radius, centre.y),
+                ),
+                color = colour,
+                style = io.devkit.chartkit.scene.PaintStyle.Fill,
+                closed = true,
+            ),
+        )
+
+        AnnotationMarkerShape.Triangle -> add(
+            io.devkit.chartkit.scene.ChartSceneNode.Path(
+                points = listOf(
+                    ChartOffset(centre.x, centre.y - radius),
+                    ChartOffset(centre.x + radius, centre.y + radius),
+                    ChartOffset(centre.x - radius, centre.y + radius),
+                ),
+                color = colour,
+                style = io.devkit.chartkit.scene.PaintStyle.Fill,
+                closed = true,
+            ),
+        )
+
+        AnnotationMarkerShape.Cross -> {
+            add(
+                io.devkit.chartkit.scene.ChartSceneNode.Line(
+                    ChartOffset(centre.x - radius, centre.y - radius),
+                    ChartOffset(centre.x + radius, centre.y + radius),
+                    colour,
+                    strokeWidth,
+                ),
+            )
+            add(
+                io.devkit.chartkit.scene.ChartSceneNode.Line(
+                    ChartOffset(centre.x + radius, centre.y - radius),
+                    ChartOffset(centre.x - radius, centre.y + radius),
+                    colour,
+                    strokeWidth,
+                ),
+            )
+        }
+    }
+}
+
+/** An arrowhead built from the segment's own direction. */
+private fun io.devkit.chartkit.scene.ChartSceneBuilder.addArrowHead(
+    from: ChartOffset,
+    to: ChartOffset,
+    head: Float,
+    colour: androidx.compose.ui.graphics.Color,
+) {
+    val dx = to.x - from.x
+    val dy = to.y - from.y
+    val length = kotlin.math.sqrt(dx * dx + dy * dy)
+    if (length <= 0f) return
+    val ux = dx / length
+    val uy = dy / length
+    val baseX = to.x - ux * head
+    val baseY = to.y - uy * head
+    add(
+        io.devkit.chartkit.scene.ChartSceneNode.Path(
+            points = listOf(
+                to,
+                ChartOffset(baseX - uy * head * 0.5f, baseY + ux * head * 0.5f),
+                ChartOffset(baseX + uy * head * 0.5f, baseY - ux * head * 0.5f),
+            ),
+            color = colour,
+            style = io.devkit.chartkit.scene.PaintStyle.Fill,
+            closed = true,
+        ),
+    )
+}
+
+/** An annotation's label, measured by the chart so the export lands where it drew. */
+private fun io.devkit.chartkit.scene.ChartSceneBuilder.addLabel(
+    text: String?,
+    at: ChartOffset,
+    context: ChartRenderContext,
+) {
+    val label = text?.takeIf { it.isNotBlank() } ?: return
+    val style = context.typography.annotationLabel
+    val layout = context.textMeasurer.measure(label, style, maxLines = 1)
+    val fontSize = with(context.density) { style.fontSize.toPx() }
+    add(
+        io.devkit.chartkit.scene.ChartSceneNode.Text(
+            text = label,
+            position = ChartOffset(at.x, at.y + layout.firstBaseline - layout.size.height / 2f),
+            color = context.colors.annotation.labelContent,
+            fontSizePx = fontSize,
+            anchor = io.devkit.chartkit.scene.TextAnchor.Middle,
+        ),
+    )
 }

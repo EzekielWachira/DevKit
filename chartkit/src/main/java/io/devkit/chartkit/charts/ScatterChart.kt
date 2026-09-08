@@ -31,6 +31,10 @@ import io.devkit.chartkit.scale.NumericDomain
 import io.devkit.chartkit.scale.SizeScale
 import io.devkit.chartkit.scale.apply
 import io.devkit.chartkit.scale.SizeScaleMode
+import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.scene.ChartSceneState
+import io.devkit.chartkit.render.ChartStaticOptions
+import io.devkit.chartkit.state.ChartPlotAlignment
 import io.devkit.chartkit.state.ChartSharedCrosshairState
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.ChartViewportState
@@ -101,6 +105,10 @@ fun <T> ScatterChart(
     xAxisKind: ChartXAxisKind? = null,
     performance: ChartPerformance = ChartPerformance.Default,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
+    sceneState: ChartSceneState? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -142,6 +150,10 @@ fun <T> ScatterChart(
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
+        sceneState = sceneState,
         onSelectionChanged = onSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,
@@ -204,6 +216,10 @@ fun <T> ScatterChart(
     xAxisKind: ChartXAxisKind? = null,
     performance: ChartPerformance = ChartPerformance.Default,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
+    sceneState: ChartSceneState? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -292,6 +308,10 @@ fun <T> ScatterChart(
         viewportState = viewportState,
         sharedCrosshair = sharedCrosshair,
         annotations = remember(annotations, xResolver) { resolveAnnotations(annotations, xResolver) },
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
+        sceneState = sceneState,
         onSelectionChanged = onSelectionChanged?.let { callback ->
             { erased -> callback(erased?.asTyped()) }
         },
@@ -367,6 +387,10 @@ fun <T> BubbleChart(
     xResolver: ChartXResolver = ChartXResolver.Default,
     performance: ChartPerformance = ChartPerformance.Default,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    plotAlignment: ChartPlotAlignment? = null,
+    sceneState: ChartSceneState? = null,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -408,6 +432,10 @@ fun <T> BubbleChart(
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
+        plotAlignment = plotAlignment,
+        sceneState = sceneState,
         onSelectionChanged = onSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,

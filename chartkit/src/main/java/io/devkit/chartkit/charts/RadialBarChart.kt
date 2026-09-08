@@ -14,8 +14,12 @@ import io.devkit.chartkit.geometry.PolarGeometry
 import io.devkit.chartkit.layer.polar.RadialBarEntry
 import io.devkit.chartkit.layer.polar.RadialBarLayer
 import io.devkit.chartkit.geometry.RadialRangePolicy
+import io.devkit.chartkit.layer.custom.CustomPolarLayer
+import io.devkit.chartkit.layer.custom.CustomPolarLayerRenderer
 import io.devkit.chartkit.model.ChartSelection
 import io.devkit.chartkit.model.ChartTooltipData
+import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.render.ChartStaticOptions
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.rememberChartState
 import io.devkit.chartkit.theme.ChartKitTheme
@@ -73,6 +77,9 @@ fun <T> RadialBarChart(
     tapSelects: Boolean = true,
     clearOnTapOutside: Boolean = true,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
+    renderMode: ChartRenderMode = ChartRenderMode.Interactive,
+    staticOptions: ChartStaticOptions = ChartStaticOptions.Default,
+    customLayers: List<CustomPolarLayer> = emptyList(),
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -129,7 +136,7 @@ fun <T> RadialBarChart(
                     rangePolicy = rangePolicy,
                     valueFormatter = valueFormatter,
                 ),
-            )
+            ) + customLayers.map(::CustomPolarLayerRenderer)
         },
         modifier = modifier,
         // Radial bars lay their tracks out from the outer radius inwards, so
@@ -142,7 +149,7 @@ fun <T> RadialBarChart(
         legend = legend,
         legendItems = remember(entries) {
             entries.mapIndexed { index, entry ->
-                PolarLegendItem(
+                ChartKeyItem(
                     id = "$seriesId-$index",
                     label = entry.label,
                     paletteIndex = entry.paletteIndex,
@@ -167,6 +174,8 @@ fun <T> RadialBarChart(
         loadingContent = loadingContent,
         emptyContent = emptyContent,
         errorContent = errorContent,
+        renderMode = renderMode,
+        staticOptions = staticOptions,
         centerContent = centerContent,
     )
 }

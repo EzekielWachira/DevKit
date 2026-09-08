@@ -11,6 +11,7 @@ import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
 import io.devkit.chartkit.axis.MeasuredAxis
 import io.devkit.chartkit.axis.MeasuredAxisLabel
+import io.devkit.chartkit.axis.ValueAxisBinding
 import io.devkit.chartkit.axis.selectLabelIndices
 import io.devkit.chartkit.coordinate.CartesianCoordinates
 import io.devkit.chartkit.coordinate.DomainAxis
@@ -40,6 +41,17 @@ import io.devkit.chartkit.layer.annotation.AnnotationLayer
 import io.devkit.chartkit.layer.annotation.ResolvedAnnotation
 import io.devkit.chartkit.layer.bar.BarLayer
 import io.devkit.chartkit.layer.bar.BarSeriesGeometry
+import io.devkit.chartkit.layer.comparison.BulletEntry
+import io.devkit.chartkit.layer.comparison.BulletLayer
+import io.devkit.chartkit.layer.comparison.ConnectorMarkEntry
+import io.devkit.chartkit.layer.comparison.ConnectorMarkKind
+import io.devkit.chartkit.layer.comparison.ConnectorMarkLayer
+import io.devkit.chartkit.layer.comparison.WaterfallLayer
+import io.devkit.chartkit.layer.comparison.lollipopBaseline
+import io.devkit.chartkit.layer.custom.CustomCartesianLayer
+import io.devkit.chartkit.layer.custom.CustomLayerRenderer
+import io.devkit.chartkit.layer.timeline.IntervalLabels
+import io.devkit.chartkit.layer.timeline.IntervalLayer
 import io.devkit.chartkit.layer.crosshair.CrosshairLayer
 import io.devkit.chartkit.layer.financial.CandleGeometry
 import io.devkit.chartkit.layer.financial.CandleLayer
@@ -68,6 +80,8 @@ import io.devkit.chartkit.layout.AxisMetrics
 import io.devkit.chartkit.layout.computeChartLayout
 import io.devkit.chartkit.model.ChartX
 import io.devkit.chartkit.model.ChartXAxisKind
+import io.devkit.chartkit.model.ChartXResolver
+import io.devkit.chartkit.model.resolveOrDefault
 import io.devkit.chartkit.model.MissingValuePolicy
 import io.devkit.chartkit.model.PlotData
 import io.devkit.chartkit.model.PlotSeries
@@ -84,6 +98,9 @@ import io.devkit.chartkit.stats.BoxStatistics
 import io.devkit.chartkit.stats.DensityCurve
 import io.devkit.chartkit.stats.HistogramBin
 import io.devkit.chartkit.stats.HistogramMetric
+import io.devkit.chartkit.timeline.TimelineModel
+import io.devkit.chartkit.transform.WaterfallStep
+import io.devkit.chartkit.transform.WaterfallTransform
 import io.devkit.chartkit.theme.ChartDimensions
 import io.devkit.chartkit.theme.ChartTypography
 import io.devkit.chartkit.viewport.ChartViewport
@@ -114,6 +131,15 @@ internal sealed class ResolvedLayer {
 
     /** How this layer wants the domain axis built. */
     abstract val axisKind: ChartXAxisKind
+
+    /**
+     * Which value axis this layer is measured against.
+     *
+     * Explicit, never inferred from the magnitudes — see
+     * [io.devkit.chartkit.axis.ValueAxisBinding] for why a chart that guessed
+     * would be wrong intermittently and invisibly.
+     */
+    open val valueAxis: ValueAxisBinding get() = ValueAxisBinding.Primary
 
     /** Normalised series data, for the layers that have any. */
     open val seriesData: PlotData? get() = null
@@ -161,6 +187,7 @@ internal sealed class ResolvedLayer {
         val pointMarkerThreshold: Int,
         val missingValuePolicy: MissingValuePolicy,
         val performance: ChartPerformance,
+        override val valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = data.xAxisKind
         override val seriesData: PlotData get() = data
@@ -174,6 +201,7 @@ internal sealed class ResolvedLayer {
         val categoryPadding: Double,
         val groupPadding: Double,
         val valueLabels: Boolean,
+        override val valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = data.xAxisKind
         override val seriesData: PlotData get() = data
@@ -201,6 +229,7 @@ internal sealed class ResolvedLayer {
         val sizeScale: SizeScale?,
         val pointRadius: androidx.compose.ui.unit.Dp?,
         val performance: ChartPerformance,
+        override val valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = data.xAxisKind
         override val seriesData: PlotData get() = data
@@ -353,6 +382,148 @@ internal sealed class ResolvedLayer {
 
         override fun legendRows(): List<LegendSeries> = emptyList()
     }
+
+    /** A running total: bars anchored to what came before them. */
+    class Waterfall(
+        override val key: String,
+        val steps: List<WaterfallStep>,
+        val seriesId: String,
+        val seriesName: String,
+        val showConnectors: Boolean,
+        val cornerRadius: androidx.compose.ui.unit.Dp?,
+        override val valueAxis: ValueAxisBinding,
+    ) : ResolvedLayer() {
+        override val axisKind: ChartXAxisKind get() = ChartXAxisKind.Category
+        override val isEmpty: Boolean get() = steps.isEmpty()
+        override fun categoryLabels(): List<String> = steps.map { it.label }
+
+        override fun valueExtent(): NumericDomain? {
+            if (steps.isEmpty()) return null
+            val extent = WaterfallTransform.extentOf(steps)
+            return NumericDomain(extent.start, extent.endInclusive)
+        }
+
+        override fun legendRows(): List<LegendSeries> = emptyList()
+    }
+
+    /** Dumbbell or lollipop marks, one per category. */
+    class ConnectorMarks(
+        override val key: String,
+        val entries: List<ConnectorMarkEntry>,
+        val kind: ConnectorMarkKind,
+        val seriesId: String,
+        val seriesName: String,
+        val startLabel: String,
+        val endLabel: String,
+        override val valueAxis: ValueAxisBinding,
+    ) : ResolvedLayer() {
+        override val axisKind: ChartXAxisKind get() = ChartXAxisKind.Category
+        override val isEmpty: Boolean get() = entries.isEmpty()
+        override fun categoryLabels(): List<String> = entries.map { it.label }
+
+        override fun valueExtent(): NumericDomain? {
+            if (entries.isEmpty()) return null
+            val values = entries.flatMap { listOfNotNull(it.start, it.end) }
+            // A lollipop's stem rises from the baseline, so the baseline has to
+            // be on the axis or every stem is clipped at the plot's edge.
+            val withBaseline = if (kind == ConnectorMarkKind.Lollipop) values + 0.0 else values
+            return NumericDomain.of(withBaseline)
+        }
+
+        override fun legendRows(): List<LegendSeries> = emptyList()
+    }
+
+    /** A measure against a target, on qualitative ranges. */
+    class Bullet(
+        override val key: String,
+        val entries: List<BulletEntry>,
+        val seriesId: String,
+        val seriesName: String,
+        val targetLabel: String,
+        override val valueAxis: ValueAxisBinding,
+    ) : ResolvedLayer() {
+        override val axisKind: ChartXAxisKind get() = ChartXAxisKind.Category
+        override val isEmpty: Boolean get() = entries.isEmpty()
+        override fun categoryLabels(): List<String> = entries.map { it.label }
+
+        override fun valueExtent(): NumericDomain? {
+            if (entries.isEmpty()) return null
+            val values = buildList {
+                add(0.0)
+                entries.forEach { entry ->
+                    add(entry.actual)
+                    entry.target?.let(::add)
+                    entry.ranges.forEach { add(it.low); add(it.high) }
+                }
+            }
+            return NumericDomain.of(values)
+        }
+
+        override fun legendRows(): List<LegendSeries> = emptyList()
+    }
+
+    /**
+     * Events and intervals in lanes.
+     *
+     * The rows sit at integer positions on the **value** axis, exactly as a
+     * heatmap's do — see [io.devkit.chartkit.layer.timeline.IntervalLayer] for
+     * why that beats a fourth coordinate system.
+     */
+    class Interval(
+        override val key: String,
+        val model: TimelineModel,
+        val seriesId: String,
+        val seriesName: String,
+        val labels: IntervalLabels,
+        val showProgress: Boolean,
+        val showDependencies: Boolean,
+        override val axisKind: ChartXAxisKind,
+    ) : ResolvedLayer() {
+        override val isEmpty: Boolean get() = model.isEmpty
+
+        override fun domainExtent(): NumericDomain? {
+            val extent = model.extent() ?: return null
+            return NumericDomain(extent.first.toDouble(), extent.last.toDouble())
+        }
+
+        override fun valueExtent(): NumericDomain =
+            NumericDomain(-0.5, (model.rowCount - 1).coerceAtLeast(0) + 0.5)
+
+        override fun legendRows(): List<LegendSeries> = emptyList()
+    }
+
+    /**
+     * A layer the caller wrote.
+     *
+     * Reports [ChartXAxisKind.Numeric] and contributes no domain of its own, so
+     * it never overrides the axis a data layer asked for: a custom layer beside
+     * a category chart gets the category axis, and one beside a time chart gets
+     * the time axis. Alone, it gets a numeric one.
+     */
+    class Custom(
+        override val key: String,
+        val spec: CustomCartesianLayer,
+    ) : ResolvedLayer() {
+        override val axisKind: ChartXAxisKind get() = ChartXAxisKind.Numeric
+        override val valueAxis: ValueAxisBinding get() = spec.valueAxis
+
+        /** Never empty: a chart whose only layer is custom still has content. */
+        override val isEmpty: Boolean get() = false
+
+        override fun domainExtent(): NumericDomain? = null
+        override fun valueExtent(): NumericDomain? = null
+        override fun categoryLabels(): List<String> = emptyList()
+
+        override fun legendRows(): List<LegendSeries> = spec.legendEntries.map { entry ->
+            LegendSeries(
+                seriesId = entry.id,
+                name = entry.label,
+                paletteIndex = entry.paletteIndex,
+                colorOverride = entry.colorOverride,
+                visible = true,
+            )
+        }
+    }
 }
 
 /** Everything one frame needs, computed once per layout rather than per frame. */
@@ -362,6 +533,22 @@ internal class CartesianGeometry(
     val hitTestable: List<ChartLayerRenderer>,
     val domainAxis: MeasuredAxis?,
     val valueAxis: MeasuredAxis?,
+    /**
+     * The second value axis, when the chart declared one.
+     *
+     * Drawn on the opposite edge from [valueAxis]; layers bound to it are given
+     * [secondaryCoordinates] to draw against.
+     */
+    val secondaryValueAxis: MeasuredAxis? = null,
+    /** The coordinate system for layers bound to the second value axis. */
+    val secondaryCoordinates: CartesianCoordinates? = null,
+    /**
+     * The gutters this chart needs around its plot, before alignment padding.
+     *
+     * Published so a [io.devkit.chartkit.state.ChartPlotAlignment] can take the
+     * maximum across a stack of charts and hand each one back the difference.
+     */
+    val naturalPlotInsets: ChartInsets = ChartInsets.Zero,
     val legendSeries: List<LegendSeries>,
     val summaries: List<ChartLayerSummary>,
     val valueFormatter: ChartValueFormatter,
@@ -468,6 +655,10 @@ internal fun buildCartesianGeometry(
     locale: Locale,
     accessibility: ChartAccessibility,
     annotations: List<ResolvedAnnotation> = emptyList(),
+    secondaryValueAxisConfig: ChartAxis? = null,
+    customLayers: List<CustomCartesianLayer> = emptyList(),
+    xResolver: ChartXResolver = ChartXResolver.Default,
+    alignmentInsets: ChartInsets = ChartInsets.Zero,
 ): CartesianGeometry {
     if (bounds.isEmpty || layers.isEmpty()) return CartesianGeometry.empty()
 
@@ -496,8 +687,11 @@ internal fun buildCartesianGeometry(
         BarStacking.bounds(aligned.map { it.values }, layer.grouping) to aligned
     }
 
-    val valueDataDomain = buildList {
-        layers.forEach { layer ->
+    // Two intervals, not one. A layer bound to the second axis must not widen
+    // the first — that is the whole point of having two — so the extents are
+    // collected per binding rather than merged and split afterwards.
+    fun valueExtentsFor(binding: ValueAxisBinding): List<NumericDomain> = buildList {
+        layers.filter { it.valueAxis == binding }.forEach { layer ->
             when (layer) {
                 is ResolvedLayer.Bars -> barBounds[layer]?.first
                     ?.let { BarStacking.domainOf(it) }
@@ -506,9 +700,19 @@ internal fun buildCartesianGeometry(
                 else -> layer.valueExtent()?.let { add(it) }
             }
         }
+    }
+
+    val secondaryDataDomain = secondaryValueAxisConfig
+        ?.let { valueExtentsFor(ValueAxisBinding.Secondary) }
+        ?.reduceOrNull { a, b -> NumericDomain(minOf(a.min, b.min), maxOf(a.max, b.max)) }
+
+    val valueDataDomain = buildList {
+        addAll(valueExtentsFor(ValueAxisBinding.Primary))
         // An annotation that names a threshold above every observed value is
         // invisible unless the axis is widened to it — and a reader who cannot
-        // see the target cannot see the gap to it.
+        // see the target cannot see the gap to it. Annotations are stated in
+        // the *primary* axis' units, so only that axis is widened; an
+        // annotation against a second axis would have no way to say which.
         annotations.forEach { resolved ->
             if (!resolved.annotation.extendsDomain) return@forEach
             when (val annotation = resolved.annotation) {
@@ -525,12 +729,26 @@ internal fun buildCartesianGeometry(
                     )
                 is io.devkit.chartkit.annotation.ChartAnnotation.EventMarker ->
                     annotation.value?.let { add(NumericDomain(it, it)) }
+                is io.devkit.chartkit.annotation.ChartAnnotation.Callout ->
+                    annotation.value?.let { add(NumericDomain(it, it)) }
+                is io.devkit.chartkit.annotation.ChartAnnotation.LabelBox ->
+                    annotation.value?.let { add(NumericDomain(it, it)) }
+                is io.devkit.chartkit.annotation.ChartAnnotation.Arrow ->
+                    add(
+                        NumericDomain(
+                            minOf(annotation.fromValue, annotation.toValue),
+                            maxOf(annotation.fromValue, annotation.toValue),
+                        ),
+                    )
                 else -> Unit
             }
         }
     }.reduceOrNull { a, b -> NumericDomain(minOf(a.min, b.min), maxOf(a.max, b.max)) }
 
     val valueDomain = valueDomainPolicy.apply(valueDataDomain)
+    val secondaryDomain = secondaryValueAxisConfig?.let { config ->
+        (config.domain ?: valueDomainPolicy).apply(secondaryDataDomain)
+    }
 
     val xDataDomain = if (axisKind == ChartXAxisKind.Category) {
         null
@@ -554,10 +772,23 @@ internal fun buildCartesianGeometry(
 
     // ---- tick values and their labels, before any pixels exist --------------
 
-    val valueTickValues = valueAxisConfig.ticks ?: TickGenerator.ticks(valueDomain, valueAxisConfig.tickCount)
+    // Ticks come from the axis' own scale kind, so a logarithmic axis is
+    // labelled in powers and a linear one in round numbers without the axis
+    // renderer knowing which it is drawing.
+    val valueTransform = valueAxisConfig.scale.transform()
+    val valueTickValues = valueAxisConfig.ticks
+        ?: valueTransform.ticks(valueDomain, valueAxisConfig.tickCount)
     val valueFormatter = valueAxisConfig.valueFormatter
         ?: ChartNumberFormatters.forTicks(valueTickValues, locale)
     val valueLabels = valueTickValues.map(valueFormatter::format)
+
+    val secondaryTransform = secondaryValueAxisConfig?.scale?.transform()
+    val secondaryTickValues = secondaryValueAxisConfig?.let { config ->
+        config.ticks ?: secondaryTransform!!.ticks(secondaryDomain!!, config.tickCount)
+    }.orEmpty()
+    val secondaryFormatter = secondaryValueAxisConfig?.valueFormatter
+        ?: ChartNumberFormatters.forTicks(secondaryTickValues, locale)
+    val secondaryLabels = secondaryTickValues.map(secondaryFormatter::format)
 
     val domainTickValues: List<Double>
     val domainLabels: List<String>
@@ -603,18 +834,38 @@ internal fun buildCartesianGeometry(
         emptyList()
     }
 
+    val measuredSecondaryLabels =
+        if (secondaryValueAxisConfig != null &&
+            secondaryValueAxisConfig.showLabels && secondaryValueAxisConfig.visible
+        ) {
+            secondaryLabels.map { textMeasurer.measure(it, labelStyle) }
+        } else {
+            emptyList()
+        }
+
     val domainPosition = domainAxisConfig.positionOr(
         if (orientation.isVertical) AxisPosition.Bottom else AxisPosition.Start,
     )
     val valuePosition = valueAxisConfig.positionOr(
         if (orientation.isVertical) AxisPosition.Start else AxisPosition.Bottom,
     )
+    // The opposite edge, always. Two value axes on the same side would overlap,
+    // and a caller who put them there would not find out until they ran it.
+    val secondaryPosition = when (valuePosition) {
+        AxisPosition.Start -> AxisPosition.End
+        AxisPosition.End -> AxisPosition.Start
+        AxisPosition.Bottom -> AxisPosition.Top
+        AxisPosition.Top -> AxisPosition.Bottom
+    }
 
     val domainTitle = domainAxisConfig.title
         ?.takeIf { it.isNotBlank() && domainAxisConfig.visible }
         ?.let { textMeasurer.measure(it, titleStyle) }
     val valueTitle = valueAxisConfig.title
         ?.takeIf { it.isNotBlank() && valueAxisConfig.visible }
+        ?.let { textMeasurer.measure(it, titleStyle) }
+    val secondaryTitle = secondaryValueAxisConfig?.title
+        ?.takeIf { it.isNotBlank() && secondaryValueAxisConfig.visible }
         ?.let { textMeasurer.measure(it, titleStyle) }
 
     val tickLength = with(density) { dimensions.tickLength.toPx() }
@@ -641,7 +892,7 @@ internal fun buildCartesianGeometry(
         extentAcross(domainPosition, measuredDomainLabels)
     }
 
-    val axisMetrics = listOf(
+    val axisMetrics = listOfNotNull(
         AxisMetrics(
             position = domainPosition,
             visible = domainAxisConfig.visible,
@@ -658,6 +909,16 @@ internal fun buildCartesianGeometry(
             labelPadding = if (valueAxisConfig.showLabels) labelPadding else 0f,
             titleExtent = valueTitle?.let { it.size.height + labelPadding }?.toFloat() ?: 0f,
         ),
+        secondaryValueAxisConfig?.let { config ->
+            AxisMetrics(
+                position = secondaryPosition,
+                visible = config.visible,
+                labelExtent = extentAcross(secondaryPosition, measuredSecondaryLabels),
+                tickLength = if (config.showTicks) tickLength else 0f,
+                labelPadding = if (config.showLabels) labelPadding else 0f,
+                titleExtent = secondaryTitle?.let { it.size.height + labelPadding }?.toFloat() ?: 0f,
+            )
+        },
     )
 
     val contentPadding = with(density) { dimensions.contentPadding.toPx() }
@@ -669,17 +930,29 @@ internal fun buildCartesianGeometry(
 
     val layout = computeChartLayout(
         bounds = bounds,
+        // Alignment padding is added to the content padding rather than to the
+        // axis gutters, so it widens the space outside the plot without
+        // changing where the axis thinks its labels go.
         contentPadding = ChartInsets(
             left = contentPadding,
             top = contentPadding,
             right = contentPadding,
             bottom = contentPadding,
-        ),
+        ) + alignmentInsets,
         axes = axisMetrics,
         labelOverhang = overhang,
     )
     val plot = layout.plotArea
     if (plot.isEmpty) return CartesianGeometry.empty()
+
+    // The gutters this chart needs on its own, before any alignment padding —
+    // which is what a group of stacked charts takes the maximum of.
+    val naturalInsets = ChartInsets(
+        left = plot.left - bounds.left - alignmentInsets.left,
+        top = plot.top - bounds.top - alignmentInsets.top,
+        right = bounds.right - plot.right - alignmentInsets.right,
+        bottom = bounds.bottom - plot.bottom - alignmentInsets.bottom,
+    )
 
     // ---- scales, now that the plot area is known ----------------------------
 
@@ -687,9 +960,17 @@ internal fun buildCartesianGeometry(
     // on a vertical chart. Building the scale inverted is the only place that
     // fact is encoded — nothing downstream flips a sign.
     val valueScale = if (orientation.isVertical) {
-        LinearScale(valueDomain, plot.bottom, plot.top)
+        LinearScale(valueDomain, plot.bottom, plot.top, transform = valueTransform)
     } else {
-        LinearScale(valueDomain, plot.left, plot.right)
+        LinearScale(valueDomain, plot.left, plot.right, transform = valueTransform)
+    }
+
+    val secondaryScale = if (secondaryDomain == null || secondaryTransform == null) {
+        null
+    } else if (orientation.isVertical) {
+        LinearScale(secondaryDomain, plot.bottom, plot.top, transform = secondaryTransform)
+    } else {
+        LinearScale(secondaryDomain, plot.left, plot.right, transform = secondaryTransform)
     }
 
     val domainStart = if (orientation.isVertical) plot.left else plot.top
@@ -716,10 +997,30 @@ internal fun buildCartesianGeometry(
                 ),
             )
         }
+        // A log domain axis is meaningful — a scatter of latency against load,
+        // say — and costs nothing extra: the transform reshapes the same linear
+        // mapping. A time axis stays linear, because a logarithmic date has no
+        // reading.
+        ChartXAxisKind.Numeric -> DomainAxis.Continuous(
+            LinearScale(
+                domain = xDomain,
+                rangeStart = domainStart,
+                rangeEnd = domainEnd,
+                transform = domainAxisConfig.scale.transform(),
+            ),
+        )
         else -> DomainAxis.Continuous(LinearScale(xDomain, domainStart, domainEnd))
     }
 
     val coordinates = CartesianCoordinates(plot, domainAxisModel, valueScale, orientation)
+
+    // A parallel coordinate system differing only in its value scale. Layers
+    // bound to the second axis are built and drawn against it and need to know
+    // nothing about the arrangement — which is what keeps "two axes" out of
+    // every layer's implementation.
+    val secondaryCoordinates = secondaryScale?.let {
+        CartesianCoordinates(plot, domainAxisModel, it, orientation)
+    }
 
     // ---- tick positions and label thinning ----------------------------------
 
@@ -787,6 +1088,22 @@ internal fun buildCartesianGeometry(
         title = domainTitle,
         rotated = rotateDomain,
     )
+    val secondaryTickPositions = secondaryScale?.let { scale ->
+        secondaryTickValues.map(scale::scale)
+    }.orEmpty()
+    val keptSecondaryIndices = selectLabelIndices(
+        count = measuredSecondaryLabels.size,
+        available = if (orientation.isVertical) plot.height else plot.width,
+        labelExtent = if (measuredSecondaryLabels.isEmpty()) {
+            0f
+        } else if (orientation.isVertical) {
+            measuredSecondaryLabels.maxOf { it.size.height }.toFloat() + labelPadding
+        } else {
+            measuredSecondaryLabels.maxOf { it.size.width }.toFloat() + labelPadding * 2f
+        },
+        maxLabels = secondaryValueAxisConfig?.maxLabels,
+    )
+
     val measuredValueAxis = MeasuredAxis(
         position = valuePosition,
         config = valueAxisConfig,
@@ -799,6 +1116,20 @@ internal fun buildCartesianGeometry(
         title = valueTitle,
         rotated = false,
     )
+    val measuredSecondaryAxis = secondaryValueAxisConfig?.let { config ->
+        MeasuredAxis(
+            position = secondaryPosition,
+            config = config,
+            ticks = secondaryTickPositions,
+            labels = keptSecondaryIndices.mapNotNull { index ->
+                val layout = measuredSecondaryLabels.getOrNull(index) ?: return@mapNotNull null
+                val at = secondaryTickPositions.getOrNull(index) ?: return@mapNotNull null
+                MeasuredAxisLabel(layout, at)
+            },
+            title = secondaryTitle,
+            rotated = false,
+        )
+    }
 
     // One formatter for the domain, shared by the crosshair chip, the range
     // readout and the accessibility announcements. A chip that wrote a date
@@ -849,6 +1180,18 @@ internal fun buildCartesianGeometry(
         }
     }
 
+    /**
+     * The pixel position of a domain value stated the way the caller's data
+     * states it.
+     *
+     * What a custom layer is handed: it passes `"Mar"` or `releaseMillis` and
+     * gets a position, resolved through the chart's own resolver so the same
+     * lambda works on a category, numeric or time axis.
+     */
+    val positionOfDomainValue: (Any?) -> Float? = { value ->
+        positionOfDomain(xResolver.resolveOrDefault(value))
+    }
+
     // ---- layers -------------------------------------------------------------
 
     val renderers = ArrayList<ChartLayerRenderer>()
@@ -876,10 +1219,18 @@ internal fun buildCartesianGeometry(
 
     layers.forEachIndexed { layerIndex, layer ->
         val layerId = "${layer.key}-$layerIndex"
+        // The coordinate system this layer is measured in. Identical to the
+        // chart's unless the layer asked for the second value axis, in which
+        // case it differs in exactly one thing — the value scale.
+        val coords = if (layer.valueAxis == ValueAxisBinding.Secondary && secondaryCoordinates != null) {
+            secondaryCoordinates
+        } else {
+            coordinates
+        }
         when (layer) {
             is ResolvedLayer.Bars -> {
                 val (bounds1, aligned) = barBounds[layer] ?: return@forEachIndexed
-                val categoryScale = coordinates.categories ?: return@forEachIndexed
+                val categoryScale = coords.categories ?: return@forEachIndexed
                 val slices = computeBarSlices(
                     values = aligned.map { it.values },
                     pointIndices = aligned.map { it.sourceIndices },
@@ -910,7 +1261,7 @@ internal fun buildCartesianGeometry(
                     series = seriesGeometry,
                     slices = slices,
                     cornerRadiusOverride = layer.cornerRadius,
-                    baseline = coordinates.baseline,
+                    baseline = coords.baseline,
                 )
                 renderers += barLayer
                 hitTestable += barLayer
@@ -933,7 +1284,7 @@ internal fun buildCartesianGeometry(
                     lineGeometry(
                         series = series,
                         seriesIndex = index,
-                        coordinates = coordinates,
+                        coordinates = coords,
                         data = layer.data,
                         categories = categories,
                         missingValuePolicy = layer.missingValuePolicy,
@@ -981,7 +1332,7 @@ internal fun buildCartesianGeometry(
                     scatterGeometry(
                         series = series,
                         seriesIndex = index,
-                        coordinates = coordinates,
+                        coordinates = coords,
                         data = layer.data,
                         categories = categories,
                         sizes = layer.sizes?.getOrNull(index),
@@ -1069,7 +1420,7 @@ internal fun buildCartesianGeometry(
 
             is ResolvedLayer.Candles -> {
                 val positions = layer.points.map { point ->
-                    coordinates.positionOfDomain(point.domainValue) ?: Float.NaN
+                    coords.positionOfDomain(point.domainValue) ?: Float.NaN
                 }
                 val width = periodWidth(
                     positions = positions.toFloatArray(),
@@ -1098,9 +1449,78 @@ internal fun buildCartesianGeometry(
                 summaries += candleLayer.describe()
             }
 
+            is ResolvedLayer.Waterfall -> {
+                val waterfallLayer = WaterfallLayer(
+                    id = layerId,
+                    steps = layer.steps,
+                    seriesId = layer.seriesId,
+                    seriesName = layer.seriesName,
+                    showConnectors = layer.showConnectors,
+                    cornerRadius = layer.cornerRadius,
+                    valueFormatter = valueFormatter,
+                )
+                renderers += waterfallLayer
+                hitTestable += waterfallLayer
+                summaries += waterfallLayer.describe()
+            }
+
+            is ResolvedLayer.ConnectorMarks -> {
+                val markLayer = ConnectorMarkLayer(
+                    id = layerId,
+                    entries = layer.entries,
+                    kind = layer.kind,
+                    seriesId = layer.seriesId,
+                    seriesName = layer.seriesName,
+                    startLabel = layer.startLabel,
+                    endLabel = layer.endLabel,
+                    baseline = lollipopBaseline(coords),
+                    valueFormatter = valueFormatter,
+                )
+                renderers += markLayer
+                hitTestable += markLayer
+                summaries += markLayer.describe()
+            }
+
+            is ResolvedLayer.Bullet -> {
+                val bulletLayer = BulletLayer(
+                    id = layerId,
+                    entries = layer.entries,
+                    seriesId = layer.seriesId,
+                    seriesName = layer.seriesName,
+                    targetLabel = layer.targetLabel,
+                    valueFormatter = valueFormatter,
+                )
+                renderers += bulletLayer
+                hitTestable += bulletLayer
+                summaries += bulletLayer.describe()
+            }
+
+            is ResolvedLayer.Interval -> {
+                val intervalLayer = IntervalLayer(
+                    id = layerId,
+                    model = layer.model,
+                    seriesId = layer.seriesId,
+                    seriesName = layer.seriesName,
+                    labels = layer.labels,
+                    showProgress = layer.showProgress,
+                    showDependencies = layer.showDependencies,
+                    timeFormatter = domainAxisConfig.timeFormatter
+                        ?: ChartDateFormatters.pattern(patternForSpan(fullXDomain.span), locale),
+                )
+                renderers += intervalLayer
+                hitTestable += intervalLayer
+                summaries += intervalLayer.describe()
+            }
+
+            is ResolvedLayer.Custom -> {
+                val customLayer = CustomLayerRenderer(layer.spec, positionOfDomainValue)
+                renderers += customLayer
+                hitTestable += customLayer
+            }
+
             is ResolvedLayer.Volume -> {
                 val positions = layer.points.map { point ->
-                    coordinates.positionOfDomain(point.domainValue) ?: Float.NaN
+                    coords.positionOfDomain(point.domainValue) ?: Float.NaN
                 }
                 val width = periodWidth(
                     positions = positions.toFloatArray(),
@@ -1133,6 +1553,15 @@ internal fun buildCartesianGeometry(
                 summaries += volumeLayer.describe()
             }
         }
+    }
+
+    // Custom layers supplied as a chart parameter rather than through the DSL
+    // draw last, over the data. A caller who wants one underneath declares it
+    // in the layer list, where the order is theirs.
+    customLayers.forEach { spec ->
+        val customLayer = CustomLayerRenderer(spec, positionOfDomainValue)
+        renderers += customLayer
+        hitTestable += customLayer
     }
 
     val aboveAnnotations = annotations.filter { it.annotation.order == AnnotationOrder.Above }
@@ -1268,6 +1697,9 @@ internal fun buildCartesianGeometry(
         hitTestable = hitTestable,
         domainAxis = measuredDomainAxis.takeIf { domainAxisConfig.visible },
         valueAxis = measuredValueAxis.takeIf { valueAxisConfig.visible },
+        secondaryValueAxis = measuredSecondaryAxis?.takeIf { secondaryValueAxisConfig.visible },
+        secondaryCoordinates = secondaryCoordinates,
+        naturalPlotInsets = naturalInsets,
         legendSeries = legendSeries.distinctBy { it.seriesId },
         summaries = effectiveSummaries,
         valueFormatter = valueFormatter,

@@ -1,6 +1,14 @@
 package io.devkit.chartkit.charts
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.customActions
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.offset
@@ -12,6 +20,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -56,6 +65,7 @@ import io.devkit.chartkit.interaction.chartGestures
 import io.devkit.chartkit.layer.ChartRenderContext
 import io.devkit.chartkit.layer.annotation.ResolvedAnnotation
 import io.devkit.chartkit.model.ChartX
+import io.devkit.chartkit.model.resolveOrDefault
 import io.devkit.chartkit.model.AnyChartRangeSelection
 import io.devkit.chartkit.model.AnyChartSelection
 import io.devkit.chartkit.model.AnyChartTooltipData
@@ -103,6 +113,19 @@ internal fun CartesianChartCore(
     viewportState: ChartViewportState,
     sharedCrosshair: ChartSharedCrosshairState?,
     annotations: List<ResolvedAnnotation>,
+    secondaryValueAxis: ChartAxis? = null,
+    customLayers: List<io.devkit.chartkit.layer.custom.CustomCartesianLayer> = emptyList(),
+    xResolver: io.devkit.chartkit.model.ChartXResolver =
+        io.devkit.chartkit.model.ChartXResolver.Default,
+    renderMode: io.devkit.chartkit.render.ChartRenderMode =
+        io.devkit.chartkit.render.ChartRenderMode.Interactive,
+    staticOptions: io.devkit.chartkit.render.ChartStaticOptions =
+        io.devkit.chartkit.render.ChartStaticOptions.Default,
+    plotAlignment: io.devkit.chartkit.state.ChartPlotAlignment? = null,
+    @Suppress("ComposableLambdaParameterNaming")
+    overlay: (@Composable ChartOverlayScope.() -> Unit)? = null,
+    sceneState: io.devkit.chartkit.scene.ChartSceneState? = null,
+    keyboardNavigation: Boolean = true,
     onSelectionChanged: ((AnyChartSelection?) -> Unit)?,
     onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)?,
     tooltip: (@Composable (AnyChartTooltipData) -> Unit)?,
@@ -161,6 +184,15 @@ internal fun CartesianChartCore(
                         viewportState = viewportState,
                         sharedCrosshair = sharedCrosshair,
                         annotations = annotations,
+                        secondaryValueAxisConfig = secondaryValueAxis,
+                        customLayers = customLayers,
+                        xResolver = xResolver,
+                        renderMode = renderMode,
+                        staticOptions = staticOptions,
+                        plotAlignment = plotAlignment,
+                        overlay = overlay,
+                        sceneState = sceneState,
+                        keyboardNavigation = keyboardNavigation,
                         onSelectionChanged = onSelectionChanged,
                         onRangeSelectionChanged = onRangeSelectionChanged,
                         tooltip = tooltip,
@@ -235,6 +267,15 @@ private fun ChartPlot(
     viewportState: ChartViewportState,
     sharedCrosshair: ChartSharedCrosshairState?,
     annotations: List<ResolvedAnnotation>,
+    secondaryValueAxisConfig: ChartAxis?,
+    customLayers: List<io.devkit.chartkit.layer.custom.CustomCartesianLayer>,
+    xResolver: io.devkit.chartkit.model.ChartXResolver,
+    renderMode: io.devkit.chartkit.render.ChartRenderMode,
+    staticOptions: io.devkit.chartkit.render.ChartStaticOptions,
+    plotAlignment: io.devkit.chartkit.state.ChartPlotAlignment?,
+    overlay: (@Composable ChartOverlayScope.() -> Unit)?,
+    sceneState: io.devkit.chartkit.scene.ChartSceneState?,
+    keyboardNavigation: Boolean,
     onSelectionChanged: ((AnyChartSelection?) -> Unit)?,
     onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)?,
     tooltip: (@Composable (AnyChartTooltipData) -> Unit)?,
@@ -247,7 +288,20 @@ private fun ChartPlot(
 ) {
     val theme = ChartKitTheme.current
     var size by remember { mutableStateOf(IntSize.Zero) }
-    val reveal = rememberChartReveal(animation)
+    // A static render is drawn settled. Nothing about an exported picture may
+    // depend on a clock that is still running, or two captures of the same
+    // chart at the same size would differ.
+    val reveal = if (renderMode.isStatic) 1f else rememberChartReveal(animation)
+
+    // A crosshair follows a pointer, and a static render has none. Suppressed
+    // by handing the geometry a disabled config rather than by skipping the
+    // layer at draw time, so the layout does not reserve room for axis chips
+    // that will never be drawn.
+    val effectiveCrosshair = if (renderMode.isStatic && !staticOptions.showCrosshair) {
+        CrosshairConfig(enabled = false)
+    } else {
+        crosshair
+    }
 
     // Keyed on everything the geometry actually depends on. Scales, ticks,
     // interpolated paths and bar rectangles are therefore computed on a data,
@@ -255,10 +309,24 @@ private fun ChartPlot(
     // or an animation frame ticks.
     val viewport = viewportState.viewport
     val rangeSelectable = interaction.dragMode == ChartDragMode.Range
+
+    // The padding this chart adds to reach the gutters its group agreed on.
+    //
+    // Derived from the chart's *own* last-measured natural gutters rather than
+    // from the current geometry, which would be circular — the geometry is what
+    // the padding is an input to. Zero on the first frame; measured on the
+    // second; stable from then on, because a natural gutter does not depend on
+    // the padding added outside it.
+    var naturalInsets by remember {
+        mutableStateOf(io.devkit.chartkit.geometry.ChartInsets.Zero)
+    }
+    val alignmentPadding = plotAlignment?.extraFor(naturalInsets)
+        ?: io.devkit.chartkit.geometry.ChartInsets.Zero
     val geometry = remember(
         layers, size, orientation, domainAxisConfig, valueAxisConfig, grid,
-        valueDomainPolicy, crosshair, viewport, rangeSelectable, theme, density,
-        locale, accessibility, annotations,
+        valueDomainPolicy, effectiveCrosshair, viewport, rangeSelectable, theme, density,
+        locale, accessibility, annotations, secondaryValueAxisConfig, customLayers,
+        xResolver, alignmentPadding,
     ) {
         buildCartesianGeometry(
             bounds = ChartRect.fromSize(size.width.toFloat(), size.height.toFloat()),
@@ -268,7 +336,7 @@ private fun ChartPlot(
             valueAxisConfig = valueAxisConfig,
             grid = grid,
             valueDomainPolicy = valueDomainPolicy,
-            crosshair = crosshair,
+            crosshair = effectiveCrosshair,
             viewport = viewport,
             rangeSelectable = rangeSelectable,
             density = density,
@@ -278,8 +346,14 @@ private fun ChartPlot(
             locale = locale,
             accessibility = accessibility,
             annotations = annotations,
+            secondaryValueAxisConfig = secondaryValueAxisConfig,
+            customLayers = customLayers,
+            xResolver = xResolver,
+            alignmentInsets = alignmentPadding,
         )
     }
+
+
 
     // The viewport state is the caller's window onto the data, so it needs to
     // know what the data's full extent is. Published on every layout rather
@@ -290,12 +364,30 @@ private fun ChartPlot(
         viewportState.categoryCount = geometry.categoryCount
     }
 
-    val selection = state.selection
-    val range = state.rangeSelection
+    // A gesture cannot have produced a selection in a static render, so the only
+    // one that can exist is the caller's own — and whether it is drawn is their
+    // decision, not the engine's.
+    val selection = state.selection?.takeIf { !renderMode.isStatic || staticOptions.showSelection }
+    val range = state.rangeSelection?.takeIf { !renderMode.isStatic }
 
     // An opaque identity for this chart within a linked group, so it can tell
-    // its own published position from another chart's.
+    // its own published position from another chart's, and so a plot-alignment
+    // group can keep one entry per chart.
     val chartId = remember { Any() }
+
+    // Published so charts stacked above one another can share a plot left and
+    // right edge even when their value labels differ in width. See
+    // [ChartPlotAlignment] for why this is a measurement exchange rather than a
+    // layout engine.
+    if (plotAlignment != null) {
+        LaunchedEffect(geometry, plotAlignment, chartId) {
+            naturalInsets = geometry.naturalPlotInsets
+            plotAlignment.report(chartId, geometry.naturalPlotInsets)
+        }
+        DisposableEffect(plotAlignment, chartId) {
+            onDispose { plotAlignment.forget(chartId) }
+        }
+    }
     val externalDomain: ChartX? = sharedCrosshair
         ?.takeIf { it.source !== chartId }
         ?.domain
@@ -348,14 +440,27 @@ private fun ChartPlot(
         range = range,
         viewport = viewport,
         externalDomain = externalDomain,
+        renderMode = renderMode,
     )
+
+    // The same context over the second value scale, for layers bound to it. A
+    // derived copy rather than a flag inside the context, so a layer never has
+    // to ask which axis it is on: it draws against the coordinates it is given.
+    val secondaryContext = geometry.secondaryCoordinates?.let(renderContext::withCoordinates)
+
+    fun contextFor(renderer: io.devkit.chartkit.layer.ChartLayerRenderer): ChartRenderContext =
+        if (renderer.valueAxis == io.devkit.chartkit.axis.ValueAxisBinding.Secondary) {
+            secondaryContext ?: renderContext
+        } else {
+            renderContext
+        }
 
     // One tooltip payload, built the same way whatever produced the selection.
     // Chart-specific code supplies the data; the overlay does the layout.
     val tooltipData: AnyChartTooltipData? = remember(selection, geometry, sharedTooltip) {
         selection?.let { selected ->
             val entries = if (sharedTooltip) {
-                geometry.hitTestable.flatMap { it.tooltipEntriesAt(selected, renderContext) }
+                geometry.hitTestable.flatMap { it.tooltipEntriesAt(selected, contextFor(it)) }
             } else {
                 emptyList()
             }
@@ -406,9 +511,29 @@ private fun ChartPlot(
         ?.takeIf { it.phase == ChartRangeSelectionPhase.Completed && !it.isEmpty }
         ?.let { "Selected ${geometry.formatDomainValue(it.start)} to ${geometry.formatDomainValue(it.end)}." }
 
+    // Rebuilt when the geometry changes, and never during a draw pass. A scene
+    // is a description of the finished picture; deriving it while drawing would
+    // both cost a frame and capture whatever the animation happened to be doing.
+    if (sceneState != null) {
+        LaunchedEffect(geometry, theme, size) {
+            if (geometry.isEmpty || size == IntSize.Zero) return@LaunchedEffect
+            sceneState.scene = buildCartesianScene(
+                geometry = geometry,
+                // Settled and unselected: an exported picture should not
+                // depend on a running clock or on what happened to be under
+                // the pointer when the button was pressed.
+                context = renderContext.settledForExport(),
+                size = ChartRect.fromSize(size.width.toFloat(), size.height.toFloat()),
+                background = null,
+                density = density,
+            )
+        }
+    }
+
     val gestures = rememberChartGestureCallbacks(
         geometry = geometry,
         renderContext = renderContext,
+        secondaryContext = secondaryContext,
         hitTestMode = hitTestMode,
         interaction = interaction,
         state = state,
@@ -419,6 +544,45 @@ private fun ChartPlot(
         onRangeSelectionChanged = onRangeSelectionChanged,
     )
 
+    // Stepping the selection without a pointer: arrow keys and a D-pad through
+    // `onKeyEvent`, and TalkBack's own gesture through the custom actions
+    // installed in the semantics below. Both resolve through the same hit test
+    // a scrub uses, so there is one notion of what is selected.
+    fun step(delta: Int, series: Int) {
+        if (geometry.isEmpty) return
+        val ids = geometry.navigableSeriesIds()
+        val currentSeries = state.selection?.seriesId
+        val seriesIndex = ids.indexOf(currentSeries).takeIf { it >= 0 } ?: 0
+        val targetSeries = when {
+            series == 0 || ids.isEmpty() -> currentSeries
+            else -> ids[((seriesIndex + series) % ids.size + ids.size) % ids.size]
+        }
+        val nextStep = (geometry.stepOf(state.selection) + delta)
+            .coerceIn(0, (geometry.stepCount() - 1).coerceAtLeast(0))
+        val next = geometry.selectionAtStep(nextStep, targetSeries, theme, density, textMeasurer)
+            ?: return
+        if (next != state.selection) {
+            state.selection = next
+            onSelectionChanged?.invoke(next)
+            sharedCrosshair?.publish(next.x, chartId)
+        }
+    }
+
+    val stepActions = remember(geometry, keyboardNavigation) {
+        if (!keyboardNavigation || geometry.isEmpty) {
+            emptyList()
+        } else {
+            buildList {
+                add(CustomAccessibilityAction("Next data point") { step(1, 0); true })
+                add(CustomAccessibilityAction("Previous data point") { step(-1, 0); true })
+                if (geometry.navigableSeriesIds().size > 1) {
+                    add(CustomAccessibilityAction("Next series") { step(0, 1); true })
+                    add(CustomAccessibilityAction("Previous series") { step(0, -1); true })
+                }
+            }
+        }
+    }
+
     Box(
         Modifier
             .fillMaxSize()
@@ -427,18 +591,67 @@ private fun ChartPlot(
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
-                .chartGestures(
-                    key = geometry,
-                    interaction = interaction,
-                    orientation = orientation,
-                    plotArea = geometry.coordinates.plotArea,
-                    isZoomedIn = { !viewportState.isFullyZoomedOut },
-                    callbacks = gestures,
+                // No pointer input at all in a static render. Not "gestures
+                // that do nothing": a modifier that consumed events would still
+                // stop a parent from scrolling.
+                .then(
+                    if (renderMode.isStatic) {
+                        Modifier
+                    } else {
+                        Modifier.chartGestures(
+                            key = geometry,
+                            interaction = interaction,
+                            orientation = orientation,
+                            plotArea = geometry.coordinates.plotArea,
+                            isZoomedIn = { !viewportState.isFullyZoomedOut },
+                            callbacks = gestures,
+                        )
+                    },
                 )
                 // One description for the whole chart, replacing the child
                 // semantics rather than adding to them: a Canvas has none worth
                 // merging, and a screen reader given both a summary and a stray
                 // node reads the chart twice.
+                // Focusable and key-driven, so the chart can be read on a
+                // desktop, a TV or a device with a physical keyboard — none of
+                // which have a finger to scrub with.
+                .then(
+                    if (!keyboardNavigation || renderMode.isStatic) {
+                        Modifier
+                    } else {
+                        Modifier
+                            .focusable()
+                            .onKeyEvent { event ->
+                                if (event.type != KeyEventType.KeyDown) {
+                                    false
+                                } else {
+                                    // Along the domain moves between points and
+                                    // across it moves between series, whichever
+                                    // way round the chart is drawn — so the keys
+                                    // mean the same thing on a horizontal bar
+                                    // chart as on a vertical line chart.
+                                    val along = orientation.isVertical
+                                    when (event.key) {
+                                        Key.DirectionRight ->
+                                            if (along) step(1, 0) else step(0, 1)
+                                        Key.DirectionLeft ->
+                                            if (along) step(-1, 0) else step(0, -1)
+                                        Key.DirectionDown ->
+                                            if (along) step(0, 1) else step(1, 0)
+                                        Key.DirectionUp ->
+                                            if (along) step(0, -1) else step(-1, 0)
+                                        Key.Escape -> {
+                                            state.clearSelection()
+                                            sharedCrosshair?.clear()
+                                            onSelectionChanged?.invoke(null)
+                                        }
+                                        else -> return@onKeyEvent false
+                                    }
+                                    true
+                                }
+                            }
+                    },
+                )
                 .clearAndSetSemantics {
                     // Selection, viewport and range all land in the one
                     // description. A screen reader reading the chart hears what
@@ -453,6 +666,10 @@ private fun ChartPlot(
                     if (selectionText != null || rangeText != null) {
                         liveRegion = LiveRegionMode.Polite
                     }
+                    // TalkBack's actions menu, so a screen-reader user can step
+                    // through the values without a keyboard and without having
+                    // to place a finger accurately on a 3-pixel line.
+                    if (stepActions.isNotEmpty()) customActions = stepActions
                 },
         ) {
             val plot = geometry.coordinates.plotArea
@@ -464,20 +681,35 @@ private fun ChartPlot(
             // geometry would otherwise be drawn across the axes.
             clipRect(plot.left, plot.top, plot.right, plot.bottom) {
                 geometry.renderers.filter { it.clipToPlot }
-                    .forEach { it.draw(this, renderContext) }
+                    .forEach { it.draw(this, contextFor(it)) }
             }
             geometry.renderers.filterNot { it.clipToPlot }
-                .forEach { it.draw(this, renderContext) }
+                .forEach { it.draw(this, contextFor(it)) }
 
             geometry.domainAxis?.let { drawAxis(it, plot, renderContext) }
             geometry.valueAxis?.let { drawAxis(it, plot, renderContext) }
+            geometry.secondaryValueAxis?.let { drawAxis(it, plot, renderContext) }
         }
 
         if (geometry.isEmpty) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) { emptyContent() }
         }
 
-        if (tooltipData != null && tooltip != null && !geometry.isEmpty) {
+        // Above the canvas and below the tooltip: overlay content is part of the
+        // chart's picture, and a tooltip is a transient thing that goes over
+        // all of it.
+        if (overlay != null && !geometry.isEmpty) {
+            val scope = remember(geometry) {
+                ChartOverlayScopeImpl(geometry) { value ->
+                    geometry.domainPositionOf(xResolver.resolveOrDefault(value))
+                }
+            }
+            Box(Modifier.fillMaxSize()) { scope.overlay() }
+        }
+
+        if (tooltipData != null && tooltip != null && !geometry.isEmpty &&
+            (!renderMode.isStatic || staticOptions.showTooltip)
+        ) {
             ChartOverlay(
                 anchor = tooltipData.anchor,
                 bounds = geometry.coordinates.plotArea,
@@ -503,6 +735,7 @@ private fun ChartPlot(
 private fun rememberChartGestureCallbacks(
     geometry: CartesianGeometry,
     renderContext: ChartRenderContext,
+    secondaryContext: ChartRenderContext?,
     hitTestMode: HitTestMode,
     interaction: ChartInteraction,
     state: ChartState<Any?>,
@@ -515,9 +748,19 @@ private fun rememberChartGestureCallbacks(
     val rangeAnchor = remember(geometry) { mutableStateOf<Double?>(null) }
 
     return remember(geometry, interaction, hitTestMode, state, viewportState, sharedCrosshair) {
+        // A layer bound to the second value axis is hit-tested against that
+        // axis' coordinates, so a tap on a conversion-rate line resolves against
+        // percentages rather than against pounds.
+        fun contextOf(renderer: io.devkit.chartkit.layer.ChartLayerRenderer): ChartRenderContext =
+            if (renderer.valueAxis == io.devkit.chartkit.axis.ValueAxisBinding.Secondary) {
+                secondaryContext ?: renderContext
+            } else {
+                renderContext
+            }
+
         fun select(point: ChartOffset, mode: HitTestMode) {
             val best = geometry.hitTestable
-                .mapNotNull { it.hitTest(point, renderContext, mode) }
+                .mapNotNull { it.hitTest(point, contextOf(it), mode) }
                 .minByOrNull { candidate ->
                     val dx = candidate.position.x - point.x
                     val dy = candidate.position.y - point.y
