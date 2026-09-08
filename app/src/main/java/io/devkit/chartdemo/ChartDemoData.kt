@@ -533,6 +533,109 @@ object ChartDemoData {
         Revenue("Jun", 4.8),
     )
 
+    data class Territory(val code: String, val name: String, val orders: Double?)
+
+    /**
+     * Nine sales territories, laid out as a 3×3 grid of invented polygons.
+     *
+     * Invented on purpose. ChartKit ships no world geography — a real boundary
+     * file is megabytes, and putting one in the sample would put it in this
+     * APK — so the demo uses a grid whose shapes are obviously synthetic and
+     * whose behaviour is identical to a real file's: a feature per region, a
+     * join key in `properties`, one multi-polygon with an island, and one
+     * region with a hole in it.
+     *
+     * ```text
+     * ┌─────┬─────┬─────┐
+     * │ NW  │ NC  │ NE  │   NC has a hole; NE is two islands
+     * ├─────┼─────┼─────┤
+     * │ CW  │ CC  │ CE  │
+     * ├─────┼─────┼─────┤
+     * │ SW  │ SC  │ SE  │
+     * └─────┴─────┴─────┘
+     * ```
+     */
+    val territoriesGeoJson: String = buildString {
+        fun square(x: Int, y: Int): String =
+            "[[$x,$y],[${x + 1},$y],[${x + 1},${y + 1}],[$x,${y + 1}],[$x,$y]]"
+
+        val rows = listOf("S" to 0, "C" to 1, "N" to 2)
+        val columns = listOf("W" to 0, "C" to 1, "E" to 2)
+        val features = buildList {
+            rows.forEach { (rowName, y) ->
+                columns.forEach { (columnName, x) ->
+                    val code = "$rowName$columnName"
+                    val geometry = when (code) {
+                        // A doughnut: an enclave that must stay unfilled, not
+                        // painted in the background colour.
+                        "NC" -> """{ "type": "Polygon", "coordinates": [
+                            ${square(x, y)},
+                            [[${x + 0.3},${y + 0.3}],[${x + 0.7},${y + 0.3}],
+                             [${x + 0.7},${y + 0.7}],[${x + 0.3},${y + 0.7}],
+                             [${x + 0.3},${y + 0.3}]]
+                        ] }"""
+
+                        // Two disconnected components belonging to one region:
+                        // tapping either selects the whole territory.
+                        "NE" -> """{ "type": "MultiPolygon", "coordinates": [
+                            [[[$x,$y],[${x + 0.45},$y],[${x + 0.45},${y + 1}],[$x,${y + 1}],[$x,$y]]],
+                            [[[${x + 0.55},$y],[${x + 1},$y],[${x + 1},${y + 1}],
+                              [${x + 0.55},${y + 1}],[${x + 0.55},$y]]]
+                        ] }"""
+
+                        else -> """{ "type": "Polygon", "coordinates": [${square(x, y)}] }"""
+                    }
+                    add(
+                        """{ "type": "Feature", "id": "$code",
+                             "properties": { "code": "$code", "name": "${territoryName(code)}" },
+                             "geometry": $geometry }""",
+                    )
+                }
+            }
+        }
+        append("""{ "type": "FeatureCollection", "features": [""")
+        append(features.joinToString(","))
+        append("] }")
+    }
+
+    /**
+     * Orders per territory, with one region deliberately unmeasured.
+     *
+     * `CE` has no record at all — not a zero. It is what the demo's "no data"
+     * colour and the legend's extra swatch are there to show, and the
+     * difference between the two is the point of the screen.
+     *
+     * `CS` is the other half of the same lesson: a record whose key matches no
+     * region, because someone wrote the code the wrong way round. The join
+     * report names it, which is the only way a caller ever finds that out.
+     */
+    val territoryOrders: List<Territory> = listOf(
+        Territory("NW", territoryName("NW"), 1_240.0),
+        Territory("NC", territoryName("NC"), 3_980.0),
+        Territory("NE", territoryName("NE"), 620.0),
+        Territory("CW", territoryName("CW"), 2_450.0),
+        Territory("CC", territoryName("CC"), 8_700.0),
+        Territory("CS", territoryName("CS"), 90.0),
+        Territory("SW", territoryName("SW"), 410.0),
+        Territory("SC", territoryName("SC"), 1_900.0),
+        Territory("SE", territoryName("SE"), 5_150.0),
+    )
+
+    /** A readable name per territory code. */
+    private fun territoryName(code: String): String {
+        val vertical = when (code.first()) {
+            'N' -> "North"
+            'C' -> "Central"
+            else -> "South"
+        }
+        val horizontal = when (code.last()) {
+            'W' -> "West"
+            'C' -> ""
+            else -> "East"
+        }
+        return listOf(vertical, horizontal).filter { it.isNotBlank() }.joinToString(" ")
+    }
+
     /**
      * Deterministic pseudo-samples with a controlled centre, spread and tail.
      *

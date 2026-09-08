@@ -14,6 +14,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import io.devkit.chartkit.flow.SankeyGraph
 import io.devkit.chartkit.formatter.ChartValueFormatter
+import io.devkit.chartkit.geo.GeoFeature
+import io.devkit.chartkit.geo.GeoFeatureCollection
 import io.devkit.chartkit.graph.ChartGraph
 import io.devkit.chartkit.hierarchy.ChartHierarchy
 import io.devkit.chartkit.hierarchy.HierarchyNode
@@ -181,6 +183,93 @@ fun graphDataTable(
     },
     caption = caption,
 )
+
+/**
+ * A thematic map as rows: region, value, and whether it was measured at all.
+ *
+ * ### Why a map needs this more than any other chart
+ *
+ * A choropleth encodes its data in *position and colour*, and a reader who
+ * cannot see the picture gets neither. Shape, adjacency and area are not
+ * describable in a sentence, and no summary of two hundred counties is
+ * navigable by ear. The table is not a fallback for this chart; for a
+ * non-sighted reader it is the chart.
+ *
+ * ### The third column
+ *
+ * "No data" is a value a reader must be able to distinguish from a low one — on
+ * the map it is a different colour, and in the table it is a different word.
+ * Rendering an absent measurement as an empty cell would be the same mistake as
+ * painting it with the colour of zero.
+ *
+ * ```kotlin
+ * ChartWithDataTable(
+ *     table = geoDataTable(counties, rates, { it.properties.string("fips") }, { it.fips }, { it.rate }),
+ * ) {
+ *     ChoroplethMap(geometry = counties, data = rates, ...)
+ * }
+ * ```
+ *
+ * @param order how rows are sorted. Alphabetical by default — a reader looking
+ *   for one region should not have to hear the other 199 first.
+ */
+@Suppress("LongParameterList")
+fun <T> geoDataTable(
+    geometry: GeoFeatureCollection,
+    data: List<T>,
+    featureKey: (GeoFeature) -> String?,
+    dataKey: (T) -> String?,
+    value: (T) -> Number?,
+    featureLabel: (GeoFeature) -> String = { feature ->
+        feature.properties.string("name") ?: feature.id.orEmpty()
+    },
+    valueFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
+    order: GeoTableOrder = GeoTableOrder.ByRegion,
+    missingText: String = "No data",
+    caption: String? = null,
+): ChartDataTable {
+    val byKey = HashMap<String, Double?>(data.size)
+    data.forEach { item ->
+        val key = dataKey(item) ?: return@forEach
+        if (!byKey.containsKey(key)) {
+            byKey[key] = value(item)?.toDouble()?.takeIf { it.isFinite() }
+        }
+    }
+
+    val rows = geometry.features.map { feature ->
+        val measured = featureKey(feature)?.let { byKey[it] }
+        featureLabel(feature) to measured
+    }
+    val ordered = when (order) {
+        GeoTableOrder.ByRegion -> rows.sortedBy { it.first }
+        // Unmeasured regions sort last: a reader asking for "the highest" wants
+        // the highest measurement, not the regions with no measurement at all.
+        GeoTableOrder.ByValueDescending ->
+            rows.sortedWith(compareByDescending(nullsLast()) { it.second })
+        GeoTableOrder.AsGiven -> rows
+    }
+
+    return ChartDataTable(
+        columns = listOf("Region", "Value"),
+        rows = ordered.map { (label, measured) ->
+            listOf(label, measured?.let(valueFormatter::format) ?: missingText)
+        },
+        caption = caption,
+    )
+}
+
+/** How [geoDataTable] orders its rows. */
+enum class GeoTableOrder {
+
+    /** Alphabetically by region name. Findable. */
+    ByRegion,
+
+    /** Largest value first, unmeasured regions last. */
+    ByValueDescending,
+
+    /** The order the geometry file lists them in. */
+    AsGiven,
+}
 
 /**
  * A chart and its table, with a control to switch between them.

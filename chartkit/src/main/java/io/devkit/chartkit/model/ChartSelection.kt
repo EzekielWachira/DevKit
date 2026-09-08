@@ -48,6 +48,10 @@ data class ChartSelection<out T>(
     val polar: ChartSelectionDetails.Polar?
         get() = details as? ChartSelectionDetails.Polar
 
+    /** The geographic detail of this selection, or `null` for any other chart. */
+    val geo: ChartSelectionDetails.Geo?
+        get() = details as? ChartSelectionDetails.Geo
+
     /** The x value as a label, for tooltips and accessibility text. */
     val xLabel: String
         get() = when (val value = x) {
@@ -72,6 +76,35 @@ sealed interface ChartSelectionDetails {
 
     /** A point, a bar or a crosshair intersection. Nothing to add. */
     data object Cartesian : ChartSelectionDetails
+
+    /**
+     * A shaded region on a thematic map.
+     *
+     * Everything a caller needs about *where* the selection is, alongside the
+     * `item` every selection already carries — which for a choropleth is the
+     * caller's own joined statistic, so a tooltip reads
+     * `selection.item.bookings` directly.
+     *
+     * @param featureId the GeoJSON feature id, when the file had one.
+     * @param featureKey the value the join matched on — the county code, the
+     *   ISO code. Always present, because a feature that produced no key could
+     *   not have been joined.
+     * @param featureLabel the region's name, as the caller's `featureLabel`
+     *   lambda resolved it.
+     * @param properties the feature's own GeoJSON properties, untouched. A
+     *   drill-down reads a parent id out of here; a tooltip reads a population.
+     * @param hasValue whether the join found a record. `false` means the region
+     *   was drawn in the theme's "no data" colour, and [ChartSelection.y] is
+     *   not a measurement.
+     */
+    data class Geo(
+        val featureId: String?,
+        val featureKey: String,
+        val featureLabel: String,
+        val properties: io.devkit.chartkit.geo.GeoProperties,
+        val hasValue: Boolean,
+        val bounds: io.devkit.chartkit.geo.GeoBounds?,
+    ) : ChartSelectionDetails
 
     /**
      * A pie or donut slice, or a radial bar.

@@ -92,6 +92,7 @@ import io.devkit.chartdemo.ChartAdvancedScreen
 import io.devkit.chartdemo.ChartComparisonScreen
 import io.devkit.chartdemo.ChartDashboardScreen
 import io.devkit.chartdemo.ChartFlowScreen
+import io.devkit.chartdemo.ChartGeographicScreen
 import io.devkit.chartdemo.ChartGraphScreen
 import io.devkit.chartdemo.ChartHierarchyScreen
 import io.devkit.chartdemo.ChartTimeScreen
@@ -554,6 +555,12 @@ private enum class SampleScreen(
         SampleKit.ChartKit,
         "Linked charts, cross-filtering and a navigator",
     ),
+    ChartGeographic(
+        "Geographic",
+        "M",
+        SampleKit.ChartKit,
+        "A choropleth over the sample's own GeoJSON",
+    ),
     ChartAdvanced(
         "Advanced",
         "X",
@@ -698,6 +705,7 @@ private fun FillKitSampleApp() {
                 SampleScreen.ChartTime -> ChartTimeScreen(Modifier.padding(padding))
                 SampleScreen.ChartGraph -> ChartGraphScreen(Modifier.padding(padding))
                 SampleScreen.ChartDashboard -> ChartDashboardScreen(Modifier.padding(padding))
+                SampleScreen.ChartGeographic -> ChartGeographicScreen(Modifier.padding(padding))
                 SampleScreen.ChartAdvanced -> ChartAdvancedScreen(Modifier.padding(padding))
             }
         }

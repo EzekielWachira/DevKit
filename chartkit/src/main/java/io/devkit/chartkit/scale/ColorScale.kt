@@ -141,11 +141,11 @@ sealed interface ColorScale {
             )
         }
 
-        private fun bandLabel(index: Int): String = when {
-            index == 0 -> "< ${thresholds.first()}"
-            index == colors.size - 1 -> ">= ${thresholds.last()}"
-            else -> "${thresholds[index - 1]} – ${thresholds[index]}"
-        }
+        private fun bandLabel(index: Int): String = bandRangeLabel(
+            index = index,
+            bandCount = colors.size,
+            breaks = thresholds,
+        )
     }
 
     /**
@@ -202,6 +202,92 @@ sealed interface ColorScale {
     }
 
     /**
+     * Bands holding roughly equal *numbers of observations*.
+     *
+     * ```text
+     * quantized   equal-width bands over the domain
+     *             0–20  20–40  40–60  60–80  80–100
+     *
+     * quantile    equal-count bands over the data
+     *             9 counties · 10 · 9 · 10 · 9
+     * ```
+     *
+     * The distinction matters most on the data choropleths are usually made of.
+     * County incomes, regional revenue and disease incidence are almost always
+     * skewed: one region is an order of magnitude above the rest, and an
+     * equal-width scale then puts forty-six counties in the first band and one
+     * in the last, producing a map of a single colour. A quantile scale spreads
+     * them across the whole ramp and shows the ranking that is actually there.
+     *
+     * The cost is that the bands are no longer comparable between two maps —
+     * "the darkest fifth" of one dataset is not the same value as the darkest
+     * fifth of another — which is why it is a choice and not the default.
+     *
+     * ### Ties
+     *
+     * Repeated values cannot be split across a boundary, so a dataset with many
+     * ties yields fewer distinct bands than requested. The breaks are still
+     * ascending and every value still lands in exactly one band; the bands are
+     * simply uneven. Reporting that honestly is better than perturbing the data
+     * to force equal counts.
+     *
+     * @param values the observations the breaks are computed from — the actual
+     *   data, not a domain. Non-finite entries are ignored.
+     * @param colors at least two ramp colours; each band takes the centre of
+     *   its own share of the ramp.
+     * @param groups how many bands to aim for.
+     */
+    @Immutable
+    class Quantile(
+        values: List<Double?>,
+        val colors: List<Color>,
+        val groups: Int = DEFAULT_QUANTILE_GROUPS,
+    ) : ColorScale {
+        init {
+            require(colors.size >= 2) {
+                "A quantile colour scale needs at least two ramp colours, had ${colors.size}"
+            }
+            require(groups >= 2) { "A quantile scale needs at least 2 groups, was $groups" }
+        }
+
+        /**
+         * The ascending upper bound of every band but the last.
+         *
+         * Computed once. Empty when there was nothing to place, which makes
+         * every lookup return `null` rather than dividing by a range of zero.
+         */
+        val breaks: List<Double> = quantileBreaks(values, groups)
+
+        /** How many bands the data actually supports — ties can reduce it. */
+        val bandCount: Int get() = if (breaks.isEmpty()) 0 else breaks.size + 1
+
+        /** The band [value] falls into, or `-1`. */
+        fun bandOf(value: Double?): Int {
+            if (value == null || !value.isFinite() || breaks.isEmpty()) return -1
+            return bandIndex(value, breaks)
+        }
+
+        override fun colorAt(value: Double?): Color? {
+            val band = bandOf(value)
+            if (band < 0) return null
+            // The centre of each band's share of the ramp, so a two-band scale
+            // is two distinguishable shades rather than the ramp's extremes.
+            return sampleRamp(colors, (band + 0.5f) / bandCount)
+        }
+
+        override fun legendStops(count: Int): List<ColorStop> = List(bandCount) { band ->
+            ColorStop(
+                // The band's own upper bound, so consecutive stops ascend. The
+                // last band has none — it runs to the maximum — so it reuses
+                // the highest break, and its label says "and above".
+                value = breaks.getOrNull(band) ?: breaks.last(),
+                color = sampleRamp(colors, (band + 0.5f) / bandCount),
+                label = bandRangeLabel(band, bandCount, breaks),
+            )
+        }
+    }
+
+    /**
      * A colour per category, by key.
      *
      * The odd one out — its domain is not numeric — but it belongs here because
@@ -240,7 +326,66 @@ sealed interface ColorScale {
     companion object {
         /** Enough to read a ramp, few enough to fit beside a chart. */
         const val DEFAULT_LEGEND_STOPS: Int = 5
+
+        /** Quintiles: the convention for a thematic map, and readable at a glance. */
+        const val DEFAULT_QUANTILE_GROUPS: Int = 5
     }
+}
+
+/**
+ * How one band of a banded scale reads in a legend.
+ *
+ * `"< 20"`, `"20 – 40"`, `"80 and above"`. Shared by [ColorScale.Threshold] and
+ * [ColorScale.Quantile] so a reader moving between the two kinds of map sees
+ * the same convention, and so the open-ended first and last bands are stated
+ * once rather than twice.
+ */
+internal fun bandRangeLabel(
+    index: Int,
+    bandCount: Int,
+    breaks: List<Double>,
+    format: (Double) -> String = ::trimmedNumber,
+): String = when {
+    breaks.isEmpty() -> ""
+    index <= 0 -> "< ${format(breaks.first())}"
+    index >= bandCount - 1 -> "${format(breaks.last())} and above"
+    else -> "${format(breaks[index - 1])} – ${format(breaks[index])}"
+}
+
+/**
+ * The break points a banded scale divides its domain at, or empty for a scale
+ * that does not band.
+ *
+ * Exposed so a legend can relabel the bands with the caller's own formatter —
+ * currency, percentages, compact suffixes. [ColorStop.label] carries a plain
+ * fallback for a caller who supplied none, and a legend that matters is given
+ * one.
+ */
+internal fun ColorScale.bandBreaks(): List<Double> = when (this) {
+    is ColorScale.Threshold -> thresholds
+    is ColorScale.Quantile -> breaks
+    else -> emptyList()
+}
+
+/**
+ * A break point as short text.
+ *
+ * Whole numbers lose their `.0` and everything else keeps at most three
+ * decimals. A legend is read at a glance, and a quantile break carried straight
+ * from the data can otherwise print seventeen significant figures.
+ *
+ * Not locale-aware, unlike [io.devkit.chartkit.formatter.ChartNumberFormatters]:
+ * this is a fallback for a caller who supplied no formatter, and a legend that
+ * matters is given one. See [ColorStop.label], which a caller can override
+ * wholesale.
+ */
+internal fun trimmedNumber(value: Double): String = when {
+    !value.isFinite() -> ""
+    value == value.toLong().toDouble() -> value.toLong().toString()
+    else -> java.math.BigDecimal(value)
+        .setScale(3, java.math.RoundingMode.HALF_UP)
+        .stripTrailingZeros()
+        .toPlainString()
 }
 
 /** One entry of a colour legend. */
@@ -294,4 +439,47 @@ internal fun lerpColor(from: Color, to: Color, fraction: Float): Color {
         blue = from.blue + (to.blue - from.blue) * t,
         alpha = from.alpha + (to.alpha - from.alpha) * t,
     )
+}
+
+/**
+ * The break points that split [values] into [groups] roughly equal-sized bands.
+ *
+ * Returns the ascending upper bound of every band but the last — the same shape
+ * [ColorScale.Threshold] takes, and the same shape [bandIndex] consumes, so the
+ * lookup is shared rather than reimplemented.
+ *
+ * ### The quantile definition
+ *
+ * The break between band *i* and *i+1* is the observation at rank
+ * `i × n / groups` in the sorted sample. That is the "nearest rank" definition
+ * rather than the interpolating one [io.devkit.chartkit.stats.ChartStatistics]
+ * uses for quartiles, and the difference is deliberate: a choropleth's breaks
+ * must be **values that exist in the data**. An interpolated break of 41.7
+ * between two counties at 40 and 43 is a number no county has, and a legend
+ * that prints it is inviting the reader to look for it.
+ *
+ * ### Ties
+ *
+ * Duplicate breaks are collapsed, so a dataset where half the regions share one
+ * value produces fewer bands than requested rather than several bands that can
+ * never be entered. Pure, and separately tested.
+ */
+internal fun quantileBreaks(values: List<Double?>, groups: Int): List<Double> {
+    if (groups < 2) return emptyList()
+    val sorted = values.asSequence()
+        .filterNotNull()
+        .filter { it.isFinite() }
+        .sorted()
+        .toList()
+    if (sorted.size < 2) return emptyList()
+
+    val breaks = ArrayList<Double>(groups - 1)
+    for (index in 1 until groups) {
+        val rank = (index.toLong() * sorted.size / groups).toInt().coerceIn(0, sorted.size - 1)
+        val candidate = sorted[rank]
+        // Strictly ascending: a repeated break would create a band no value can
+        // fall into, and `bandIndex` would then never return it.
+        if (breaks.isEmpty() || candidate > breaks.last()) breaks += candidate
+    }
+    return breaks
 }

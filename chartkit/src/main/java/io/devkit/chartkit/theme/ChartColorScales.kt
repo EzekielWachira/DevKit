@@ -71,6 +71,27 @@ object ChartColorScales {
         )
     }
 
+    /**
+     * Bands holding roughly equal numbers of *observations*, over [values].
+     *
+     * ```kotlin
+     * val scale = ChartColorScales.quantile(counties.map { it.revenue })
+     * ```
+     *
+     * Takes the data rather than a domain, because that is what a quantile is
+     * computed from. See [ColorScale.Quantile] for when it beats an equal-width
+     * scale and what it costs.
+     */
+    @Composable
+    @ReadOnlyComposable
+    fun quantile(
+        values: List<Double?>,
+        groups: Int = ColorScale.DEFAULT_QUANTILE_GROUPS,
+    ): ColorScale.Quantile {
+        val colors = ChartKitTheme.colors.heatmap
+        return ColorScale.Quantile(values, listOf(colors.low, colors.high), groups)
+    }
+
     /** One colour per key, taken from the theme's series palette in order. */
     @Composable
     @ReadOnlyComposable

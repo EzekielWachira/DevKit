@@ -262,6 +262,33 @@ data class ChartNavigatorColors(
 )
 
 /**
+ * Colours for thematic maps.
+ *
+ * The shaded regions themselves come from a
+ * [io.devkit.chartkit.scale.ColorScale], exactly as a heatmap's cells do — so
+ * only the furniture is here.
+ *
+ * @param border the line between two regions. Visible by default: a choropleth
+ *   without boundaries is a blur of colour in which no reader can tell where
+ *   one region ends, and two adjacent regions of similar value become one.
+ * @param missing a region the data had no record for. Deliberately **not** a
+ *   shade of the ramp: "nobody measured this" and "this measured lowest" are
+ *   different facts, and a map that paints them alike is asserting one of them.
+ * @param missingBorder the outline of such a region, so it still reads as a
+ *   region rather than as a hole in the map.
+ * @param label text drawn on a region.
+ * @param labelHalo drawn behind a label so it survives a dark fill underneath.
+ */
+@Immutable
+data class ChartGeoColors(
+    val border: Color,
+    val missing: Color,
+    val missingBorder: Color,
+    val label: Color,
+    val labelHalo: Color,
+)
+
+/**
  * The colours every ChartKit chart draws with.
  *
  * @param palette one colour per series, taken by index. Series keep their slot
@@ -301,6 +328,7 @@ data class ChartNavigatorColors(
  * @param gauge a gauge's track, progress arc and needle.
  * @param timeline interval bars, progress overlays and milestones.
  * @param navigator the overview chart's window and mask.
+ * @param geo region borders, the "no data" fill and map labels.
  *
  * Every parameter after [emptyContent] defaults to a value derived from the
  * ones above it, so a `ChartColors(...)` written against an earlier surface
@@ -412,6 +440,13 @@ data class ChartColors(
         mask = emptyContent.copy(alpha = 0.18f),
         handle = rangeBorder,
     ),
+    val geo: ChartGeoColors = ChartGeoColors(
+        border = gridLine,
+        missing = heatmap.missing,
+        missingBorder = gridLine,
+        label = axisLabel,
+        labelHalo = tooltipContent,
+    ),
 ) {
     init {
         require(palette.isNotEmpty()) {
@@ -451,6 +486,8 @@ data class ChartTypography(
     val breadcrumbLabel: TextStyle = legendLabel,
     /** A flow node's, graph node's or funnel stage's name. */
     val nodeLabel: TextStyle = valueLabel,
+    /** A region's name, drawn on a thematic map. */
+    val geoLabel: TextStyle = valueLabel,
 )
 
 /**
@@ -674,6 +711,23 @@ data class ChartDimensions(
 
     /** The width of the navigator window's draggable edges. */
     val navigatorHandleWidth: Dp = 8.dp,
+
+    // ---- geographic -----------------------------------------------------
+
+    /** The line between two regions on a thematic map. */
+    val geoBorderWidth: Dp = 0.5.dp,
+
+    /** The outline of a selected region. Heavier, so it reads over any fill. */
+    val geoSelectedBorderWidth: Dp = 2.dp,
+
+    /** Space kept between the geography and the plot's edge. */
+    val geoMapPadding: Dp = 12.dp,
+
+    /** The height of a continuous colour-scale legend's ramp bar. */
+    val colorLegendBarHeight: Dp = 10.dp,
+
+    /** The width a continuous colour-scale legend's ramp bar aims for. */
+    val colorLegendBarWidth: Dp = 160.dp,
 )
 
 /**
@@ -911,6 +965,21 @@ fun materialDerivedChartColors(
             milestone = scheme.onSurface,
             laneSeparator = scheme.outlineVariant.copy(alpha = 0.5f),
             laneLabel = scheme.onSurfaceVariant,
+        ),
+        geo = ChartGeoColors(
+            // The boundary is the surface showing between two regions rather
+            // than a third colour drawn on top, which keeps a dense county map
+            // from reading as a grid of outlines.
+            border = scheme.surface,
+            // The scheme's own container role, not a tint of the ramp: a
+            // reader must be able to tell "no record" from "lowest value" at a
+            // glance, and a paler shade of the same hue reads as the latter.
+            missing = scheme.surfaceVariant,
+            missingBorder = scheme.outlineVariant,
+            label = scheme.onSurface,
+            // The surface itself behind the glyphs, so a label stays legible
+            // over the darkest end of the ramp as well as the lightest.
+            labelHalo = scheme.surface,
         ),
         navigator = ChartNavigatorColors(
             window = scheme.primary.copy(alpha = 0.12f),
