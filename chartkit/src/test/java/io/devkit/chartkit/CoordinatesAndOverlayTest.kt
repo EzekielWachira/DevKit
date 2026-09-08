@@ -1,6 +1,7 @@
 package io.devkit.chartkit
 
-import io.devkit.chartkit.components.tooltip.tooltipOffset
+import io.devkit.chartkit.components.overlay.ChartOverlayPlacement
+import io.devkit.chartkit.components.overlay.resolveOverlayOffset
 import io.devkit.chartkit.coordinate.CartesianCoordinates
 import io.devkit.chartkit.coordinate.DomainAxis
 import io.devkit.chartkit.geometry.ChartInsets
@@ -115,49 +116,67 @@ class CartesianCoordinatesTest {
     }
 }
 
-class TooltipPlacementTest {
+class OverlayPlacementTest {
 
     private val plot = ChartRect(0f, 0f, 300f, 200f)
 
     @Test
     fun `the tooltip sits above the anchor when there is room`() {
-        val offset = tooltipOffset(150f, 100f, 80, 40, plot, gap = 8f)
+        val offset = resolveOverlayOffset(150f, 100f, 80, 40, plot, gap = 8f)
         assertEquals(150 - 40, offset.x)
         assertEquals(100 - 40 - 8, offset.y)
     }
 
     @Test
     fun `it flips below the anchor when there is no room above`() {
-        val offset = tooltipOffset(150f, 10f, 80, 40, plot, gap = 8f)
+        val offset = resolveOverlayOffset(150f, 10f, 80, 40, plot, gap = 8f)
         assertEquals(18, offset.y)
     }
 
     @Test
     fun `it never leaves the chart at the first point`() {
-        val offset = tooltipOffset(0f, 100f, 120, 40, plot, gap = 8f)
+        val offset = resolveOverlayOffset(0f, 100f, 120, 40, plot, gap = 8f)
         assertTrue("tooltip started at ${offset.x}", offset.x >= 0)
     }
 
     @Test
     fun `it never leaves the chart at the last point`() {
-        val offset = tooltipOffset(300f, 100f, 120, 40, plot, gap = 8f)
+        val offset = resolveOverlayOffset(300f, 100f, 120, 40, plot, gap = 8f)
         assertTrue("tooltip ended at ${offset.x + 120}", offset.x + 120 <= 300)
     }
 
     @Test
     fun `a tooltip taller than the plot is clamped rather than throwing`() {
-        val offset = tooltipOffset(150f, 100f, 80, 500, plot, gap = 8f)
+        val offset = resolveOverlayOffset(150f, 100f, 80, 500, plot, gap = 8f)
         assertEquals(0, offset.y)
     }
 
     @Test
     fun `a tooltip wider than the plot is clamped rather than throwing`() {
-        val offset = tooltipOffset(150f, 100f, 500, 40, plot, gap = 8f)
+        val offset = resolveOverlayOffset(150f, 100f, 500, 40, plot, gap = 8f)
         assertEquals(0, offset.x)
     }
 
     @Test
+    fun `an explicit side placement is honoured when it fits`() {
+        val offset = resolveOverlayOffset(
+            anchorX = 150f, anchorY = 100f, width = 40, height = 20,
+            bounds = plot, gap = 8f, placement = ChartOverlayPlacement.End,
+        )
+        assertEquals(158, offset.x)
+    }
+
+    @Test
+    fun `a side placement with no room flips to the other side`() {
+        val offset = resolveOverlayOffset(
+            anchorX = 295f, anchorY = 100f, width = 60, height = 20,
+            bounds = plot, gap = 8f, placement = ChartOverlayPlacement.End,
+        )
+        assertTrue("expected a flip to the leading side, got ${offset.x}", offset.x < 295)
+    }
+
+    @Test
     fun `a non-finite anchor produces the origin, not a crash`() {
-        assertEquals(0, tooltipOffset(Float.NaN, 10f, 80, 40, plot, gap = 8f).x)
+        assertEquals(0, resolveOverlayOffset(Float.NaN, 10f, 80, 40, plot, gap = 8f).x)
     }
 }

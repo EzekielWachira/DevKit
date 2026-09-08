@@ -72,6 +72,11 @@ enum class AxisLabelOverflow {
  * @param tickCount the *approximate* number of ticks wanted on a continuous
  *   axis. Approximate on purpose — see [TickGenerator]. Ignored on a category
  *   axis, where the categories are the ticks.
+ * @param ticks explicit tick values, overriding [tickCount] and the generator.
+ *   For an axis whose positions are not a matter of taste: a heatmap's rows sit
+ *   at integers and must be labelled at all of them, and a chart of a graded
+ *   scale is read against the grades rather than against round numbers. `null`
+ *   lets the generator choose, which is what almost every axis wants.
  * @param maxLabels a hard cap on drawn labels, applied after measurement. `null`
  *   lets the measured width decide.
  * @param labelOverflow what to do when labels do not fit.
@@ -92,6 +97,7 @@ data class ChartAxis(
     val showTicks: Boolean = true,
     val showLabels: Boolean = true,
     val tickCount: Int = TickGenerator.DEFAULT_TICK_COUNT,
+    val ticks: List<Double>? = null,
     val maxLabels: Int? = null,
     val labelOverflow: AxisLabelOverflow = AxisLabelOverflow.Skip,
     val valueFormatter: ChartValueFormatter? = null,

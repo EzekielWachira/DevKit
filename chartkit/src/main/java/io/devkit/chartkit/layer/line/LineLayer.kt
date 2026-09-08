@@ -24,6 +24,7 @@ import io.devkit.chartkit.layer.ChartLayerSummary
 import io.devkit.chartkit.layer.ChartRenderContext
 import io.devkit.chartkit.model.AnyChartSelection
 import io.devkit.chartkit.model.ChartSelection
+import io.devkit.chartkit.model.ChartTooltipEntry
 import io.devkit.chartkit.model.ChartX
 import kotlin.math.abs
 
@@ -83,14 +84,35 @@ data class AreaFill(
     }
 }
 
-/** One series' screen geometry, computed once per layout rather than per frame. */
+/**
+ * One series' screen geometry, computed once per layout rather than per frame.
+ *
+ * ### Drawn points and source values are separate lists
+ *
+ * [points] holds only what is **drawn** — the visible window, after any
+ * downsampling — while [xValues], [values] and [items] stay parallel to the
+ * caller's whole list. Keeping the two apart is what lets a chart draw two
+ * thousand of a hundred thousand points while a tooltip, a selection and an
+ * accessibility announcement still refer to the original observation. A single
+ * list would force a choice between drawing everything and lying about what
+ * exists.
+ *
+ * @param points the drawn positions. `null` entries mark gaps between drawn
+ *   runs, which is what breaks the line under
+ *   [io.devkit.chartkit.model.MissingValuePolicy.Break].
+ * @param domainValues the continuous domain position of every source point,
+ *   ascending, or `null` on a category axis or unordered data. Present so hit
+ *   testing can binary-search the **whole** series rather than only the drawn
+ *   subset — a scrub over a downsampled line still selects the observation
+ *   nearest the finger, not the nearest one that survived sampling.
+ * @param values every source point's value, `null` where missing.
+ */
 internal class LineSeriesGeometry(
     val seriesId: String,
     val seriesName: String,
     val seriesIndex: Int,
     val paletteIndex: Int,
     val colorOverride: Int?,
-    /** Parallel to the source data; `null` where the value was missing. */
     val points: List<LinePoint?>,
     /** Runs of consecutive present points — the gaps are what breaks the line. */
     val segments: List<LineSegment>,
@@ -98,6 +120,8 @@ internal class LineSeriesGeometry(
     val sortedByDomain: Boolean,
     val items: List<Any?>,
     val xValues: List<ChartX>,
+    val values: List<Double?> = emptyList(),
+    val domainValues: DoubleArray? = null,
 )
 
 /**
@@ -129,12 +153,12 @@ internal class LineLayer(
     private var cacheKey: Any? = null
 
     override fun draw(scope: DrawScope, context: ChartRenderContext) {
-        val plot = context.coordinates.plotArea
+        val plot = context.cartesian.plotArea
         if (plot.isEmpty || series.isEmpty()) return
 
         val paths = paths(plot, baselineWithin(context))
         val strokeWidth = context.px(lineWidthOverride ?: context.dimensions.lineWidth)
-        val vertical = context.coordinates.orientation.isVertical
+        val vertical = context.cartesian.orientation.isVertical
         val reveal = context.reveal.coerceIn(0f, 1f)
 
         // Revealing by clipping rather than by trimming the path: a path
@@ -193,8 +217,8 @@ internal class LineLayer(
         val radius = context.px(context.dimensions.pointRadius)
         val selectedRadius = context.px(context.dimensions.selectedPointRadius)
         val reveal = context.reveal.coerceIn(0f, 1f)
-        val plot = context.coordinates.plotArea
-        val vertical = context.coordinates.orientation.isVertical
+        val plot = context.cartesian.plotArea
+        val vertical = context.cartesian.orientation.isVertical
         val revealEdge = if (vertical) plot.left + plot.width * reveal else plot.top + plot.height * reveal
 
         series.forEach { s ->
@@ -238,7 +262,7 @@ internal class LineLayer(
         mode: HitTestMode,
     ): AnyChartSelection? {
         if (series.isEmpty()) return null
-        val vertical = context.coordinates.orientation.isVertical
+        val vertical = context.cartesian.orientation.isVertical
         val along = if (vertical) point.x else point.y
 
         var best: AnyChartSelection? = null
@@ -246,9 +270,13 @@ internal class LineLayer(
 
         series.forEach { s ->
             if (s.presentPoints.isEmpty()) return@forEach
-            val index = nearestPointIndex(s.presentPoints, along, s.sortedByDomain)
-            if (index < 0) return@forEach
-            val candidate = s.presentPoints[index]
+            // The whole series where the data allows it, so downsampling
+            // changes what is drawn and not what can be selected.
+            val candidate = nearestSourcePoint(s, along, context)
+                ?: s.presentPoints.getOrNull(
+                    nearestPointIndex(s.presentPoints, along, s.sortedByDomain),
+                )
+                ?: return@forEach
             // Along the domain axis for a scrub — the reader is choosing an x,
             // not aiming at a pixel — but full 2D distance decides *which*
             // series wins when several are stacked at the same x.
@@ -288,18 +316,116 @@ internal class LineLayer(
         return best
     }
 
+    /**
+     * Every series' value at the selected domain position.
+     *
+     * Matched on the resolved [ChartX] rather than on the point index: two
+     * series over the same months need not have the same number of points, and
+     * index matching would report February's revenue against March's expenses.
+     */
+    override fun tooltipEntriesAt(
+        selection: AnyChartSelection,
+        context: ChartRenderContext,
+    ): List<ChartTooltipEntry<Any?>> = series.mapNotNull { s ->
+        val index = s.xValues.indexOfFirst { it == selection.x }
+        if (index < 0) return@mapNotNull null
+        // Read from the source values, not from the drawn points: on a
+        // downsampled series the point at this x may not have been drawn, and
+        // the reader still asked what the series was worth there.
+        val value = s.values.getOrNull(index) ?: return@mapNotNull null
+        ChartTooltipEntry(
+            seriesId = s.seriesId,
+            seriesName = s.seriesName,
+            value = value,
+            item = s.items.getOrNull(index),
+            paletteIndex = s.paletteIndex,
+        )
+    }
+
     override fun describe(): List<ChartLayerSummary> = series.map { s ->
+        val present = s.values.filterNotNull()
         ChartLayerSummary(
             seriesId = s.seriesId,
             seriesName = s.seriesName,
-            pointCount = s.points.size,
-            entries = s.points.mapIndexed { index, point ->
-                ChartLayerEntry(
-                    label = s.xValues.getOrNull(index).labelOrIndex(index),
-                    value = point?.value,
-                )
+            pointCount = s.values.size,
+            // Past the announcement cap the entries would be built, allocated
+            // and then never read: the summary falls back to a range at that
+            // size, and computing the range is all that is needed.
+            entries = if (s.values.size <= io.devkit.chartkit.accessibility.ChartAccessibility.MAX_ANNOUNCED_POINTS) {
+                s.values.mapIndexed { index, value ->
+                    ChartLayerEntry(
+                        label = s.xValues.getOrNull(index).labelOrIndex(index),
+                        value = value,
+                    )
+                }
+            } else {
+                emptyList()
             },
+            valueRange = present.takeIf { it.isNotEmpty() }?.let { it.min()..it.max() },
+            missingCount = s.values.size - present.size,
         )
+    }
+
+    /**
+     * The nearest **source** observation to a domain pixel.
+     *
+     * Binary search over the full series' domain values, then the position is
+     * recomputed from the scales — so the answer does not depend on whether the
+     * point survived downsampling or fell outside the drawn window. Returns
+     * `null` on a category axis or unordered data, where there is no sorted
+     * domain to search and the drawn points are the best available answer.
+     */
+    private fun nearestSourcePoint(
+        s: LineSeriesGeometry,
+        along: Float,
+        context: ChartRenderContext,
+    ): LinePoint? {
+        val domainValues = s.domainValues ?: return null
+        if (domainValues.isEmpty() || !s.sortedByDomain) return null
+        val coordinates = context.cartesian
+        val scale = coordinates.continuousDomain ?: return null
+        val target = scale.invert(along)
+
+        var index = io.devkit.chartkit.data.VisibleRange.lowerBound(domainValues, target)
+        if (index >= domainValues.size) index = domainValues.size - 1
+        val previous = (index - 1).coerceAtLeast(0)
+        var best = if (
+            kotlin.math.abs(domainValues[previous] - target) <=
+            kotlin.math.abs(domainValues[index] - target)
+        ) {
+            previous
+        } else {
+            index
+        }
+
+        // Walk outward to the nearest point that actually has a value: a gap in
+        // the data is not a place the selection can land.
+        if (s.values.getOrNull(best) == null) {
+            var offset = 1
+            var found = -1
+            while (offset < domainValues.size) {
+                val low = best - offset
+                val high = best + offset
+                if (low < 0 && high >= domainValues.size) break
+                if (low >= 0 && s.values.getOrNull(low) != null) {
+                    found = low
+                    break
+                }
+                if (high < domainValues.size && s.values.getOrNull(high) != null) {
+                    found = high
+                    break
+                }
+                offset++
+            }
+            if (found < 0) return null
+            best = found
+        }
+
+        val value = s.values.getOrNull(best) ?: return null
+        val domainPosition = coordinates.positionOfDomain(domainValues[best]) ?: return null
+        val offset = coordinates.pointAt(domainPosition, coordinates.positionOfValue(value))
+        if (!offset.isFinite) return null
+        return LinePoint(offset, best, value)
     }
 
     private fun ChartRenderContext.seriesColor(s: LineSeriesGeometry): Color =
@@ -332,8 +458,8 @@ internal class LineLayer(
      * zero.
      */
     private fun baselineWithin(context: ChartRenderContext): Float {
-        val plot = context.coordinates.plotArea
-        val zero = context.coordinates.baseline
+        val plot = context.cartesian.plotArea
+        val zero = context.cartesian.baseline
         return zero.coerceIn(plot.top, plot.bottom)
     }
 

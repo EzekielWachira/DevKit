@@ -41,7 +41,7 @@ import io.devkit.chartkit.layer.line.PointMode
 import io.devkit.chartkit.model.ChartSeries
 
 /**
- * Every 0.1 chart type, with the switches that matter turned into controls.
+ * Every Cartesian chart type, with the switches that matter turned into controls.
  *
  * A gallery rather than one long scroll: each chart type gets the full width
  * and the same set of toggles, so the effect of turning the grid off or
@@ -75,7 +75,7 @@ fun ChartGalleryScreen(modifier: Modifier = Modifier) {
     ) {
         Text("Chart gallery", style = MaterialTheme.typography.headlineSmall)
         Text(
-            "Every ChartKit 0.1 chart, drawn from the sample's own data classes. " +
+            "Every Cartesian chart ChartKit draws, from the sample's own data classes. " +
                 "No conversion into a chart entry type anywhere below.",
             style = MaterialTheme.typography.bodyMedium,
         )
@@ -387,6 +387,9 @@ object ChartDemoTestTags {
     const val Chart = "chartdemo:chart"
     const val KindChips = "chartdemo:kinds"
     const val Selection = "chartdemo:selection"
+    const val Viewport = "chartdemo:viewport"
+    const val Range = "chartdemo:range"
+    const val ResetZoom = "chartdemo:reset"
     fun kindChip(name: String) = "chartdemo:kind:$name"
     fun toggle(label: String) = "chartdemo:toggle:$label"
 }

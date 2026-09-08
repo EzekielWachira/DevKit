@@ -46,6 +46,10 @@ android {
 // runtime and never at compile time.
 dependencies {
     api(project(":core"))
+    // `api`, not `implementation`: `Flow` appears in ChartKit's own signatures
+    // — `rememberStreamingChartData(flow = …)` — so a consumer cannot call it
+    // without coroutines on the compile classpath.
+    api(libs.kotlinx.coroutines.core)
     api(platform(libs.androidx.compose.bom))
     api(libs.androidx.compose.ui)
     api(libs.androidx.compose.ui.graphics)
@@ -55,6 +59,9 @@ dependencies {
     implementation(libs.androidx.compose.ui.tooling.preview)
 
     testImplementation(libs.junit)
+    // Virtual time, so the streaming tests assert throttling and windowing
+    // without a real `Thread.sleep` in a unit test.
+    testImplementation(libs.kotlinx.coroutines.test)
 
     androidTestImplementation(platform(libs.androidx.compose.bom))
     androidTestImplementation(libs.androidx.compose.ui.test.junit4)
@@ -67,10 +74,13 @@ devKitPublishing {
     artifactId.set("chartkit")
     displayName.set("ChartKit")
     description.set(
-        "Compose-native data visualisation for Android: line, area, bar, horizontal, grouped, " +
-            "stacked and 100% stacked charts on one Cartesian engine, with scales, axes, " +
-            "legends, tooltips, tap and scrub selection, animation, theming and accessibility " +
-            "semantics. Release-safe.",
+        "Compose-native data visualisation for Android, on one engine: line, area, bar, " +
+            "scatter, bubble, histogram, box plot, violin, heatmap, calendar heatmap, " +
+            "candlestick, OHLC and volume on Cartesian coordinates, and pie, donut, radial " +
+            "bar and radar on polar ones. Axes, legends, annotations, tooltips, crosshair, " +
+            "tap, scrub, pinch zoom, pan and range selection, linked charts, viewport culling " +
+            "and downsampling for large datasets, Flow-based streaming, animation, theming " +
+            "and accessibility semantics. Release-safe.",
     )
     versionKey.set("chartkit")
 }

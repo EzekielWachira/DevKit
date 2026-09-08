@@ -1,30 +1,46 @@
 package io.devkit.chartkit.components.tooltip
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
 import io.devkit.chartkit.formatter.ChartValueFormatter
-import io.devkit.chartkit.geometry.ChartRect
-import io.devkit.chartkit.model.ChartSelection
+import io.devkit.chartkit.model.ChartTooltipData
 import io.devkit.chartkit.theme.ChartKitTheme
-import kotlin.math.roundToInt
 
 /**
- * The default tooltip: series, x and value, on a Material-style surface.
+ * The default tooltip.
+ *
+ * Shows the domain value as a heading and one line per series beneath it, so
+ * the same composable serves a single tapped bar and a crosshair over four
+ * lines:
+ *
+ * ```text
+ * Jan                 Jan
+ * 24,000              ● Revenue    30,000
+ *                     ● Expenses   21,000
+ *                     ● Profit      9,000
+ * ```
  *
  * Overridable wholesale — every chart takes a `tooltip` slot receiving the same
- * [ChartSelection], including the caller's own data object — so ChartKit's
- * tooltip is a default rather than a constraint:
+ * [ChartTooltipData], including the caller's own data objects — so this is a
+ * default rather than a constraint:
  *
  * ```kotlin
- * tooltip = { selection ->
- *     Card { Text("${selection.item.customerName}: ${selection.y}") }
+ * tooltip = { data ->
+ *     Card { Text("${data.item.customerName}: ${data.selection.y}") }
  * }
  * ```
  *
@@ -34,79 +50,68 @@ import kotlin.math.roundToInt
  */
 @Composable
 fun <T> ChartTooltip(
-    selection: ChartSelection<T>,
+    data: ChartTooltipData<T>,
     modifier: Modifier = Modifier,
     valueFormatter: ChartValueFormatter? = null,
-    showSeriesName: Boolean = true,
+    showSeriesNames: Boolean = data.isMultiSeries,
 ) {
     val colors = ChartKitTheme.colors
     val typography = ChartKitTheme.typography
     val dimensions = ChartKitTheme.dimensions
-    val formatter = valueFormatter ?: ChartValueFormatter.Raw
+    // The caller's formatter if they gave one, otherwise the chart's own axis
+    // formatter — never a raw dump of the double.
+    val formatter = valueFormatter ?: data.valueFormatter
 
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(dimensions.tooltipCornerRadius))
             .background(colors.tooltipContainer)
             .padding(dimensions.tooltipPadding),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
     ) {
-        if (showSeriesName) {
-            Text(
-                text = selection.seriesName,
-                style = typography.tooltipTitle,
-                color = colors.tooltipContent,
-            )
-        }
         Text(
-            text = selection.xLabel,
-            style = typography.tooltipValue,
-            color = colors.tooltipContent,
-        )
-        Text(
-            text = formatter.format(selection.y),
+            text = data.xLabel,
             style = typography.tooltipTitle,
             color = colors.tooltipContent,
         )
+        data.entries.forEach { entry ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (showSeriesNames) {
+                    // A swatch as well as the name: on a four-series tooltip the
+                    // colour is how a reader ties a line to its number, and the
+                    // name is how they read it when the two colours are close.
+                    Spacer(
+                        Modifier
+                            .size(dimensions.legendIndicatorSize * 0.7f)
+                            .clip(CircleShape)
+                            .background(colors.seriesColor(entry.paletteIndex)),
+                    )
+                    Spacer(Modifier.width(dimensions.labelPadding))
+                    Text(
+                        text = entry.seriesName.ifBlank { entry.seriesId },
+                        style = typography.tooltipValue,
+                        color = colors.tooltipContent,
+                    )
+                    Spacer(Modifier.width(dimensions.legendItemSpacing))
+                }
+                Text(
+                    text = formatter.format(entry.value),
+                    style = typography.tooltipTitle,
+                    color = colors.tooltipContent,
+                )
+            }
+        }
+        // A polar selection knows its share of the whole, which is the number a
+        // reader of a pie chart is usually after and one no Cartesian
+        // selection has.
+        data.selection.polar?.let { polar ->
+            Text(
+                text = PERCENT_FORMAT.format(polar.fraction * 100.0) + "%",
+                style = typography.tooltipValue,
+                color = colors.tooltipContent,
+            )
+        }
     }
 }
 
-/**
- * Where a tooltip of [tooltipWidth] × [tooltipHeight] should be placed so that
- * it points at [anchorX], [anchorY] and stays inside [bounds].
- *
- * Measured placement rather than a fixed offset. A tooltip nudged "16dp up and
- * to the right" is off-screen for any selection near the top-right corner, and
- * that is exactly where the highest value in a rising series is.
- *
- * Preference order: above the anchor, then below it if there is no room, then
- * clamped. Horizontally it is centred and then pulled back inside the bounds,
- * so it never leaves the chart even at the first or last point.
- */
-internal fun tooltipOffset(
-    anchorX: Float,
-    anchorY: Float,
-    tooltipWidth: Int,
-    tooltipHeight: Int,
-    bounds: ChartRect,
-    gap: Float,
-): IntOffset {
-    if (!anchorX.isFinite() || !anchorY.isFinite()) return IntOffset(0, 0)
-
-    val above = anchorY - tooltipHeight - gap
-    val below = anchorY + gap
-    val top = when {
-        above >= bounds.top -> above
-        below + tooltipHeight <= bounds.bottom -> below
-        else -> (bounds.bottom - tooltipHeight).coerceAtLeast(bounds.top)
-    }
-
-    val left = (anchorX - tooltipWidth / 2f)
-        .coerceIn(
-            bounds.left,
-            // `coerceAtLeast(bounds.left)`: a tooltip wider than the chart has
-            // no valid range, and `coerceIn` with min > max throws.
-            (bounds.right - tooltipWidth).coerceAtLeast(bounds.left),
-        )
-
-    return IntOffset(left.roundToInt(), top.roundToInt())
-}
+private val PERCENT_FORMAT = java.text.DecimalFormat("0.#")

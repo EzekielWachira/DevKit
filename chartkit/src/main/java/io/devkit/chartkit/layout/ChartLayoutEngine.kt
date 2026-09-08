@@ -43,6 +43,12 @@ internal data class AxisMetrics(
 /**
  * The regions a chart is divided into, in pixels.
  *
+ * The same type for both coordinate systems. A Cartesian chart's plot area is
+ * whatever is left after the axis gutters; a polar chart's is the largest
+ * square that fits, because an elliptical pie misreports every angle as an
+ * area. Both are produced here, so no chart carves its own region out of its
+ * bounds and no two charts disagree about what "the plot" means.
+ *
  * @param bounds everything the chart composable was given.
  * @param plotArea the data region. Every layer draws relative to this and none
  *   of them computes padding of its own, which is what keeps a line layer and a
@@ -106,5 +112,36 @@ internal fun computeChartLayout(
         // as empty rather than as a rectangle with a negative width, so layers
         // skip drawing instead of dividing by it.
         plotArea = if (plot.isEmpty) ChartRect.Zero else plot,
+    )
+}
+
+/**
+ * The largest centred square inside [bounds], after [contentPadding].
+ *
+ * Polar charts are square by necessity rather than by preference: a circle
+ * stretched to fill a wide plot becomes an ellipse, and on an ellipse a 90°
+ * slice no longer occupies a quarter of the area — the chart would misreport
+ * every share it draws. The leftover width is given up instead.
+ *
+ * Returned as a [ChartLayout] like every other layout, so the overlay,
+ * accessibility and legend machinery need no notion of which coordinate system
+ * produced the plot.
+ */
+internal fun computePolarLayout(
+    bounds: ChartRect,
+    contentPadding: ChartInsets = ChartInsets.Zero,
+): ChartLayout {
+    if (bounds.isEmpty) return ChartLayout(bounds, ChartRect.Zero)
+    val padded = bounds.inset(contentPadding)
+    if (padded.isEmpty) return ChartLayout(bounds, ChartRect.Zero)
+
+    val side = kotlin.math.min(padded.width, padded.height)
+    if (side <= 0f) return ChartLayout(bounds, ChartRect.Zero)
+
+    val left = padded.left + (padded.width - side) / 2f
+    val top = padded.top + (padded.height - side) / 2f
+    return ChartLayout(
+        bounds = bounds,
+        plotArea = ChartRect(left, top, left + side, top + side),
     )
 }

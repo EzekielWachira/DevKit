@@ -31,12 +31,12 @@ internal class GridLayer(
 
     override fun draw(scope: DrawScope, context: ChartRenderContext) {
         if (grid == ChartGrid.None) return
-        val plot = context.coordinates.plotArea
+        val plot = context.cartesian.plotArea
         if (plot.isEmpty) return
 
         val strokeWidth = context.px(context.dimensions.gridLineWidth)
         val color = context.colors.gridLine
-        val vertical = context.coordinates.orientation.isVertical
+        val vertical = context.cartesian.orientation.isVertical
 
         // On a vertical chart the value axis runs up the screen, so its ticks
         // are horizontal rules. On a horizontal one it runs across, so they are

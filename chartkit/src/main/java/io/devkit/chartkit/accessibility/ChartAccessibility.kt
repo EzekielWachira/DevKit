@@ -27,8 +27,24 @@ data class ChartAccessibility(
         /** Title-less but still describing its series and values. */
         val Auto: ChartAccessibility = ChartAccessibility()
 
-        /** No ChartKit-generated semantics; the caller supplies their own. */
-        val None: ChartAccessibility = ChartAccessibility(includeDataPoints = false)
+        /**
+         * The title, the series names, the counts and the range — but not the
+         * individual values.
+         *
+         * Named for what it does. It is *not* "no semantics": a chart with no
+         * description at all is one unlabelled rectangle to a screen reader,
+         * which is never what a caller wants. Supplying
+         * `accessibilitySummary` replaces the generated text entirely, and
+         * that is the way to say something else.
+         */
+        val Concise: ChartAccessibility = ChartAccessibility(includeDataPoints = false)
+
+        @Deprecated(
+            message = "The name claimed more than it did: this still announces the title, " +
+                "the series and the counts. Renamed to Concise.",
+            replaceWith = ReplaceWith("ChartAccessibility.Concise"),
+        )
+        val None: ChartAccessibility = Concise
 
         /**
          * Beyond this many points, values are summarised rather than listed.
@@ -71,35 +87,45 @@ internal fun buildChartSummary(
 
     summaries.forEach { summary ->
         val present = summary.entries.mapNotNull { it.value }
+        val missing = if (summary.entries.isEmpty()) {
+            summary.missingCount
+        } else {
+            summary.pointCount - present.size
+        }
         val header = buildString {
             if (summaries.size > 1) append("${summary.seriesName}: ")
             append("${summary.pointCount} data points")
-            if (present.size < summary.pointCount) {
-                append(", ${summary.pointCount - present.size} missing")
-            }
+            if (missing > 0) append(", $missing missing")
             append(".")
         }
         parts += header
 
+        // A layer that skipped materialising its entries — because there were
+        // far more than could ever be announced — supplies the range instead.
+        val range = summary.valueRange
+            ?: present.takeIf { it.isNotEmpty() }?.let { it.min()..it.max() }
+
         when {
-            present.isEmpty() -> Unit
+            range == null -> Unit
 
             accessibility.includeDataPoints &&
+                summary.entries.isNotEmpty() &&
                 summary.entries.size <= ChartAccessibility.MAX_ANNOUNCED_POINTS ->
                 parts += summary.entries.joinToString(", ") { entry ->
+                    val detail = entry.detail
                     val value = entry.value
-                    if (value == null) {
-                        "${entry.label}: no value"
-                    } else {
-                        "${entry.label}: ${formatter.format(value)}"
+                    when {
+                        // A layer that knows its point needs more than one
+                        // number to describe says so itself.
+                        detail != null -> detail
+                        value == null -> "${entry.label}: no value"
+                        else -> "${entry.label}: ${formatter.format(value)}"
                     }
                 } + "."
 
-            else -> {
-                val minimum = present.min()
-                val maximum = present.max()
-                parts += "Values from ${formatter.format(minimum)} to ${formatter.format(maximum)}."
-            }
+            else -> parts +=
+                "Values from ${formatter.format(range.start)} to " +
+                    "${formatter.format(range.endInclusive)}."
         }
     }
     return parts.joinToString(" ")

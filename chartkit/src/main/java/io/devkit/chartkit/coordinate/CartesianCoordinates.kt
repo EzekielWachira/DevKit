@@ -10,11 +10,12 @@ import io.devkit.chartkit.scale.LinearScale
 /**
  * How a chart turns data into positions.
  *
- * Deliberately an abstraction over "Cartesian", not a synonym for it. Pie,
- * donut, radar and radial bar all need a polar system, and a 0.2 that added one
- * should be adding a sibling of [CartesianCoordinates] rather than unpicking
- * Cartesian assumptions from the layer model, the interaction model and the
- * animation engine. Nothing above this interface names an x or a y.
+ * Deliberately an abstraction over "Cartesian", not a synonym for it. ChartKit
+ * has two implementations — [CartesianCoordinates] for line, area and bar
+ * charts, and [PolarCoordinates] for pie, donut and radial bar — and everything
+ * above this interface is shared between them: the layer model, the interaction
+ * model, the animation clock, the theme, the overlay and the accessibility
+ * layer. Nothing above this interface names an x or a y.
  */
 interface CoordinateSystem {
 

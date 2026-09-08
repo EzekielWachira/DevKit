@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.material3.Surface
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
@@ -16,16 +17,23 @@ import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.charts.AreaChart
 import io.devkit.chartkit.charts.BarChart
+import io.devkit.chartkit.charts.DonutChart
+import io.devkit.chartkit.charts.PieChart
+import io.devkit.chartkit.charts.RadialBarChart
 import io.devkit.chartkit.charts.HorizontalBarChart
 import io.devkit.chartkit.charts.LineChart
+import io.devkit.chartkit.components.legend.LegendPosition
 import io.devkit.chartkit.formatter.ChartNumberFormatters
+import io.devkit.chartkit.interaction.CrosshairConfig
+import io.devkit.chartkit.layer.polar.SliceLabelContent
+import io.devkit.chartkit.layer.polar.SliceLabelPosition
 import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.geometry.LineInterpolation
 import io.devkit.chartkit.model.ChartSeries
 import io.devkit.chartkit.preview.ChartKitPreviewData.MonthlyValue
 
 /**
- * Previews of every 0.1 chart type.
+ * Previews of every chart type.
  *
  * Animation is off throughout. A preview renders a single frame, so an
  * animating chart is caught part-drawn — which looks like a rendering bug and
@@ -199,6 +207,95 @@ private fun TimeSeriesPreview() {
             xAxis = ChartAxis(tickCount = 4),
             animation = NoAnimation,
             modifier = Modifier.fillMaxWidth().height(180.dp),
+        )
+    }
+}
+
+@Preview(name = "Pie", showBackground = true, widthDp = 360, heightDp = 320)
+@Composable
+private fun PieChartPreview() {
+    PreviewSurface {
+        PieChart(
+            data = ChartKitPreviewData.expenseShares,
+            value = { it.amount },
+            label = { it.category },
+            sliceGap = 1f,
+            animation = NoAnimation,
+            valueFormatter = ChartNumberFormatters.compact(),
+            modifier = Modifier.fillMaxWidth().height(260.dp),
+        )
+    }
+}
+
+@Preview(name = "Pie — labelled slices", showBackground = true, widthDp = 360, heightDp = 320)
+@Composable
+private fun LabelledPieChartPreview() {
+    PreviewSurface {
+        PieChart(
+            data = ChartKitPreviewData.expenseShares,
+            value = { it.amount },
+            label = { it.category },
+            labelPosition = SliceLabelPosition.Inside,
+            labelContent = SliceLabelContent.Percentage,
+            legend = LegendPosition.None,
+            animation = NoAnimation,
+            modifier = Modifier.fillMaxWidth().height(280.dp),
+        )
+    }
+}
+
+@Preview(name = "Donut with centre content", showBackground = true, widthDp = 360, heightDp = 320)
+@Composable
+private fun DonutChartPreview() {
+    PreviewSurface {
+        DonutChart(
+            data = ChartKitPreviewData.expenseShares,
+            value = { it.amount },
+            label = { it.category },
+            sliceGap = 1.5f,
+            animation = NoAnimation,
+            valueFormatter = ChartNumberFormatters.compact(),
+            centerContent = {
+                Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                    Text("3,600", style = MaterialTheme.typography.titleLarge)
+                    Text("total", style = MaterialTheme.typography.labelSmall)
+                }
+            },
+            modifier = Modifier.fillMaxWidth().height(260.dp),
+        )
+    }
+}
+
+@Preview(name = "Radial bars", showBackground = true, widthDp = 360, heightDp = 320)
+@Composable
+private fun RadialBarChartPreview() {
+    PreviewSurface {
+        RadialBarChart(
+            data = ChartKitPreviewData.systemMetrics,
+            value = { it.value },
+            label = { it.name },
+            maxValue = 100.0,
+            animation = NoAnimation,
+            modifier = Modifier.fillMaxWidth().height(260.dp),
+        )
+    }
+}
+
+@Preview(name = "Crosshair", showBackground = true, widthDp = 360, heightDp = 260)
+@Composable
+private fun CrosshairPreview() {
+    PreviewSurface {
+        LineChart(
+            series = listOf(
+                ChartSeries("revenue", "Revenue", ChartKitPreviewData.revenue),
+                ChartSeries("expenses", "Expenses", ChartKitPreviewData.expenses),
+            ),
+            x = { it.month },
+            y = { it.amount },
+            crosshair = CrosshairConfig.Vertical,
+            animation = NoAnimation,
+            valueFormatter = ChartNumberFormatters.compact(),
+            modifier = Modifier.fillMaxWidth().height(200.dp),
         )
     }
 }

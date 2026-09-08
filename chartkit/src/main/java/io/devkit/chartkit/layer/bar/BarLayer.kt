@@ -19,6 +19,7 @@ import io.devkit.chartkit.layer.ChartLayerSummary
 import io.devkit.chartkit.layer.ChartRenderContext
 import io.devkit.chartkit.model.AnyChartSelection
 import io.devkit.chartkit.model.ChartSelection
+import io.devkit.chartkit.model.ChartTooltipEntry
 import io.devkit.chartkit.model.ChartX
 import kotlin.math.abs
 import kotlin.math.min
@@ -34,6 +35,14 @@ internal class BarSeriesGeometry(
     val categoryLabels: List<String>,
     /** Value per category, in category order; `null` where the series has none. */
     val values: List<Double?>,
+    /**
+     * The index in the caller's own list for each category, or `-1`.
+     *
+     * Categories are the chart's ordering; the caller's list is theirs. This is
+     * the map between them, and it is what lets a tooltip hand back the right
+     * object for a category the series did not list first.
+     */
+    val sourceIndices: List<Int>,
 )
 
 /**
@@ -61,7 +70,7 @@ internal class BarLayer(
 
     override fun draw(scope: DrawScope, context: ChartRenderContext) {
         if (slices.isEmpty()) return
-        val plot = context.coordinates.plotArea
+        val plot = context.cartesian.plotArea
         if (plot.isEmpty) return
 
         val radius = context.px(cornerRadiusOverride ?: context.dimensions.barCornerRadius)
@@ -85,7 +94,7 @@ internal class BarLayer(
                 radius = effectiveRadius,
                 roundFarEnd = slice.isBarEnd,
                 positive = slice.plottedValue >= 0.0,
-                vertical = context.coordinates.orientation.isVertical,
+                vertical = context.cartesian.orientation.isVertical,
             )
             scope.drawPath(shape, colour)
 
@@ -119,15 +128,15 @@ internal class BarLayer(
         slices.firstOrNull { it.rect.contains(point) }?.let { return it.toSelection(context) }
         if (mode == HitTestMode.Contains) {
             // A tap in the band but above a short bar still means that bar.
-            val categoryScale = context.coordinates.categories ?: return null
-            val along = context.coordinates.domainOf(point)
+            val categoryScale = context.cartesian.categories ?: return null
+            val along = context.cartesian.domainOf(point)
             val index = categoryScale.indexAt(along)
             if (index < 0) return null
-            val pointerValue = context.coordinates.valueOf(point)
+            val pointerValue = context.cartesian.valueOf(point)
             return slices.filter { it.categoryIndex == index }
                 .minByOrNull { slice ->
                     abs(
-                        pointerValue - context.coordinates.valueOf(
+                        pointerValue - context.cartesian.valueOf(
                             ChartOffset(slice.rect.centerX, slice.rect.centerY),
                         ),
                     )
@@ -135,10 +144,35 @@ internal class BarLayer(
                 ?.toSelection(context)
         }
 
-        val along = context.coordinates.domainOf(point)
+        val along = context.cartesian.domainOf(point)
         return slices.minByOrNull { slice ->
-            abs(context.coordinates.domainOf(ChartOffset(slice.rect.centerX, slice.rect.centerY)) - along)
+            abs(context.cartesian.domainOf(ChartOffset(slice.rect.centerX, slice.rect.centerY)) - along)
         }?.toSelection(context)
+    }
+
+    /**
+     * Every series' value in the selected category.
+     *
+     * What makes a grouped or stacked bar chart's tooltip able to report the
+     * whole column rather than only the segment the finger landed on.
+     */
+    override fun tooltipEntriesAt(
+        selection: AnyChartSelection,
+        context: ChartRenderContext,
+    ): List<ChartTooltipEntry<Any?>> {
+        val label = (selection.x as? ChartX.Category)?.label ?: return emptyList()
+        return series.mapNotNull { s ->
+            val index = s.categoryLabels.indexOf(label)
+            if (index < 0) return@mapNotNull null
+            val value = s.values.getOrNull(index) ?: return@mapNotNull null
+            ChartTooltipEntry(
+                seriesId = s.seriesId,
+                seriesName = s.seriesName,
+                value = value,
+                item = s.sourceIndices.getOrNull(index)?.let { s.items.getOrNull(it) },
+                paletteIndex = s.paletteIndex,
+            )
+        }
     }
 
     override fun describe(): List<ChartLayerSummary> = series.map { s ->
@@ -163,7 +197,7 @@ internal class BarLayer(
     private fun BarSlice.toSelection(context: ChartRenderContext): AnyChartSelection? {
         val source = series.getOrNull(seriesIndex) ?: return null
         val label = source.categoryLabels.getOrElse(categoryIndex) { categoryIndex.toString() }
-        val anchor = if (context.coordinates.orientation.isVertical) {
+        val anchor = if (context.cartesian.orientation.isVertical) {
             ChartOffset(rect.centerX, min(rect.top, rect.bottom))
         } else {
             ChartOffset(maxOf(rect.left, rect.right), rect.centerY)
@@ -238,7 +272,7 @@ internal class BarLayer(
         context: ChartRenderContext,
     ): ChartRect {
         if (reveal >= 1f) return this
-        return if (context.coordinates.orientation.isVertical) {
+        return if (context.cartesian.orientation.isVertical) {
             ChartRect(
                 left = left,
                 top = ChartMath.lerp(baseline, top, reveal),

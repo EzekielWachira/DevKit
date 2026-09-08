@@ -87,8 +87,8 @@ object ChartNumberFormatters {
      * The suffixes are ASCII and not localised, which is a real limitation: a
      * locale that abbreviates differently gets the English form. Localising
      * them properly needs `CompactDecimalFormat`, which is API 24 on Android
-     * but whose behaviour varies by ICU version, so 0.1 states the limit rather
-     * than shipping something that changes shape between devices. Consumers
+     * but whose behaviour varies by ICU version, so ChartKit states the limit
+     * rather than shipping something that changes shape between devices. Consumers
      * needing localised compaction supply their own formatter.
      */
     fun compact(

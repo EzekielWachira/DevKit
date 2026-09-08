@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import io.devkit.chartkit.accessibility.ChartAccessibility
 import io.devkit.chartkit.animation.ChartAnimation
+import io.devkit.chartkit.annotation.ChartAnnotation
 import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
 import io.devkit.chartkit.components.legend.LegendPosition
@@ -13,13 +14,23 @@ import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.geometry.ChartOrientation
 import io.devkit.chartkit.geometry.DEFAULT_GROUP_PADDING
 import io.devkit.chartkit.geometry.LineInterpolation
-import io.devkit.chartkit.interaction.ChartSelectionBehaviour
-import io.devkit.chartkit.interaction.ChartSelectionMode
+import io.devkit.chartkit.geometry.OhlcPolicy
+import io.devkit.chartkit.geometry.ScatterShape
+import io.devkit.chartkit.geometry.normalizeOhlc
+import io.devkit.chartkit.layer.financial.PriceMarkStyle
+import io.devkit.chartkit.layer.scatter.ScatterStyle
+import io.devkit.chartkit.model.ChartX
+import io.devkit.chartkit.model.resolveOrDefault
+import io.devkit.chartkit.scale.SizeScale
+import io.devkit.chartkit.interaction.ChartInteraction
+import io.devkit.chartkit.interaction.CrosshairConfig
 import io.devkit.chartkit.interaction.HitTestMode
 import io.devkit.chartkit.layer.line.AreaFill
 import io.devkit.chartkit.layer.line.LineStyle
 import io.devkit.chartkit.layer.line.PointMode
+import io.devkit.chartkit.model.AnyChartRangeSelection
 import io.devkit.chartkit.model.AnyChartSelection
+import io.devkit.chartkit.model.AnyChartTooltipData
 import io.devkit.chartkit.model.ChartSeries
 import io.devkit.chartkit.model.ChartXAxisKind
 import io.devkit.chartkit.model.ChartXResolver
@@ -27,8 +38,11 @@ import io.devkit.chartkit.model.MissingValuePolicy
 import io.devkit.chartkit.model.normalizeSeries
 import io.devkit.chartkit.scale.CategoryScale
 import io.devkit.chartkit.scale.DomainPolicy
+import io.devkit.chartkit.state.ChartSharedCrosshairState
 import io.devkit.chartkit.state.ChartState
+import io.devkit.chartkit.state.ChartViewportState
 import io.devkit.chartkit.state.rememberChartState
+import io.devkit.chartkit.state.rememberChartViewportState
 
 /**
  * Declares the layers of a [CartesianChart].
@@ -98,6 +112,7 @@ class CartesianChartScope internal constructor(
             valueLabels = valueLabels,
             pointMarkerThreshold = performance.pointMarkerThreshold,
             missingValuePolicy = missingValuePolicy,
+            performance = performance,
         )
     }
 
@@ -160,8 +175,177 @@ class CartesianChartScope internal constructor(
         )
     }
 
+    /**
+     * A scatter or bubble layer.
+     *
+     * @param size an optional third variable driving the marker's size. The
+     *   scale spans every series in the layer, so two series are measured
+     *   against the same domain.
+     */
+    @Suppress("LongParameterList")
+    fun <T> scatter(
+        series: List<ChartSeries<T>>,
+        x: (T) -> Any?,
+        y: (T) -> Number?,
+        size: ((T) -> Number?)? = null,
+        sizeScale: SizeScale? = null,
+        shape: ScatterShape = ScatterShape.Circle,
+        style: ScatterStyle = if (size != null) ScatterStyle.Bubble else ScatterStyle.Point,
+        pointRadius: Dp? = null,
+        xResolver: ChartXResolver = ChartXResolver.Default,
+        xAxisKind: ChartXAxisKind? = null,
+        performance: ChartPerformance = ChartPerformance.Default,
+    ) {
+        val visible = series.applyVisibility()
+        val data = normalizeSeries(
+            series = visible,
+            x = x,
+            y = y,
+            xResolver = xResolver,
+            missingValuePolicy = MissingValuePolicy.Break,
+            xAxisKind = xAxisKind,
+        ).withPaletteOffset(declaredSeries)
+        declaredSeries += series.size
+
+        layers += ResolvedLayer.Scatter(
+            key = "scatter${layers.size}",
+            data = data,
+            shape = shape,
+            style = style,
+            sizes = size?.let { accessor -> visible.map { s -> s.data.map { accessor(it)?.toDouble() } } },
+            sizeScale = sizeScale,
+            pointRadius = pointRadius,
+            performance = performance,
+        )
+    }
+
+    /**
+     * A candlestick or OHLC layer.
+     *
+     * The layer a combined financial chart is built from: declare candles and a
+     * moving-average line together and they share one plot area, one pair of
+     * scales and one hit test.
+     *
+     * ```kotlin
+     * CartesianChart {
+     *     candles(data = prices, x = { it.time },
+     *         open = { it.open }, high = { it.high }, low = { it.low }, close = { it.close })
+     *     line(series = listOf(ChartSeries("ma20", "20-day MA", movingAverage)),
+     *         x = { it.time }, y = { it.value })
+     * }
+     * ```
+     */
+    @Suppress("LongParameterList")
+    fun <T> candles(
+        data: List<T>,
+        x: (T) -> Any?,
+        open: (T) -> Number?,
+        high: (T) -> Number?,
+        low: (T) -> Number?,
+        close: (T) -> Number?,
+        volume: ((T) -> Number?)? = null,
+        markStyle: PriceMarkStyle = PriceMarkStyle.Candle,
+        policy: OhlcPolicy = OhlcPolicy.Repair,
+        seriesId: String = "price",
+        seriesName: String = "Price",
+        xResolver: ChartXResolver = ChartXResolver.Time,
+        xAxisKind: ChartXAxisKind = ChartXAxisKind.Time,
+    ) {
+        val resolved = resolveOhlcLayer(data, x, open, high, low, close, volume, policy, xResolver)
+        declaredSeries += 1
+        layers += ResolvedLayer.Candles(
+            key = "candles${layers.size}",
+            points = resolved.points,
+            xValues = resolved.xValues,
+            markStyle = markStyle,
+            seriesId = seriesId,
+            seriesName = seriesName,
+            items = data,
+            axisKind = xAxisKind,
+        )
+    }
+
+    /**
+     * A volume layer, coloured by each period's price direction.
+     *
+     * Sharing a value axis with a price layer makes volume unreadable — the two
+     * quantities differ by orders of magnitude — so volume normally belongs in
+     * its own chart, linked by a shared viewport. This layer exists for the
+     * cases where the axis genuinely is shared: a volume-only chart built
+     * through the DSL, or one combined with an indicator on the same scale.
+     */
+    @Suppress("LongParameterList")
+    fun <T> volume(
+        data: List<T>,
+        x: (T) -> Any?,
+        volume: (T) -> Number?,
+        open: ((T) -> Number?)? = null,
+        close: ((T) -> Number?)? = null,
+        seriesId: String = "volume",
+        seriesName: String = "Volume",
+        xResolver: ChartXResolver = ChartXResolver.Time,
+        xAxisKind: ChartXAxisKind = ChartXAxisKind.Time,
+    ) {
+        val resolved = resolveOhlcLayer(
+            data = data,
+            x = x,
+            open = open ?: volume,
+            high = { maxOf(open?.invoke(it)?.toDouble() ?: 0.0, close?.invoke(it)?.toDouble() ?: 0.0) },
+            low = { minOf(open?.invoke(it)?.toDouble() ?: 0.0, close?.invoke(it)?.toDouble() ?: 0.0) },
+            close = close ?: volume,
+            volume = volume,
+            policy = OhlcPolicy.Repair,
+            xResolver = xResolver,
+        )
+        layers += ResolvedLayer.Volume(
+            key = "volume${layers.size}",
+            points = resolved.points,
+            xValues = resolved.xValues,
+            seriesId = seriesId,
+            seriesName = seriesName,
+            items = data,
+            axisKind = xAxisKind,
+        )
+    }
+
     private fun <T> List<ChartSeries<T>>.applyVisibility(): List<ChartSeries<T>> =
         map { it.copy(visible = it.visible && it.id !in hiddenSeriesIds) }
+}
+
+/** The non-composable half of [rememberOhlc], for the layer DSL. */
+@Suppress("LongParameterList")
+private fun <T> resolveOhlcLayer(
+    data: List<T>,
+    x: (T) -> Any?,
+    open: (T) -> Number?,
+    high: (T) -> Number?,
+    low: (T) -> Number?,
+    close: (T) -> Number?,
+    volume: ((T) -> Number?)?,
+    policy: OhlcPolicy,
+    xResolver: ChartXResolver,
+): ResolvedOhlc {
+    val xValues = data.map { xResolver.resolveOrDefault(x(it)) }
+    val domainValues = xValues.map { value ->
+        when (value) {
+            is ChartX.Numeric -> value.value
+            is ChartX.Time -> value.epochMillis.toDouble()
+            is ChartX.Category -> Double.NaN
+        }
+    }
+    return ResolvedOhlc(
+        points = normalizeOhlc(
+            count = data.size,
+            domainValue = { domainValues[it] },
+            open = { open(data[it])?.toDouble() },
+            high = { high(data[it])?.toDouble() },
+            low = { low(data[it])?.toDouble() },
+            close = { close(data[it])?.toDouble() },
+            volume = volume?.let { accessor -> { index: Int -> accessor(data[index])?.toDouble() } },
+            policy = policy,
+        ),
+        xValues = xValues,
+    )
 }
 
 /**
@@ -206,14 +390,20 @@ fun CartesianChart(
     legend: LegendPosition = LegendPosition.Bottom,
     legendTogglesSeries: Boolean = false,
     animation: ChartAnimation = ChartAnimation.Default,
-    selectionMode: ChartSelectionMode = ChartSelectionMode.TapAndScrub,
-    selectionBehaviour: ChartSelectionBehaviour = ChartSelectionBehaviour.Default,
+    interaction: ChartInteraction = ChartInteraction.Default,
+    crosshair: CrosshairConfig = ChartDefaults.SelectionGuide,
+    sharedTooltip: Boolean = crosshair.enabled && crosshair.showAxisLabels,
+    viewportState: ChartViewportState = rememberChartViewportState(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
+    annotations: List<ChartAnnotation> = emptyList(),
+    xResolver: ChartXResolver = ChartXResolver.Default,
     hitTestMode: HitTestMode = HitTestMode.NearestDomain,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<Any?> = rememberChartState(),
     onSelectionChanged: ((AnyChartSelection?) -> Unit)? = null,
-    tooltip: (@Composable (AnyChartSelection) -> Unit)? = { ChartDefaults.Tooltip(it) },
+    onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)? = null,
+    tooltip: (@Composable (AnyChartTooltipData) -> Unit)? = { ChartDefaults.Tooltip(it) },
     isLoading: Boolean = false,
     error: Throwable? = null,
     loadingContent: @Composable () -> Unit = { DefaultLoadingContent() },
@@ -237,11 +427,16 @@ fun CartesianChart(
         legend = legend,
         legendTogglesSeries = legendTogglesSeries,
         animation = animation,
-        selectionMode = selectionMode,
-        selectionBehaviour = selectionBehaviour,
+        interaction = interaction,
+        crosshair = crosshair,
         hitTestMode = hitTestMode,
+        sharedTooltip = sharedTooltip,
         state = state,
+        viewportState = viewportState,
+        sharedCrosshair = sharedCrosshair,
+        annotations = remember(annotations, xResolver) { resolveAnnotations(annotations, xResolver) },
         onSelectionChanged = onSelectionChanged,
+        onRangeSelectionChanged = onRangeSelectionChanged,
         tooltip = tooltip,
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,

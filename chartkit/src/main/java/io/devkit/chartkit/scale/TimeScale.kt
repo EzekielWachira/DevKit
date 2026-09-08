@@ -42,7 +42,7 @@ class TimeScale(
      * durations — minute, hour, day, week — chosen from [CALENDAR_STEPS], not
      * real calendar arithmetic. A month step is approximated at 30 days and a
      * year at 365. That is right for positioning a tick on a proportional axis
-     * and wrong for asserting "the first of the month", which 0.1 does not
+     * and wrong for asserting "the first of the month", which ChartKit does not
      * claim to do. A caller who needs true calendar boundaries supplies ticks
      * of their own.
      */

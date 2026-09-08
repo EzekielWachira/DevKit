@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import io.devkit.chartkit.accessibility.ChartAccessibility
 import io.devkit.chartkit.animation.ChartAnimation
+import io.devkit.chartkit.annotation.ChartAnnotation
 import io.devkit.chartkit.animation.rememberAnimatedSeriesValues
 import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
@@ -13,21 +14,26 @@ import io.devkit.chartkit.components.legend.LegendPosition
 import io.devkit.chartkit.formatter.ChartValueFormatter
 import io.devkit.chartkit.geometry.ChartOrientation
 import io.devkit.chartkit.geometry.LineInterpolation
-import io.devkit.chartkit.interaction.ChartSelectionBehaviour
-import io.devkit.chartkit.interaction.ChartSelectionMode
+import io.devkit.chartkit.interaction.ChartInteraction
+import io.devkit.chartkit.interaction.CrosshairConfig
 import io.devkit.chartkit.interaction.HitTestMode
 import io.devkit.chartkit.layer.line.AreaFill
 import io.devkit.chartkit.layer.line.LineStyle
 import io.devkit.chartkit.layer.line.PointMode
+import io.devkit.chartkit.model.ChartRangeSelection
 import io.devkit.chartkit.model.ChartSelection
+import io.devkit.chartkit.model.ChartTooltipData
 import io.devkit.chartkit.model.ChartSeries
 import io.devkit.chartkit.model.ChartXAxisKind
 import io.devkit.chartkit.model.ChartXResolver
 import io.devkit.chartkit.model.MissingValuePolicy
 import io.devkit.chartkit.model.normalizeSeries
 import io.devkit.chartkit.scale.DomainPolicy
+import io.devkit.chartkit.state.ChartSharedCrosshairState
 import io.devkit.chartkit.state.ChartState
+import io.devkit.chartkit.state.ChartViewportState
 import io.devkit.chartkit.state.rememberChartState
+import io.devkit.chartkit.state.rememberChartViewportState
 
 /**
  * A line chart over the caller's own data.
@@ -83,19 +89,24 @@ fun <T> LineChart(
     valueLabels: Boolean = false,
     valueFormatter: ChartValueFormatter? = null,
     animation: ChartAnimation = ChartAnimation.Default,
-    selectionMode: ChartSelectionMode = ChartSelectionMode.TapAndScrub,
-    selectionBehaviour: ChartSelectionBehaviour = ChartSelectionBehaviour.Default,
+    interaction: ChartInteraction = ChartInteraction.Default,
+    crosshair: CrosshairConfig = ChartDefaults.SelectionGuide,
+    sharedTooltip: Boolean = crosshair.enabled && crosshair.showAxisLabels,
+    viewportState: ChartViewportState = rememberChartViewportState(),
     missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
     dataOrder: ChartDataOrder = ChartDataOrder.InputOrder,
     xResolver: ChartXResolver = ChartXResolver.Default,
     xAxisKind: ChartXAxisKind? = null,
     performance: ChartPerformance = ChartPerformance.Default,
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
-    tooltip: (@Composable (ChartSelection<T>) -> Unit)? = {
-        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter, showSeriesName = false)
+    onRangeSelectionChanged: ((ChartRangeSelection<T>?) -> Unit)? = null,
+    tooltip: (@Composable (ChartTooltipData<T>) -> Unit)? = {
+        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter)
     },
     isLoading: Boolean = false,
     error: Throwable? = null,
@@ -124,17 +135,22 @@ fun <T> LineChart(
         valueLabels = valueLabels,
         valueFormatter = valueFormatter,
         animation = animation,
-        selectionMode = selectionMode,
-        selectionBehaviour = selectionBehaviour,
+        interaction = interaction,
+        crosshair = crosshair,
+        sharedTooltip = sharedTooltip,
+        viewportState = viewportState,
         missingValuePolicy = missingValuePolicy,
         dataOrder = dataOrder,
         xResolver = xResolver,
         xAxisKind = xAxisKind,
         performance = performance,
+        annotations = annotations,
+        sharedCrosshair = sharedCrosshair,
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
         onSelectionChanged = onSelectionChanged,
+        onRangeSelectionChanged = onRangeSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,
         error = error,
@@ -185,19 +201,24 @@ fun <T> LineChart(
     valueLabels: Boolean = false,
     valueFormatter: ChartValueFormatter? = null,
     animation: ChartAnimation = ChartAnimation.Default,
-    selectionMode: ChartSelectionMode = ChartSelectionMode.TapAndScrub,
-    selectionBehaviour: ChartSelectionBehaviour = ChartSelectionBehaviour.Default,
+    interaction: ChartInteraction = ChartInteraction.Default,
+    crosshair: CrosshairConfig = ChartDefaults.SelectionGuide,
+    sharedTooltip: Boolean = crosshair.enabled && crosshair.showAxisLabels,
+    viewportState: ChartViewportState = rememberChartViewportState(),
     missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
     dataOrder: ChartDataOrder = ChartDataOrder.InputOrder,
     xResolver: ChartXResolver = ChartXResolver.Default,
     xAxisKind: ChartXAxisKind? = null,
     performance: ChartPerformance = ChartPerformance.Default,
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
-    tooltip: (@Composable (ChartSelection<T>) -> Unit)? = {
-        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter, showSeriesName = series.size > 1)
+    onRangeSelectionChanged: ((ChartRangeSelection<T>?) -> Unit)? = null,
+    tooltip: (@Composable (ChartTooltipData<T>) -> Unit)? = {
+        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter)
     },
     isLoading: Boolean = false,
     error: Throwable? = null,
@@ -246,6 +267,7 @@ fun <T> LineChart(
                 valueLabels = valueLabels,
                 pointMarkerThreshold = performance.pointMarkerThreshold,
                 missingValuePolicy = missingValuePolicy,
+                performance = performance,
             ),
         )
     }
@@ -265,14 +287,21 @@ fun <T> LineChart(
         legend = legend,
         legendTogglesSeries = legendTogglesSeries,
         animation = animation,
-        selectionMode = selectionMode,
-        selectionBehaviour = selectionBehaviour,
+        interaction = interaction,
+        crosshair = crosshair,
         hitTestMode = HitTestMode.NearestDomain,
+        sharedTooltip = sharedTooltip,
         state = state.asErased(),
+        viewportState = viewportState,
+        sharedCrosshair = sharedCrosshair,
+        annotations = remember(annotations, xResolver) { resolveAnnotations(annotations, xResolver) },
         onSelectionChanged = onSelectionChanged?.let { callback ->
             { erased -> callback(erased?.asTyped()) }
         },
-        tooltip = tooltip?.let { slot -> { erased -> slot(erased.asTyped()) } },
+        onRangeSelectionChanged = onRangeSelectionChanged?.let { callback ->
+            { erased -> callback(erased?.asTypedRange()) }
+        },
+        tooltip = tooltip?.let { slot -> { erased -> slot(erased.asTypedTooltip()) } },
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         isLoading = isLoading,
@@ -311,17 +340,23 @@ fun <T> AreaChart(
     valueDomain: DomainPolicy = DomainPolicy.Baseline,
     valueFormatter: ChartValueFormatter? = null,
     animation: ChartAnimation = ChartAnimation.Default,
-    selectionMode: ChartSelectionMode = ChartSelectionMode.TapAndScrub,
+    interaction: ChartInteraction = ChartInteraction.Default,
+    crosshair: CrosshairConfig = ChartDefaults.SelectionGuide,
+    sharedTooltip: Boolean = crosshair.enabled && crosshair.showAxisLabels,
+    viewportState: ChartViewportState = rememberChartViewportState(),
     missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
     dataOrder: ChartDataOrder = ChartDataOrder.InputOrder,
     xResolver: ChartXResolver = ChartXResolver.Default,
     xAxisKind: ChartXAxisKind? = null,
     performance: ChartPerformance = ChartPerformance.Default,
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
-    tooltip: (@Composable (ChartSelection<T>) -> Unit)? = {
-        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter, showSeriesName = false)
+    onRangeSelectionChanged: ((ChartRangeSelection<T>?) -> Unit)? = null,
+    tooltip: (@Composable (ChartTooltipData<T>) -> Unit)? = {
+        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter)
     },
     isLoading: Boolean = false,
     error: Throwable? = null,
@@ -347,15 +382,21 @@ fun <T> AreaChart(
         valueDomain = valueDomain,
         valueFormatter = valueFormatter,
         animation = animation,
-        selectionMode = selectionMode,
+        interaction = interaction,
+        crosshair = crosshair,
+        sharedTooltip = sharedTooltip,
+        viewportState = viewportState,
         missingValuePolicy = missingValuePolicy,
         dataOrder = dataOrder,
         xResolver = xResolver,
         xAxisKind = xAxisKind,
         performance = performance,
+        annotations = annotations,
+        sharedCrosshair = sharedCrosshair,
         accessibility = accessibility,
         state = state,
         onSelectionChanged = onSelectionChanged,
+        onRangeSelectionChanged = onRangeSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,
         error = error,
@@ -371,7 +412,7 @@ fun <T> AreaChart(
  * Overlapping rather than stacked: each series is filled from the baseline
  * independently, which is the honest reading when the series are alternatives
  * — revenue against forecast — rather than parts of a whole. Stacked areas are
- * a 0.2 feature; see the README's limitations.
+ * not supported; see the README's limitations.
  */
 @JvmName("AreaChartSeries")
 @Composable
@@ -391,15 +432,21 @@ fun <T> AreaChart(
     valueDomain: DomainPolicy = DomainPolicy.Baseline,
     valueFormatter: ChartValueFormatter? = null,
     animation: ChartAnimation = ChartAnimation.Default,
-    selectionMode: ChartSelectionMode = ChartSelectionMode.TapAndScrub,
+    interaction: ChartInteraction = ChartInteraction.Default,
+    crosshair: CrosshairConfig = ChartDefaults.SelectionGuide,
+    sharedTooltip: Boolean = crosshair.enabled && crosshair.showAxisLabels,
+    viewportState: ChartViewportState = rememberChartViewportState(),
     missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
     xResolver: ChartXResolver = ChartXResolver.Default,
     performance: ChartPerformance = ChartPerformance.Default,
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
-    tooltip: (@Composable (ChartSelection<T>) -> Unit)? = {
-        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter, showSeriesName = series.size > 1)
+    onRangeSelectionChanged: ((ChartRangeSelection<T>?) -> Unit)? = null,
+    tooltip: (@Composable (ChartTooltipData<T>) -> Unit)? = {
+        ChartDefaults.Tooltip(it, valueFormatter = valueFormatter)
     },
     isLoading: Boolean = false,
     error: Throwable? = null,
@@ -423,13 +470,19 @@ fun <T> AreaChart(
         valueDomain = valueDomain,
         valueFormatter = valueFormatter,
         animation = animation,
-        selectionMode = selectionMode,
+        interaction = interaction,
+        crosshair = crosshair,
+        sharedTooltip = sharedTooltip,
+        viewportState = viewportState,
         missingValuePolicy = missingValuePolicy,
         xResolver = xResolver,
         performance = performance,
+        annotations = annotations,
+        sharedCrosshair = sharedCrosshair,
         accessibility = accessibility,
         state = state,
         onSelectionChanged = onSelectionChanged,
+        onRangeSelectionChanged = onRangeSelectionChanged,
         tooltip = tooltip,
         isLoading = isLoading,
         error = error,

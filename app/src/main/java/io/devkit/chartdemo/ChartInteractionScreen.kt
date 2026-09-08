@@ -27,7 +27,7 @@ import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.charts.BarChart
 import io.devkit.chartkit.charts.LineChart
 import io.devkit.chartkit.formatter.ChartNumberFormatters
-import io.devkit.chartkit.interaction.ChartSelectionMode
+import io.devkit.chartkit.interaction.ChartInteraction
 import io.devkit.chartkit.model.ChartSelection
 import io.devkit.chartkit.state.rememberChartState
 
@@ -91,17 +91,17 @@ fun ChartInteractionScreen(modifier: Modifier = Modifier) {
             x = { it.month },
             y = { it.amount },
             valueFormatter = money,
-            selectionMode = ChartSelectionMode.TapAndScrub,
+            interaction = ChartInteraction.Default,
             state = scrubState,
             animation = ChartAnimation.Default,
             // A custom tooltip, given the sample's own type.
-            tooltip = { selection ->
+            tooltip = { data ->
                 Card(shape = RoundedCornerShape(10.dp)) {
                     Column(Modifier.padding(10.dp)) {
-                        Text(selection.item.month, fontWeight = FontWeight.SemiBold)
-                        Text(money.format(selection.item.amount))
+                        Text(data.item.month, fontWeight = FontWeight.SemiBold)
+                        Text(money.format(data.item.amount))
                         Text(
-                            "point ${selection.pointIndex + 1} of ${ChartDemoData.revenue.size}",
+                            "point ${data.selection.pointIndex + 1} of ${ChartDemoData.revenue.size}",
                             style = MaterialTheme.typography.labelSmall,
                         )
                     }

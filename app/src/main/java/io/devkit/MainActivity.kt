@@ -86,7 +86,17 @@ import io.devkit.fillkit.fillScenario
 import io.devkit.fillkit.generatorPack
 import io.devkit.fillkit.personaPack
 import io.devkit.fillkit.scenarioPack
+import io.devkit.chartdemo.ChartExploreScreen
+import io.devkit.chartdemo.ChartAccessibilityScreen
+import io.devkit.chartdemo.ChartAnnotationsScreen
+import io.devkit.chartdemo.ChartDensityScreen
+import io.devkit.chartdemo.ChartFinancialScreen
 import io.devkit.chartdemo.ChartGalleryScreen
+import io.devkit.chartdemo.ChartLargeDataScreen
+import io.devkit.chartdemo.ChartRadarScreen
+import io.devkit.chartdemo.ChartStatisticalScreen
+import io.devkit.chartdemo.ChartStreamingScreen
+import io.devkit.chartdemo.ChartPolarScreen
 import io.devkit.chartdemo.ChartInteractionScreen
 import io.devkit.chartdemo.ChartStatesScreen
 import io.devkit.chartdemo.ChartStylingScreen
@@ -421,7 +431,7 @@ private enum class SampleScreen(
         "Chart gallery",
         "G",
         SampleKit.ChartKit,
-        "Every 0.1 chart type, with live controls",
+        "Every Cartesian chart type, with live controls",
     ),
     ChartInteraction(
         "Chart interaction",
@@ -440,6 +450,66 @@ private enum class SampleScreen(
         "E",
         SampleKit.ChartKit,
         "Loading, empty, error, edge cases and semantics",
+    ),
+    ChartPolar(
+        "Polar charts",
+        "P",
+        SampleKit.ChartKit,
+        "Pie, donut, radial bars and a gauge",
+    ),
+    ChartExplore(
+        "Zoom, pan and range",
+        "Z",
+        SampleKit.ChartKit,
+        "Pinch, pan, crosshair and range selection",
+    ),
+    ChartStatistical(
+        "Statistical charts",
+        "S",
+        SampleKit.ChartKit,
+        "Scatter, bubble, histogram, box plot and violin",
+    ),
+    ChartDensity(
+        "Heatmaps",
+        "H",
+        SampleKit.ChartKit,
+        "Grid and calendar heatmaps, and colour scales",
+    ),
+    ChartRadar(
+        "Radar",
+        "R",
+        SampleKit.ChartKit,
+        "Multi-metric profiles on polar coordinates",
+    ),
+    ChartFinancial(
+        "Financial charts",
+        "F",
+        SampleKit.ChartKit,
+        "Candlestick, OHLC and a linked volume chart",
+    ),
+    ChartAnnotations(
+        "Annotations",
+        "A",
+        SampleKit.ChartKit,
+        "Thresholds, events, bands and regions",
+    ),
+    ChartLargeData(
+        "Large datasets",
+        "L",
+        SampleKit.ChartKit,
+        "100,000 points, culling and downsampling",
+    ),
+    ChartStreaming(
+        "Streaming",
+        "W",
+        SampleKit.ChartKit,
+        "A live flow, windowing and backpressure",
+    ),
+    ChartAccessibility(
+        "Chart accessibility",
+        "D",
+        SampleKit.ChartKit,
+        "Summaries, data tables and capture",
     ),
 }
 
@@ -563,6 +633,16 @@ private fun FillKitSampleApp() {
                 SampleScreen.ChartInteraction -> ChartInteractionScreen(Modifier.padding(padding))
                 SampleScreen.ChartStyling -> ChartStylingScreen(Modifier.padding(padding))
                 SampleScreen.ChartStates -> ChartStatesScreen(Modifier.padding(padding))
+                SampleScreen.ChartPolar -> ChartPolarScreen(Modifier.padding(padding))
+                SampleScreen.ChartExplore -> ChartExploreScreen(Modifier.padding(padding))
+                SampleScreen.ChartStatistical -> ChartStatisticalScreen(Modifier.padding(padding))
+                SampleScreen.ChartDensity -> ChartDensityScreen(Modifier.padding(padding))
+                SampleScreen.ChartRadar -> ChartRadarScreen(Modifier.padding(padding))
+                SampleScreen.ChartFinancial -> ChartFinancialScreen(Modifier.padding(padding))
+                SampleScreen.ChartAnnotations -> ChartAnnotationsScreen(Modifier.padding(padding))
+                SampleScreen.ChartLargeData -> ChartLargeDataScreen(Modifier.padding(padding))
+                SampleScreen.ChartStreaming -> ChartStreamingScreen(Modifier.padding(padding))
+                SampleScreen.ChartAccessibility -> ChartAccessibilityScreen(Modifier.padding(padding))
             }
         }
     }
