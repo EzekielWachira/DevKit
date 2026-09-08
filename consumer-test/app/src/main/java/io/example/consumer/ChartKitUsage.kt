@@ -1,13 +1,30 @@
 package io.example.consumer
 
 import io.devkit.chartkit.ChartKitVersion
+import io.devkit.chartkit.accessibility.chartDataTable
+import io.devkit.chartkit.accessibility.ohlcDataTable
+import io.devkit.chartkit.data.LttbDownsampler
+import io.devkit.chartkit.data.VisibleRange
 import io.devkit.chartkit.formatter.ChartNumberFormatters
+import io.devkit.chartkit.geometry.CalendarGeometry
+import io.devkit.chartkit.geometry.OhlcPolicy
+import io.devkit.chartkit.geometry.PriceDirection
 import io.devkit.chartkit.model.ChartSeries
 import io.devkit.chartkit.scale.LinearScale
 import io.devkit.chartkit.scale.NumericDomain
+import io.devkit.chartkit.scale.SizeScale
 import io.devkit.chartkit.scale.TickGenerator
+import io.devkit.chartkit.stats.BoxStatistics
+import io.devkit.chartkit.stats.ChartStatistics
+import io.devkit.chartkit.stats.DensityEstimator
+import io.devkit.chartkit.stats.HistogramBinner
+import io.devkit.chartkit.stats.HistogramBins
+import io.devkit.chartkit.stats.MovingAverage
+import io.devkit.chartkit.stats.Quartiles
+import io.devkit.chartkit.stream.ChartWindow
 import io.devkit.core.DevKitDistribution
 import java.util.Locale
+import java.util.TimeZone
 
 /**
  * Release-safe usage of ChartKit, compiled against the **published** artifact.
@@ -16,11 +33,15 @@ import java.util.Locale
  * were classified or published as debug-only, this file would not build — which
  * is the claim being verified, not merely asserted.
  *
- * It reaches into the engine — scales, ticks, series, formatters — rather than
+ * It reaches into the engine — scales, ticks, series, formatters, statistics,
+ * downsampling, financial normalisation and the streaming window — rather than
  * only reading a version constant, so the AAR is proven to contain its classes
- * and not merely to resolve. Compose composables are deliberately not touched
- * here: this module has no Compose plugin, and driving the whole Compose
- * toolchain would test AGP rather than ChartKit's publication.
+ * and not merely to resolve. All of it is plain Kotlin: none of these entry
+ * points needs Compose, which is itself worth verifying.
+ *
+ * Compose *composables* are deliberately not touched here: this module has no
+ * Compose plugin, and driving the whole Compose toolchain would test AGP rather
+ * than ChartKit's publication.
  */
 object ChartKitUsage {
 
@@ -49,4 +70,95 @@ object ChartKitUsage {
 
     /** The tick generator is public engine surface too. */
     fun tickCount(): Int = TickGenerator.ticks(NumericDomain(0.0, 97.0), 5).size
+
+    // ---- the statistical, financial and streaming surface -------------------
+    //
+    // Reached from the published artifact for the same reason as the scales: an
+    // AAR that resolves but does not contain these classes fails here rather
+    // than in a consumer's app.
+
+    /** Quartiles, by ChartKit's documented method. */
+    fun latencyQuartiles(): Quartiles =
+        ChartStatistics.quartiles(ChartStatistics.finiteSorted(SAMPLES))
+
+    /** A five-number summary, computed rather than supplied. */
+    fun latencySummary(): BoxStatistics? = BoxStatistics.from(SAMPLES)
+
+    /** Histogram binning, including the boundary rules. */
+    fun histogramBinCount(): Int =
+        HistogramBinner.bin(SAMPLES.map { it }, HistogramBins.Count(5)).size
+
+    /** Kernel density estimation. */
+    fun densityPeak(): Double = DensityEstimator.estimate(SAMPLES).peak
+
+    /** The size scale, mapping a value to a bubble radius by area. */
+    fun bubbleRadius(): Float =
+        SizeScale(NumericDomain(0.0, 100.0), minSize = 4f, maxSize = 32f).size(50.0)
+
+    /** Downsampling: a hundred thousand points reduced to a drawable budget. */
+    fun sampledCount(): Int {
+        val x = DoubleArray(100_000) { it.toDouble() }
+        val y = DoubleArray(100_000) { kotlin.math.sin(it / 50.0) }
+        return LttbDownsampler.sample(x, y, 1_000).size
+    }
+
+    /** Visible-range lookup over an ordered series. */
+    fun visibleCount(): Int {
+        val values = DoubleArray(1_000) { it.toDouble() }
+        return VisibleRange.of(values, 100.0, 200.0).size
+    }
+
+    /**
+     * The public financial surface.
+     *
+     * OHLC *normalisation* is internal on purpose — it is engine machinery a
+     * consumer reaches through `CandlestickChart`, not directly — so what is
+     * verified here is what a consumer can actually name: the validation policy,
+     * the direction the theme colours by, and the typed table adapter.
+     */
+    fun pricePolicies(): List<String> = listOf(
+        OhlcPolicy.Repair.name,
+        PriceDirection.Increase.name,
+        PriceDirection.Decrease.name,
+        PriceDirection.Neutral.name,
+    )
+
+    /** A typed OHLC table, with no reflection anywhere in it. */
+    fun priceTableColumns(): List<String> = ohlcDataTable(
+        data = listOf(Bar("Mon", 10.0, 12.0, 9.5, 11.0)),
+        date = { it.label },
+        open = { it.open },
+        high = { it.high },
+        low = { it.low },
+        close = { it.close },
+    ).columns
+
+    private data class Bar(
+        val label: String,
+        val open: Double,
+        val high: Double,
+        val low: Double,
+        val close: Double,
+    )
+
+    /** A moving average, as a plain list aligned to its input. */
+    fun movingAverage(): List<Double?> =
+        MovingAverage.simple(listOf(1.0, 2.0, 3.0, 4.0, 5.0), period = 3)
+
+    /** The calendar grid a calendar heatmap is laid out on. */
+    fun calendarWeeks(): Int =
+        CalendarGeometry.grid(0L, 364L, Locale.UK, TimeZone.getTimeZone("UTC")).weekCount
+
+    /** The accessible table representation. */
+    fun dataTableRows(): Int = chartDataTable(
+        data = sampleSeries().data,
+        category = { it.month },
+        value = { it.amount },
+    ).rows.size
+
+    /** The rolling window behind a streaming chart. */
+    fun windowSize(): Int = (ChartWindow.Count(500) as ChartWindow.Count).size
+
+    private val SAMPLES: List<Double> =
+        listOf(120.0, 135.0, 140.0, 155.0, 160.0, 178.0, 190.0, 210.0, 260.0, 480.0)
 }

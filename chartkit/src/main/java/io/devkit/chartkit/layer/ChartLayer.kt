@@ -47,6 +47,17 @@ internal class ChartRenderContext(
     val selection: AnyChartSelection?,
     val range: AnyChartRangeSelection? = null,
     val viewport: ChartViewport = ChartViewport.Full,
+    /**
+     * A domain position pushed in from outside this chart.
+     *
+     * How linked charts share a crosshair: one chart publishes the domain value
+     * under the pointer, and every chart in the group receives it here and
+     * draws its own guide at its own scale's position for that value. Shared as
+     * a **domain value** and not as a pixel or a fraction, because two charts
+     * over different datasets have different domains — aligning them by
+     * fraction would put the same pixel, not the same date, under both guides.
+     */
+    val externalDomain: io.devkit.chartkit.model.ChartX? = null,
 ) {
     /** [dp] in pixels, at the current density. */
     fun px(dp: androidx.compose.ui.unit.Dp): Float = with(density) { dp.toPx() }
@@ -145,6 +156,33 @@ internal data class ChartLayerSummary(
     val seriesName: String,
     val pointCount: Int,
     val entries: List<ChartLayerEntry>,
+    /**
+     * The interval the present values occupy, when [entries] was not
+     * materialised.
+     *
+     * A fifty-thousand-point series has fifty thousand entries that will never
+     * be read out — the announcement caps long before that and falls back to a
+     * range. Building them anyway costs fifty thousand allocations per layout
+     * for a string nobody hears, so a layer past the cap supplies the range
+     * directly and leaves [entries] empty.
+     */
+    val valueRange: ClosedFloatingPointRange<Double>? = null,
+    /** How many of [pointCount] had no value. */
+    val missingCount: Int = 0,
 )
 
-internal data class ChartLayerEntry(val label: String, val value: Double?)
+/**
+ * One announced data point.
+ *
+ * @param label how the point is identified — a category, a date, an x value.
+ * @param value the number, or `null` when the point is missing.
+ * @param detail a complete phrase replacing the default `"label: value"`, for
+ *   points that are not one number. A box plot's category has five, a candle
+ *   has four, and a scatter observation has two coordinates and possibly a
+ *   size; announcing only one of them would describe a fraction of the mark.
+ */
+internal data class ChartLayerEntry(
+    val label: String,
+    val value: Double?,
+    val detail: String? = null,
+)

@@ -113,6 +113,7 @@ internal fun PolarChartCore(
     emptyContent: @Composable () -> Unit,
     errorContent: @Composable (Throwable) -> Unit,
     centerContent: (@Composable () -> Unit)?,
+    radiusInset: Float = 0f,
 ) {
     val theme = ChartKitTheme.current
     val density = LocalDensity.current
@@ -169,6 +170,7 @@ internal fun PolarChartCore(
                         accessibility = accessibility,
                         accessibilitySummary = accessibilitySummary,
                         centerContent = centerContent,
+                        radiusInset = radiusInset,
                         density = density,
                         textMeasurer = textMeasurer,
                     )
@@ -202,6 +204,7 @@ private fun PolarPlot(
     accessibility: ChartAccessibility,
     accessibilitySummary: (() -> String)?,
     centerContent: (@Composable () -> Unit)?,
+    radiusInset: Float,
     density: androidx.compose.ui.unit.Density,
     textMeasurer: androidx.compose.ui.text.TextMeasurer,
 ) {
@@ -210,7 +213,9 @@ private fun PolarPlot(
 
     // Coordinates and layers are built once per layout, not per frame — the
     // same caching rule the Cartesian engine follows, for the same reason.
-    val coordinates = remember(size, innerRadiusRatio, startAngle, sweepAngle, direction, theme, density) {
+    val coordinates = remember(
+        size, innerRadiusRatio, startAngle, sweepAngle, direction, theme, density, radiusInset,
+    ) {
         val bounds = ChartRect.fromSize(size.width.toFloat(), size.height.toFloat())
         val padding = with(density) { theme.dimensions.polarPadding.toPx() }
         val layout = computePolarLayout(
@@ -218,7 +223,17 @@ private fun PolarPlot(
             contentPadding = ChartInsets(padding, padding, padding, padding),
         )
         val plot = layout.plotArea
-        val outer = PolarGeometry.radiusWithin(plot)
+        // A chart that writes labels outside its own ring has to reserve the
+        // room first, and the reserve is *measured* by the chart rather than
+        // guessed at — the same rule the Cartesian axes follow. The plot stays
+        // the full square, the labels live in the gutter, and only the ring
+        // shrinks.
+        //
+        // Floored at a fraction of the available radius: a pathologically long
+        // metric name should cost its own label, not the whole chart.
+        val available = PolarGeometry.radiusWithin(plot)
+        val outer = (available - radiusInset.coerceAtLeast(0f))
+            .coerceAtLeast(available * MIN_RADIUS_FRACTION)
         PolarCoordinates(
             plotArea = plot,
             center = ChartOffset(plot.centerX, plot.centerY),
@@ -278,6 +293,7 @@ private fun PolarPlot(
                 },
                 anchor = selected.position,
                 xLabel = selected.polar?.label ?: selected.xLabel,
+                valueFormatter = valueFormatter,
             )
         }
     }
@@ -376,3 +392,6 @@ private const val MAX_INNER_RATIO = 0.95f
 
 /** Side of the largest square inscribed in a circle of radius 1, times 2. */
 private const val INSCRIBED_SQUARE = 1.41421356f
+
+/** However much a chart reserves for labels, this much ring always remains. */
+private const val MIN_RADIUS_FRACTION = 0.45f

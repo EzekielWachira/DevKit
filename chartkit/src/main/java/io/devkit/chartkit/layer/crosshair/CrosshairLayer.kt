@@ -34,6 +34,10 @@ internal class CrosshairLayer(
     private val config: CrosshairConfig,
     private val domainLabel: (AnyChartSelection) -> String,
     private val valueLabel: (Double) -> String,
+    /** Where a domain value sits, for a guide driven from another chart. */
+    private val positionOfDomain: (io.devkit.chartkit.model.ChartX) -> Float? = { null },
+    /** How a domain value is written, for that guide's axis chip. */
+    private val formatDomain: (io.devkit.chartkit.model.ChartX) -> String = { "" },
     override val id: String = "crosshair",
 ) : ChartLayerRenderer {
 
@@ -44,12 +48,21 @@ internal class CrosshairLayer(
 
     override fun draw(scope: DrawScope, context: ChartRenderContext) {
         if (!config.enabled) return
-        val selection = context.selection ?: return
         val coordinates = context.cartesian
         val plot = coordinates.plotArea
         // Suppressed during the reveal: a crosshair over a chart that is still
         // drawing itself in points at values that are not there yet.
         if (plot.isEmpty || context.reveal < 1f) return
+
+        val selection = context.selection
+        if (selection == null) {
+            // No selection of its own, but a linked chart is publishing a
+            // domain position. Only the domain guide is drawn: the other chart
+            // is over a different quantity, and a value guide taken from it
+            // would point at a number this chart's axis does not measure.
+            drawExternalGuide(scope, context, plot)
+            return
+        }
 
         val width = context.px(context.dimensions.crosshairWidth)
         val effect = PathEffect.dashPathEffect(floatArrayOf(width * 4f, width * 4f))
@@ -91,6 +104,43 @@ internal class CrosshairLayer(
                     vertical = vertical,
                 )
             }
+        }
+    }
+
+    /**
+     * The guide for a domain value pushed in from a linked chart.
+     *
+     * Positioned through **this** chart's own domain scale, so two charts over
+     * different datasets put their guides on the same date rather than on the
+     * same pixel.
+     */
+    private fun drawExternalGuide(
+        scope: DrawScope,
+        context: ChartRenderContext,
+        plot: ChartRect,
+    ) {
+        if (!config.vertical) return
+        val domain = context.externalDomain ?: return
+        val position = positionOfDomain(domain) ?: return
+        if (!position.isFinite()) return
+
+        val width = context.px(context.dimensions.crosshairWidth)
+        val effect = PathEffect.dashPathEffect(floatArrayOf(width * 4f, width * 4f))
+        val vertical = context.cartesian.orientation.isVertical
+        drawGuide(
+            scope, plot, position, alongDomain = true, vertical,
+            context.colors.crosshairGuide, width, effect,
+        )
+        if (config.showAxisLabels) {
+            drawAxisChip(
+                scope = scope,
+                context = context,
+                text = formatDomain(domain),
+                plot = plot,
+                position = position,
+                onDomainAxis = true,
+                vertical = vertical,
+            )
         }
     }
 

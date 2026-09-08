@@ -53,12 +53,19 @@ data class ChartTooltipEntry<out T>(
  * @param anchor where the tooltip should point, in pixels.
  * @param xLabel the domain value as text, already formatted by the chart's own
  *   axis formatter.
+ * @param valueFormatter how the chart's own value axis writes numbers. The
+ *   default tooltip uses it when the caller supplied none, so a tooltip and the
+ *   axis beside it never disagree about how a price is written — a chart whose
+ *   axis reads `250` and whose tooltip reads `229.0358655001` is showing two
+ *   different quantities as far as a reader is concerned.
  */
 data class ChartTooltipData<out T>(
     val selection: ChartSelection<T>,
     val entries: List<ChartTooltipEntry<T>>,
     val anchor: ChartOffset,
     val xLabel: String,
+    val valueFormatter: io.devkit.chartkit.formatter.ChartValueFormatter =
+        io.devkit.chartkit.formatter.ChartValueFormatter.Raw,
 ) {
     /** True when more than one series is reported at this position. */
     val isMultiSeries: Boolean get() = entries.size > 1

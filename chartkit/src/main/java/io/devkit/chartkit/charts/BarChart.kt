@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import io.devkit.chartkit.accessibility.ChartAccessibility
 import io.devkit.chartkit.animation.ChartAnimation
+import io.devkit.chartkit.annotation.ChartAnnotation
 import io.devkit.chartkit.animation.rememberAnimatedSeriesValues
 import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
@@ -27,6 +28,7 @@ import io.devkit.chartkit.model.MissingValuePolicy
 import io.devkit.chartkit.model.normalizeSeries
 import io.devkit.chartkit.scale.CategoryScale
 import io.devkit.chartkit.scale.DomainPolicy
+import io.devkit.chartkit.state.ChartSharedCrosshairState
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.ChartViewportState
 import io.devkit.chartkit.state.rememberChartState
@@ -81,6 +83,8 @@ fun <T> BarChart(
     viewportState: ChartViewportState = rememberChartViewportState(),
     missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
     xResolver: ChartXResolver = ChartXResolver.Default,
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
@@ -120,6 +124,8 @@ fun <T> BarChart(
         viewportState = viewportState,
         missingValuePolicy = missingValuePolicy,
         xResolver = xResolver,
+        annotations = annotations,
+        sharedCrosshair = sharedCrosshair,
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
@@ -185,6 +191,8 @@ fun <T> BarChart(
     viewportState: ChartViewportState = rememberChartViewportState(),
     missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
     xResolver: ChartXResolver = ChartXResolver.Default,
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
@@ -272,6 +280,8 @@ fun <T> BarChart(
         sharedTooltip = sharedTooltip,
         state = state.asErased(),
         viewportState = viewportState,
+        sharedCrosshair = sharedCrosshair,
+        annotations = remember(annotations, xResolver) { resolveAnnotations(annotations, xResolver) },
         onSelectionChanged = onSelectionChanged?.let { callback ->
             { erased -> callback(erased?.asTyped()) }
         },
@@ -320,6 +330,8 @@ fun <T> HorizontalBarChart(
     crosshair: CrosshairConfig = ChartDefaults.SelectionGuide,
     sharedTooltip: Boolean = crosshair.enabled && crosshair.showAxisLabels,
     viewportState: ChartViewportState = rememberChartViewportState(),
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -353,6 +365,8 @@ fun <T> HorizontalBarChart(
         crosshair = crosshair,
         sharedTooltip = sharedTooltip,
         viewportState = viewportState,
+        annotations = annotations,
+        sharedCrosshair = sharedCrosshair,
         accessibility = accessibility,
         state = state,
         onSelectionChanged = onSelectionChanged,

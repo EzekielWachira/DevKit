@@ -45,7 +45,7 @@ Group: **`io.github.ezekielwachira.devkit`**
 | Gradle module | Artifact | Purpose | Version | Class |
 | --- | --- | --- | --- | --- |
 | `:core` | `core` | Ecosystem version metadata and the distribution classification | `0.1.0` | runtime |
-| `:chartkit` | `chartkit` | Compose visualisation engine (Cartesian and polar) and chart composables | `0.1.0` | runtime |
+| `:chartkit` | `chartkit` | Compose visualisation engine (Cartesian and polar), statistics, downsampling, streaming and the chart composables | `0.1.0` | runtime |
 | `:fillkit:api` | `fillkit-api` | FillKit's Compose modifier, models, DSLs and no-op release runtime | `0.1.0` | runtime |
 | `:fillkit:engine` | `fillkit-engine` | FillKit's data generation engine | `0.1.0` | debug |
 | `:fillkit:debug` | `fillkit-debug` | FillKit's developer panel and QA launcher | `0.1.0` | debug |

@@ -54,6 +54,8 @@ import io.devkit.chartkit.interaction.CrosshairConfig
 import io.devkit.chartkit.interaction.HitTestMode
 import io.devkit.chartkit.interaction.chartGestures
 import io.devkit.chartkit.layer.ChartRenderContext
+import io.devkit.chartkit.layer.annotation.ResolvedAnnotation
+import io.devkit.chartkit.model.ChartX
 import io.devkit.chartkit.model.AnyChartRangeSelection
 import io.devkit.chartkit.model.AnyChartSelection
 import io.devkit.chartkit.model.AnyChartTooltipData
@@ -63,6 +65,7 @@ import io.devkit.chartkit.model.ChartTooltipData
 import io.devkit.chartkit.model.ChartTooltipEntry
 import io.devkit.chartkit.scale.DomainPolicy
 import io.devkit.chartkit.state.ChartState
+import io.devkit.chartkit.state.ChartSharedCrosshairState
 import io.devkit.chartkit.state.ChartViewportState
 import io.devkit.chartkit.state.rememberChartViewportState
 import io.devkit.chartkit.theme.ChartKitTheme
@@ -98,6 +101,8 @@ internal fun CartesianChartCore(
     sharedTooltip: Boolean,
     state: ChartState<Any?>,
     viewportState: ChartViewportState,
+    sharedCrosshair: ChartSharedCrosshairState?,
+    annotations: List<ResolvedAnnotation>,
     onSelectionChanged: ((AnyChartSelection?) -> Unit)?,
     onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)?,
     tooltip: (@Composable (AnyChartTooltipData) -> Unit)?,
@@ -154,6 +159,8 @@ internal fun CartesianChartCore(
                         sharedTooltip = sharedTooltip,
                         state = state,
                         viewportState = viewportState,
+                        sharedCrosshair = sharedCrosshair,
+                        annotations = annotations,
                         onSelectionChanged = onSelectionChanged,
                         onRangeSelectionChanged = onRangeSelectionChanged,
                         tooltip = tooltip,
@@ -187,12 +194,16 @@ private fun LegendSlot(
     val colors = ChartKitTheme.colors
     val entries = remember(layers, colors, state.hiddenSeriesIds) {
         layers.flatMap { layer ->
-            layer.data.series.map { series ->
+            // Each layer decides what it contributes: a line or bar layer one
+            // row per series, a price layer a single row, a box plot none —
+            // its categories are already on the axis.
+            layer.legendRows().map { series ->
                 ChartLegendEntry(
-                    seriesId = series.id,
+                    seriesId = series.seriesId,
                     name = series.name,
-                    color = series.color?.let { Color(it) } ?: colors.seriesColor(series.paletteIndex),
-                    visible = series.visible && state.isSeriesVisible(series.id),
+                    color = series.colorOverride?.let { Color(it) }
+                        ?: colors.seriesColor(series.paletteIndex),
+                    visible = series.visible && state.isSeriesVisible(series.seriesId),
                 )
             }
         }.distinctBy { it.seriesId }
@@ -222,6 +233,8 @@ private fun ChartPlot(
     sharedTooltip: Boolean,
     state: ChartState<Any?>,
     viewportState: ChartViewportState,
+    sharedCrosshair: ChartSharedCrosshairState?,
+    annotations: List<ResolvedAnnotation>,
     onSelectionChanged: ((AnyChartSelection?) -> Unit)?,
     onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)?,
     tooltip: (@Composable (AnyChartTooltipData) -> Unit)?,
@@ -245,7 +258,7 @@ private fun ChartPlot(
     val geometry = remember(
         layers, size, orientation, domainAxisConfig, valueAxisConfig, grid,
         valueDomainPolicy, crosshair, viewport, rangeSelectable, theme, density,
-        locale, accessibility,
+        locale, accessibility, annotations,
     ) {
         buildCartesianGeometry(
             bounds = ChartRect.fromSize(size.width.toFloat(), size.height.toFloat()),
@@ -264,6 +277,7 @@ private fun ChartPlot(
             dimensions = theme.dimensions,
             locale = locale,
             accessibility = accessibility,
+            annotations = annotations,
         )
     }
 
@@ -279,6 +293,49 @@ private fun ChartPlot(
     val selection = state.selection
     val range = state.rangeSelection
 
+    // An opaque identity for this chart within a linked group, so it can tell
+    // its own published position from another chart's.
+    val chartId = remember { Any() }
+    val externalDomain: ChartX? = sharedCrosshair
+        ?.takeIf { it.source !== chartId }
+        ?.domain
+
+    // A position published by another chart moves this one's selection too, so
+    // a linked dashboard reports a value per chart rather than a bare guide.
+    // Driven from the shared state and never writing back to it: a chart
+    // publishes only from its own gestures, which is what makes a loop
+    // structurally impossible.
+    LaunchedEffect(externalDomain, geometry) {
+        if (externalDomain == null) {
+            if (sharedCrosshair != null && state.selection != null && sharedCrosshair.source !== chartId) {
+                state.clearSelection()
+            }
+            return@LaunchedEffect
+        }
+        val position = geometry.domainPositionOf(externalDomain) ?: return@LaunchedEffect
+        if (!position.isFinite()) return@LaunchedEffect
+        val plot = geometry.coordinates.plotArea
+        val probe = geometry.coordinates.pointAt(
+            position,
+            geometry.coordinates.valueOf(ChartOffset(plot.centerX, plot.centerY)),
+        )
+        val probeContext = ChartRenderContext(
+            coordinates = geometry.coordinates,
+            colors = theme.colors,
+            typography = theme.typography,
+            dimensions = theme.dimensions,
+            density = density,
+            textMeasurer = textMeasurer,
+            reveal = 1f,
+            selection = null,
+            viewport = viewport,
+        )
+        val best = geometry.hitTestable
+            .mapNotNull { it.hitTest(probe, probeContext, HitTestMode.NearestDomain) }
+            .minByOrNull { kotlin.math.abs(geometry.coordinates.domainOf(it.position) - position) }
+        if (best != null && best != state.selection) state.selection = best
+    }
+
     val renderContext = ChartRenderContext(
         coordinates = geometry.coordinates,
         colors = theme.colors,
@@ -290,6 +347,7 @@ private fun ChartPlot(
         selection = selection,
         range = range,
         viewport = viewport,
+        externalDomain = externalDomain,
     )
 
     // One tooltip payload, built the same way whatever produced the selection.
@@ -316,6 +374,7 @@ private fun ChartPlot(
                 },
                 anchor = selected.position,
                 xLabel = geometry.formatDomainValue(selected.x),
+                valueFormatter = geometry.valueFormatter,
             )
         }
     }
@@ -354,6 +413,8 @@ private fun ChartPlot(
         interaction = interaction,
         state = state,
         viewportState = viewportState,
+        sharedCrosshair = sharedCrosshair,
+        chartId = chartId,
         onSelectionChanged = onSelectionChanged,
         onRangeSelectionChanged = onRangeSelectionChanged,
     )
@@ -446,12 +507,14 @@ private fun rememberChartGestureCallbacks(
     interaction: ChartInteraction,
     state: ChartState<Any?>,
     viewportState: ChartViewportState,
+    sharedCrosshair: ChartSharedCrosshairState?,
+    chartId: Any,
     onSelectionChanged: ((AnyChartSelection?) -> Unit)?,
     onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)?,
 ): ChartGestureCallbacks {
     val rangeAnchor = remember(geometry) { mutableStateOf<Double?>(null) }
 
-    return remember(geometry, interaction, hitTestMode, state, viewportState) {
+    return remember(geometry, interaction, hitTestMode, state, viewportState, sharedCrosshair) {
         fun select(point: ChartOffset, mode: HitTestMode) {
             val best = geometry.hitTestable
                 .mapNotNull { it.hitTest(point, renderContext, mode) }
@@ -464,6 +527,9 @@ private fun rememberChartGestureCallbacks(
                 state.selection = best
                 onSelectionChanged?.invoke(best)
             }
+            // Published from a gesture, and only from a gesture. Every linked
+            // chart reads it; none of them writes back.
+            if (best != null) sharedCrosshair?.publish(best.x, chartId)
         }
 
         fun publishRange(to: Double, phase: ChartRangeSelectionPhase) {
@@ -487,6 +553,7 @@ private fun rememberChartGestureCallbacks(
                 if (!geometry.coordinates.plotArea.contains(point)) {
                     if (interaction.behaviour.clearOnTapOutside) {
                         state.clearSelection()
+                        sharedCrosshair?.clear()
                         onSelectionChanged?.invoke(null)
                         if (state.rangeSelection != null) {
                             state.clearRangeSelection()
@@ -509,6 +576,7 @@ private fun rememberChartGestureCallbacks(
                 state.pointerPosition = null
                 if (interaction.behaviour.clearOnScrubEnd) {
                     state.clearSelection()
+                    sharedCrosshair?.clear()
                     onSelectionChanged?.invoke(null)
                 }
             },

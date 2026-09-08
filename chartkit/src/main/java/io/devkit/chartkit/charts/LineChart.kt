@@ -6,6 +6,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.Dp
 import io.devkit.chartkit.accessibility.ChartAccessibility
 import io.devkit.chartkit.animation.ChartAnimation
+import io.devkit.chartkit.annotation.ChartAnnotation
 import io.devkit.chartkit.animation.rememberAnimatedSeriesValues
 import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
@@ -28,6 +29,7 @@ import io.devkit.chartkit.model.ChartXResolver
 import io.devkit.chartkit.model.MissingValuePolicy
 import io.devkit.chartkit.model.normalizeSeries
 import io.devkit.chartkit.scale.DomainPolicy
+import io.devkit.chartkit.state.ChartSharedCrosshairState
 import io.devkit.chartkit.state.ChartState
 import io.devkit.chartkit.state.ChartViewportState
 import io.devkit.chartkit.state.rememberChartState
@@ -96,6 +98,8 @@ fun <T> LineChart(
     xResolver: ChartXResolver = ChartXResolver.Default,
     xAxisKind: ChartXAxisKind? = null,
     performance: ChartPerformance = ChartPerformance.Default,
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
@@ -140,6 +144,8 @@ fun <T> LineChart(
         xResolver = xResolver,
         xAxisKind = xAxisKind,
         performance = performance,
+        annotations = annotations,
+        sharedCrosshair = sharedCrosshair,
         accessibility = accessibility,
         accessibilitySummary = accessibilitySummary,
         state = state,
@@ -204,6 +210,8 @@ fun <T> LineChart(
     xResolver: ChartXResolver = ChartXResolver.Default,
     xAxisKind: ChartXAxisKind? = null,
     performance: ChartPerformance = ChartPerformance.Default,
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     accessibilitySummary: (() -> String)? = null,
     state: ChartState<T> = rememberChartState(),
@@ -259,6 +267,7 @@ fun <T> LineChart(
                 valueLabels = valueLabels,
                 pointMarkerThreshold = performance.pointMarkerThreshold,
                 missingValuePolicy = missingValuePolicy,
+                performance = performance,
             ),
         )
     }
@@ -284,6 +293,8 @@ fun <T> LineChart(
         sharedTooltip = sharedTooltip,
         state = state.asErased(),
         viewportState = viewportState,
+        sharedCrosshair = sharedCrosshair,
+        annotations = remember(annotations, xResolver) { resolveAnnotations(annotations, xResolver) },
         onSelectionChanged = onSelectionChanged?.let { callback ->
             { erased -> callback(erased?.asTyped()) }
         },
@@ -338,6 +349,8 @@ fun <T> AreaChart(
     xResolver: ChartXResolver = ChartXResolver.Default,
     xAxisKind: ChartXAxisKind? = null,
     performance: ChartPerformance = ChartPerformance.Default,
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -378,6 +391,8 @@ fun <T> AreaChart(
         xResolver = xResolver,
         xAxisKind = xAxisKind,
         performance = performance,
+        annotations = annotations,
+        sharedCrosshair = sharedCrosshair,
         accessibility = accessibility,
         state = state,
         onSelectionChanged = onSelectionChanged,
@@ -424,6 +439,8 @@ fun <T> AreaChart(
     missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
     xResolver: ChartXResolver = ChartXResolver.Default,
     performance: ChartPerformance = ChartPerformance.Default,
+    annotations: List<ChartAnnotation> = emptyList(),
+    sharedCrosshair: ChartSharedCrosshairState? = null,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
     state: ChartState<T> = rememberChartState(),
     onSelectionChanged: ((ChartSelection<T>?) -> Unit)? = null,
@@ -460,6 +477,8 @@ fun <T> AreaChart(
         missingValuePolicy = missingValuePolicy,
         xResolver = xResolver,
         performance = performance,
+        annotations = annotations,
+        sharedCrosshair = sharedCrosshair,
         accessibility = accessibility,
         state = state,
         onSelectionChanged = onSelectionChanged,

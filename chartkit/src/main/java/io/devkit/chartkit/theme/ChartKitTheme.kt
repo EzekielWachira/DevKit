@@ -17,6 +17,95 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 
 /**
+ * Colours for financial charts.
+ *
+ * ### Not green and red
+ *
+ * Nothing in ChartKit's rendering knows that "up" is green. The convention is
+ * not universal — several East Asian markets colour rising prices red — and it
+ * is invisible to the eight percent of men with red-green colour vision
+ * deficiency, for whom the two most important colours on a candlestick chart
+ * are the same colour. So the semantic roles live here, the renderers ask for
+ * [increase] and [decrease] by name, and an application that needs the
+ * opposite convention swaps two values instead of forking a layer.
+ *
+ * The defaults are taken from the enclosing Material scheme rather than from
+ * constants, for the same reason the series palette is derived rather than
+ * hardcoded.
+ *
+ * @param increase a period that closed above its open.
+ * @param decrease a period that closed below its open.
+ * @param neutral a period that closed where it opened, and the fallback where
+ *   direction is unknown.
+ * @param wick the high–low line. Quieter than the body: the body is the
+ *   quantity being compared, and the wick is its extent.
+ */
+@Immutable
+data class ChartFinancialColors(
+    val increase: Color,
+    val decrease: Color,
+    val neutral: Color,
+    val wick: Color,
+)
+
+/**
+ * Colours for heatmaps and calendar heatmaps.
+ *
+ * @param low the domain minimum's colour.
+ * @param high the domain maximum's colour.
+ * @param missing a cell with no measurement. Visually distinct from [low] on
+ *   purpose — "nobody measured this" and "this measured zero" are different
+ *   facts, and a heatmap that paints them the same is asserting one of them.
+ * @param cellBorder an optional hairline between cells; transparent leaves them
+ *   flush.
+ */
+@Immutable
+data class ChartHeatmapColors(
+    val low: Color,
+    val high: Color,
+    val missing: Color,
+    val cellBorder: Color,
+)
+
+/**
+ * Colours for the statistical charts.
+ *
+ * @param box the fill of a box plot's interquartile box.
+ * @param boxBorder its outline, and the whiskers.
+ * @param median the median line. Drawn in a contrasting colour rather than a
+ *   darker shade of the box, because the median is the number most readers take
+ *   from a box plot and it has to survive being printed.
+ * @param outlier individual points beyond the whiskers.
+ * @param densityFill the body of a violin.
+ * @param densityOutline its edge.
+ */
+@Immutable
+data class ChartStatisticalColors(
+    val box: Color,
+    val boxBorder: Color,
+    val median: Color,
+    val outlier: Color,
+    val densityFill: Color,
+    val densityOutline: Color,
+)
+
+/**
+ * Colours for annotations.
+ *
+ * @param line rules and marker outlines.
+ * @param region the wash of a range or region annotation.
+ * @param labelContainer the chip behind an annotation's label.
+ * @param labelContent text on that chip.
+ */
+@Immutable
+data class ChartAnnotationColors(
+    val line: Color,
+    val region: Color,
+    val labelContainer: Color,
+    val labelContent: Color,
+)
+
+/**
  * The colours every ChartKit chart draws with.
  *
  * @param palette one colour per series, taken by index. Series keep their slot
@@ -45,9 +134,15 @@ import androidx.compose.ui.unit.dp
  *   of it: a region distinguished only by a tint is invisible to a reader with
  *   low contrast sensitivity.
  *
- * The last five all default to values derived from the ones above them, so a
- * `ChartColors(...)` written before polar and crosshair support existed still
- * compiles and still looks right.
+ * @param financial semantic colours for candlestick, OHLC and volume charts.
+ * @param heatmap the ramp ends and the "no data" colour for heatmaps.
+ * @param statistical box, whisker, median, outlier and density colours.
+ * @param annotation rules, regions and annotation labels.
+ *
+ * Every parameter after [emptyContent] defaults to a value derived from the
+ * ones above it, so a `ChartColors(...)` written against an earlier surface
+ * still compiles and still looks right — and an application that customised
+ * four colours does not have to learn about twenty.
  */
 @Immutable
 data class ChartColors(
@@ -68,6 +163,35 @@ data class ChartColors(
     val crosshairLabelContent: Color = tooltipContent,
     val rangeFill: Color = selectionHighlight,
     val rangeBorder: Color = selectionGuide,
+    val financial: ChartFinancialColors = ChartFinancialColors(
+        // Two hues from the chart's own palette, which the generator has
+        // already spread as far apart as it can. Distinguishable without
+        // asserting a colour convention ChartKit has no business assuming.
+        increase = palette[0],
+        decrease = palette[palette.size / 2],
+        neutral = axisLabel,
+        wick = axisLine,
+    ),
+    val heatmap: ChartHeatmapColors = ChartHeatmapColors(
+        low = palette[0].copy(alpha = 0.12f),
+        high = palette[0],
+        missing = gridLine.copy(alpha = 0.25f),
+        cellBorder = Color.Transparent,
+    ),
+    val statistical: ChartStatisticalColors = ChartStatisticalColors(
+        box = palette[0].copy(alpha = 0.35f),
+        boxBorder = palette[0],
+        median = axisLabel,
+        outlier = palette[0],
+        densityFill = palette[0].copy(alpha = 0.30f),
+        densityOutline = palette[0],
+    ),
+    val annotation: ChartAnnotationColors = ChartAnnotationColors(
+        line = selectionGuide,
+        region = selectionHighlight,
+        labelContainer = tooltipContainer,
+        labelContent = tooltipContent,
+    ),
 ) {
     init {
         require(palette.isNotEmpty()) {
@@ -99,6 +223,10 @@ data class ChartTypography(
     val sliceLabel: TextStyle = valueLabel,
     /** The value readout a crosshair puts on an axis. */
     val crosshairLabel: TextStyle = axisLabel,
+    /** Text drawn inside a heatmap or calendar cell. */
+    val cellLabel: TextStyle = valueLabel,
+    /** An annotation's own label. */
+    val annotationLabel: TextStyle = axisLabel,
 )
 
 /**
@@ -155,6 +283,66 @@ data class ChartDimensions(
 
     /** The width of a range selection's edge markers. */
     val rangeHandleWidth: Dp = 2.dp,
+
+    // ---- statistical ----------------------------------------------------
+
+    /** The radius of a scatter marker. Larger than a line's point marker,
+     *  which sits on a line the reader can already see. */
+    val scatterPointRadius: Dp = 4.dp,
+
+    /** The smallest bubble a size scale will draw. Never zero: a bubble of no
+     *  size is indistinguishable from a missing observation. */
+    val bubbleMinRadius: Dp = 5.dp,
+
+    /** The largest bubble a size scale will draw. */
+    val bubbleMaxRadius: Dp = 28.dp,
+
+    /** The fraction of a category band a box plot's box occupies. */
+    val boxPlotWidthFraction: Float = 0.55f,
+
+    /** The fraction of a category band a box plot's whisker caps occupy. */
+    val whiskerCapFraction: Float = 0.28f,
+
+    /** The radius of an outlier point. */
+    val outlierRadius: Dp = 2.5.dp,
+
+    /** The fraction of a category band a violin's widest point occupies. */
+    val violinWidthFraction: Float = 0.85f,
+
+    /** The stroke around a violin's body. */
+    val violinOutlineWidth: Dp = 1.dp,
+
+    // ---- density --------------------------------------------------------
+
+    /** The gap left between heatmap cells. */
+    val heatmapCellSpacing: Dp = 1.dp,
+
+    /** The corner rounding of a heatmap or calendar cell. */
+    val heatmapCellCornerRadius: Dp = 2.dp,
+
+    /** The gap left between calendar-heatmap cells. */
+    val calendarCellSpacing: Dp = 2.dp,
+
+    // ---- financial ------------------------------------------------------
+
+    /** The fraction of the space between two periods a candle body occupies. */
+    val candleBodyFraction: Float = 0.7f,
+
+    /** The narrowest a candle body is drawn before it becomes a bare line. */
+    val candleMinBodyWidth: Dp = 1.dp,
+
+    /** The width of a wick, and of an OHLC bar's stem and ticks. */
+    val candleWickWidth: Dp = 1.dp,
+
+    // ---- annotations ----------------------------------------------------
+
+    val annotationLineWidth: Dp = 1.dp,
+
+    /** The radius of an event marker. */
+    val annotationMarkerRadius: Dp = 5.dp,
+
+    /** Padding inside an annotation's label chip. */
+    val annotationLabelPadding: Dp = 4.dp,
 )
 
 /**
@@ -290,6 +478,48 @@ fun materialDerivedChartColors(
         crosshairLabelContent = scheme.inverseOnSurface,
         rangeFill = scheme.primary.copy(alpha = 0.16f),
         rangeBorder = scheme.primary,
+        financial = ChartFinancialColors(
+            // Material's own roles, not green and red. `tertiary` and `error`
+            // are the scheme's two most distinguishable accents, they adapt
+            // with the app's colour, and neither asserts a market convention.
+            // An application whose market colours rising prices red overrides
+            // these two values.
+            increase = scheme.tertiary,
+            decrease = scheme.error,
+            neutral = scheme.onSurfaceVariant,
+            wick = scheme.onSurfaceVariant,
+        ),
+        heatmap = ChartHeatmapColors(
+            // A ramp within one hue: legible in both themes, and free of the
+            // desaturated middle a two-hue ramp passes through. In dark mode
+            // it runs from a dim surface tint up to the full accent, so the
+            // low end stays visible against a near-black background instead of
+            // disappearing into it.
+            low = if (isDark) {
+                scheme.primary.copy(alpha = 0.18f)
+            } else {
+                scheme.primary.copy(alpha = 0.10f)
+            },
+            high = scheme.primary,
+            missing = scheme.surfaceVariant.copy(alpha = if (isDark) 0.35f else 0.6f),
+            cellBorder = scheme.surface,
+        ),
+        statistical = ChartStatisticalColors(
+            box = palette.first().copy(alpha = 0.35f),
+            boxBorder = palette.first(),
+            // The median contrasts with the box rather than shading it: it is
+            // the number most readers take from a box plot.
+            median = scheme.onSurface,
+            outlier = palette.first(),
+            densityFill = palette.first().copy(alpha = 0.30f),
+            densityOutline = palette.first(),
+        ),
+        annotation = ChartAnnotationColors(
+            line = scheme.onSurface.copy(alpha = 0.55f),
+            region = scheme.secondary.copy(alpha = 0.14f),
+            labelContainer = scheme.inverseSurface,
+            labelContent = scheme.inverseOnSurface,
+        ),
     )
 }
 

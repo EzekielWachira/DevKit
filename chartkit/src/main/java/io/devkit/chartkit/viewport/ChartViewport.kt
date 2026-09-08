@@ -61,6 +61,15 @@ data class ChartViewport(
         get() = start <= MIN_WIDTH && end >= 1.0 - MIN_WIDTH
 
     /**
+     * True when the window's right edge is at the end of the domain.
+     *
+     * What "following the latest data" means on a live chart, and how a
+     * streaming adapter tells that the reader has panned back into the history:
+     * a viewport that is no longer trailing is one somebody moved.
+     */
+    val isTrailing: Boolean get() = end >= 1.0 - MIN_WIDTH
+
+    /**
      * Zoomed by [factor] about [focus], a fraction of the *viewport* width.
      *
      * Keeping the domain value under the focal point fixed is what makes a

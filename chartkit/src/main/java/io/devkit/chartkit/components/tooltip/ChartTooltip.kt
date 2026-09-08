@@ -58,7 +58,9 @@ fun <T> ChartTooltip(
     val colors = ChartKitTheme.colors
     val typography = ChartKitTheme.typography
     val dimensions = ChartKitTheme.dimensions
-    val formatter = valueFormatter ?: ChartValueFormatter.Raw
+    // The caller's formatter if they gave one, otherwise the chart's own axis
+    // formatter — never a raw dump of the double.
+    val formatter = valueFormatter ?: data.valueFormatter
 
     Column(
         modifier = modifier
