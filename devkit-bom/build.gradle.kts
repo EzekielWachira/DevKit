@@ -18,7 +18,7 @@ plugins {
  * the consumer asks for that kit, which is what lets them omit versions:
  *
  * ```kotlin
- * implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.1.0"))
+ * implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.2.0"))
  * implementation("io.github.ezekielwachira.devkit:fillkit-api")
  * debugImplementation("io.github.ezekielwachira.devkit:netkit")
  * ```

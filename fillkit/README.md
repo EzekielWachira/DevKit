@@ -34,7 +34,7 @@ To avoid naming versions, use the BOM:
 
 ```kotlin
 dependencies {
-    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.1.0"))
+    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.2.0"))
 
     implementation("io.github.ezekielwachira.devkit:fillkit-api")
     debugImplementation("io.github.ezekielwachira.devkit:fillkit-debug")
@@ -42,7 +42,7 @@ dependencies {
 }
 ```
 
-`debugImplementation("io.github.ezekielwachira.devkit:devkit-debug:0.1.0")` takes
+`debugImplementation("io.github.ezekielwachira.devkit:devkit-debug:0.2.0")` takes
 the FillKit panel and NetKit together. It does **not** include `fillkit-testing`,
 which exposes JUnit and Compose test rules and stays `androidTestImplementation`
 only, nor `fillkit-api` in `implementation` — add that separately if your

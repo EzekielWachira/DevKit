@@ -10,24 +10,18 @@ on:
     inputs:
       module:
         description: >-
-          Gradle path to publish, or "all". Publishing one kit without the
-          others is the normal case: kit versions are independent, and a NetKit
-          release should not oblige FillKit to move.
+          Space-separated Gradle paths to publish, or "all". Publishing some
+          modules without the others is the normal case after the first
+          release: kit versions are independent, a NetKit release should not
+          oblige FillKit to move, and Maven Central rejects a version that is
+          already there — so "all" only works while nothing has shipped.
+          A set is published as ONE deployment, so the artifacts validate and
+          release together. Valid paths: :core :chartkit :fillkit:api
+          :fillkit:engine :fillkit:debug :fillkit:testing :netkit :devkit
+          :devkit-debug :devkit-bom
         required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - ':core'
-          - ':chartkit'
-          - ':fillkit:api'
-          - ':fillkit:engine'
-          - ':fillkit:debug'
-          - ':fillkit:testing'
-          - ':netkit'
-          - ':devkit'
-          - ':devkit-debug'
-          - ':devkit-bom'
+        default: ':chartkit :devkit :devkit-debug :devkit-bom'
+        type: string
       dryRun:
         description: Publish to Maven Local only, without releasing
         required: false
@@ -101,9 +95,15 @@ jobs:
         # A release publishes everything; a dispatch publishes what it named.
         #
         # Run from the root, `all` bundles every module into a *single* Portal
-        # deployment, which is what makes the nine artifacts validate and
-        # release together rather than as nine deployments that can each fail
-        # separately.
+        # deployment, which is what makes the artifacts validate and release
+        # together rather than as several deployments that can each fail
+        # separately. A named set gets the same treatment — one Gradle
+        # invocation, one deployment.
+        #
+        # `all` is only correct while nothing has shipped. Central refuses a
+        # version that already exists, so once a kit is out, a release event
+        # firing `all` will be rejected as a whole. Incremental releases go
+        # through a dispatch naming the modules whose versions actually moved.
         #
         # Secrets reach Gradle through the environment and are never echoed —
         # note there is no `env:` dump and no `--info`, both of which would put
@@ -119,7 +119,20 @@ jobs:
           if [ "$MODULE" = "all" ]; then
             ./gradlew publishToMavenCentral --no-configuration-cache
           else
-            ./gradlew "${MODULE}:publishToMavenCentral" --no-configuration-cache
+            # One Gradle invocation for the whole set, so several artifacts
+            # that move together — a kit plus the umbrella and BOM that now
+            # name it — land as a single Portal deployment. Publishing them one
+            # dispatch at a time would make each one able to fail on its own,
+            # leaving the umbrella referring to a version that never shipped.
+            TASKS=""
+            for m in $MODULE; do
+              case "$m" in
+                :*) TASKS="$TASKS ${m}:publishToMavenCentral" ;;
+                *)  echo "::error::Not a Gradle path: '$m' (expected a leading colon)"; exit 1 ;;
+              esac
+            done
+            # shellcheck disable=SC2086
+            ./gradlew $TASKS --no-configuration-cache
           fi
         # `ORG_GRADLE_PROJECT_*` is not decoration: Gradle turns a variable with
         # that prefix into the Gradle property of the same name, which is how

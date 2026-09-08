@@ -51,9 +51,9 @@ Group: **`io.github.ezekielwachira.devkit`**
 | `:fillkit:debug` | `fillkit-debug` | FillKit's developer panel and QA launcher | `0.1.0` | debug |
 | `:fillkit:testing` | `fillkit-testing` | FillKit's Compose test support | `0.1.0` | test |
 | `:netkit` | `netkit` | Network scenario and failure simulation toolkit | `0.1.0` | debug |
-| `:devkit` | `devkit` | Umbrella: every release-safe library | `0.1.0` | runtime |
-| `:devkit-debug` | `devkit-debug` | Umbrella: every developer and QA tool | `0.1.0` | debug |
-| `:devkit-bom` | `devkit-bom` | Version alignment | `0.1.0` | — |
+| `:devkit` | `devkit` | Umbrella: every release-safe library | `0.2.0` | runtime |
+| `:devkit-debug` | `devkit-debug` | Umbrella: every developer and QA tool | `0.2.0` | debug |
+| `:devkit-bom` | `devkit-bom` | Version alignment | `0.2.0` | — |
 
 ### Why ChartKit is one artifact and FillKit is four
 
@@ -115,6 +115,13 @@ share `devkit.version.ecosystem`. That number names a *tested compatible
 combination* of kit versions, not the maturity of any one kit — which is why
 `devkit` and `fillkit-api` can diverge as soon as either moves.
 
+They have already diverged. The ecosystem moved to `0.2.0` when ChartKit joined
+the release-safe umbrella and the BOM: the *set* changed even though no
+individual kit did, and `devkit` `0.1.0` is immutable on Central and names an
+umbrella without ChartKit in it. That is the ecosystem version doing exactly
+what it is for — a shared version number would have forced every kit to move to
+describe a change to one of them.
+
 Everything lives in `gradle.properties`:
 
 ```properties
@@ -125,7 +132,7 @@ devkit.version.chartkit=0.1.0
 devkit.version.fillkit=0.1.0
 devkit.version.netkit=0.1.0
 
-devkit.version.ecosystem=0.1.0
+devkit.version.ecosystem=0.2.0
 ```
 
 That file, and only that file, is the source of truth. `gradle/libs.versions.toml`
@@ -149,7 +156,7 @@ dependencies, so importing it pulls nothing:
 
 ```kotlin
 dependencies {
-    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.1.0"))
+    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.2.0"))
 
     implementation("io.github.ezekielwachira.devkit:chartkit")
     implementation("io.github.ezekielwachira.devkit:fillkit-api")

@@ -79,7 +79,7 @@ would rather not name versions, use the BOM:
 
 ```kotlin
 dependencies {
-    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.1.0"))
+    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.2.0"))
     debugImplementation("io.github.ezekielwachira.devkit:netkit")
 }
 ```
@@ -87,7 +87,7 @@ dependencies {
 Or take every DevKit developer tool at once — NetKit plus the FillKit panel:
 
 ```kotlin
-debugImplementation("io.github.ezekielwachira.devkit:devkit-debug:0.1.0")
+debugImplementation("io.github.ezekielwachira.devkit:devkit-debug:0.2.0")
 ```
 
 Inside this repository, as a project dependency:

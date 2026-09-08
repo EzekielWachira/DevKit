@@ -58,7 +58,7 @@ Through the BOM, naming no version:
 
 ```kotlin
 dependencies {
-    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.1.0"))
+    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.2.0"))
     implementation("io.github.ezekielwachira.devkit:chartkit")
 }
 ```
@@ -67,7 +67,7 @@ Or as part of the release-safe umbrella:
 
 ```kotlin
 dependencies {
-    implementation("io.github.ezekielwachira.devkit:devkit:0.1.0")
+    implementation("io.github.ezekielwachira.devkit:devkit:0.2.0")
 }
 ```
 
