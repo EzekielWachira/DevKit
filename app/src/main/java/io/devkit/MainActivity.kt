@@ -94,6 +94,7 @@ import io.devkit.chartdemo.ChartDashboardScreen
 import io.devkit.chartdemo.ChartFlowScreen
 import io.devkit.chartdemo.ChartGeographicScreen
 import io.devkit.chartdemo.ChartGraphScreen
+import io.devkit.chartdemo.ChartSetScreen
 import io.devkit.chartdemo.ChartHierarchyScreen
 import io.devkit.chartdemo.ChartTimeScreen
 import io.devkit.chartdemo.ChartAnnotationsScreen
@@ -561,6 +562,12 @@ private enum class SampleScreen(
         SampleKit.ChartKit,
         "A choropleth over the sample's own GeoJSON",
     ),
+    ChartSets(
+        "Set relationships",
+        "V",
+        SampleKit.ChartKit,
+        "Venn and Euler diagrams, icons, logos and colour modes",
+    ),
     ChartAdvanced(
         "Advanced",
         "X",
@@ -706,6 +713,7 @@ private fun FillKitSampleApp() {
                 SampleScreen.ChartGraph -> ChartGraphScreen(Modifier.padding(padding))
                 SampleScreen.ChartDashboard -> ChartDashboardScreen(Modifier.padding(padding))
                 SampleScreen.ChartGeographic -> ChartGeographicScreen(Modifier.padding(padding))
+                SampleScreen.ChartSets -> ChartSetScreen(Modifier.padding(padding))
                 SampleScreen.ChartAdvanced -> ChartAdvancedScreen(Modifier.padding(padding))
             }
         }
