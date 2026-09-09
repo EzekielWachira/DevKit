@@ -1,20 +1,44 @@
 package io.devkit.chartkit.three
 
 /**
- * Which side of a box a face is.
+ * Which surface of its own shape a face belongs to.
  *
  * Named rather than indexed because every interesting question about a face is
  * asked by name — is the top visible, is the front the one the label sits on,
- * which walls does the frame draw — and an index would make each of those a
- * comment rather than a compiler-checked value.
+ * which walls does the frame draw, which wall of a pie slice is the curved one
+ * — and an index would make each of those a comment rather than a
+ * compiler-checked value.
+ *
+ * The six box sides and the four radial ones share one enum on purpose. A face
+ * is a face: the projector, the culler, the depth sort and the hit test carry
+ * this value through without reading it, and only the layer that built the
+ * shape ever asks what it means. Two enums would have forced a type parameter
+ * through all four for no gain.
  */
 enum class FaceSide {
+
     Front,
     Back,
     Left,
     Right,
+
+    /** A box's upper face, and the surface of a radial sector the reader looks at. */
     Top,
+
+    /** A box's lower face, and the hidden underside of a radial sector. */
     Bottom,
+
+    /** The curved outer wall of a radial sector: the rim of a pie. */
+    Outer,
+
+    /** The curved inner wall of a radial sector: the wall of a donut's hole. */
+    Inner,
+
+    /** The flat radial wall at a sector's starting angle. */
+    Start,
+
+    /** The flat radial wall at a sector's ending angle. */
+    End,
 }
 
 /**

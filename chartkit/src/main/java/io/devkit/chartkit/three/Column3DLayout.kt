@@ -38,48 +38,6 @@ enum class Column3DArrangement {
 }
 
 /**
- * How deep a column is.
- *
- * Scene-relative by default rather than a fixed `dp`: a column 24dp deep is
- * half the chart on a phone and a sliver on a tablet, and the depth cue a
- * reader uses is the *ratio* of depth to width, not either alone.
- */
-sealed interface Column3DDepth {
-
-    /** Derived from the column's own footprint. The default. */
-    data object Auto : Column3DDepth
-
-    /** A multiple of the column's footprint width. `1.0` gives a square footprint. */
-    data class Relative(val fraction: Double) : Column3DDepth {
-        init {
-            if (!fraction.isFinite() || fraction <= 0.0) {
-                throw Chart3DException(
-                    "Relative column depth must be a positive, finite fraction of the " +
-                        "column's width, was $fraction",
-                )
-            }
-        }
-    }
-
-    /** An explicit extent in plot pixels, for a chart that must match another exactly. */
-    data class Absolute(val pixels: Float) : Column3DDepth {
-        init {
-            if (!pixels.isFinite() || pixels <= 0f) {
-                throw Chart3DException(
-                    "Absolute column depth must be a positive, finite number of pixels, " +
-                        "was $pixels",
-                )
-            }
-        }
-    }
-
-    companion object {
-        /** What [Auto] resolves to: deep enough to read as a solid, shallow enough to compare. */
-        const val AUTO_FRACTION: Double = 0.85
-    }
-}
-
-/**
  * One series as the 3D layout needs it: values already aligned to the chart's
  * merged category order, and a stack to belong to.
  *
@@ -167,7 +125,7 @@ internal object Column3DLayoutEngine {
         items: Map<String, List<Any?>>,
         grouping: BarGrouping,
         arrangement: Column3DArrangement,
-        depth: Column3DDepth,
+        depth: Chart3DDepth,
         categoryCentres: List<Float>,
         bandWidth: Float,
         valueFraction: (Double) -> Double,
@@ -347,10 +305,14 @@ internal object Column3DLayoutEngine {
         }
     }
 
-    private fun resolveDepth(depth: Column3DDepth, slotWidth: Double): Double = when (depth) {
-        Column3DDepth.Auto -> slotWidth * Column3DDepth.AUTO_FRACTION
-        is Column3DDepth.Relative -> slotWidth * depth.fraction
-        is Column3DDepth.Absolute -> depth.pixels.toDouble()
+    /**
+     * A column's natural unit is its own footprint width, and its world is
+     * measured in plot pixels — so an absolute depth is taken as it stands.
+     */
+    private fun resolveDepth(depth: Chart3DDepth, slotWidth: Double): Double = when (depth) {
+        Chart3DDepth.Auto -> slotWidth * COLUMN_3D_AUTO_DEPTH
+        is Chart3DDepth.Relative -> slotWidth * depth.fraction
+        is Chart3DDepth.Absolute -> depth.pixels.toDouble()
     }.let { resolved ->
         if (!resolved.isFinite() || abs(resolved) < MIN_COLUMN_DEPTH) MIN_COLUMN_DEPTH else resolved
     }
@@ -364,3 +326,10 @@ internal object Column3DLayoutEngine {
     /** A plot with no columns still has a volume, so the frame has somewhere to be. */
     private const val MIN_VOLUME_DEPTH = 1.0
 }
+
+/**
+ * What [Chart3DDepth.Auto] resolves to for a column: a fraction of the column's
+ * own footprint width, deep enough to read as a solid and shallow enough to
+ * keep two heights comparable.
+ */
+const val COLUMN_3D_AUTO_DEPTH: Double = 0.85

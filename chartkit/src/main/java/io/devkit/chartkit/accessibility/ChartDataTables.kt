@@ -177,6 +177,78 @@ fun <T> columns3DDataTable(
 }
 
 /**
+ * A pie or donut as rows: category, value, share.
+ *
+ * ### Why the share is a column and not a footnote
+ *
+ * A part-to-whole chart communicates proportions. "4,823" is not what a reader
+ * takes from a pie; "4,823, which is 42.1%" is, and a table that listed only the
+ * raw numbers would drop exactly the thing the picture is for. The shares come
+ * from [io.devkit.chartkit.geometry.computePolarSlices] — the same arithmetic
+ * the chart drew — so the table cannot disagree with the picture.
+ *
+ * ### Why a 3D pie has the same table as a flat one
+ *
+ * Because it plots the same data. A camera, a projection, an extrusion and an
+ * exploded slice are rendering choices; none of them is a number the caller
+ * supplied. A table reporting projected areas would be describing ChartKit's
+ * drawing rather than the values, and would report a different answer at every
+ * camera angle for data that had not changed.
+ *
+ * ```kotlin
+ * ChartDataTableView(
+ *     table = pieDataTable(
+ *         data = shares,
+ *         value = { it.users },
+ *         label = { it.browser },
+ *     ),
+ * )
+ * ```
+ *
+ * @param categoryColumn what the labels are called — "Browser", "Region".
+ * @param valuePolicy how values a pie cannot plot are handled, so the table
+ *   shows the same slices the chart did.
+ */
+@Suppress("LongParameterList")
+fun <T> pieDataTable(
+    data: List<T>,
+    value: (T) -> Number?,
+    label: (T) -> String,
+    valueFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
+    valuePolicy: io.devkit.chartkit.geometry.PolarValuePolicy =
+        io.devkit.chartkit.geometry.PolarValuePolicy.Ignore,
+    unit: ChartUnit = ChartUnit.None,
+    caption: String? = null,
+    categoryColumn: String = "Category",
+): ChartDataTable {
+    val slices = io.devkit.chartkit.geometry.computePolarSlices(
+        values = data.map { value(it)?.toDouble() },
+        policy = valuePolicy,
+    )
+    val columns = buildList {
+        add(categoryColumn)
+        add("Value")
+        if (unit != ChartUnit.None) add("Unit")
+        add("Share")
+    }
+    val rows = data.mapIndexed { index, item ->
+        val slice = slices.getOrNull(index)
+        buildList {
+            add(label(item))
+            add(value(item)?.toDouble()?.let(valueFormatter::format) ?: "no value")
+            if (unit != ChartUnit.None) add(unit.symbol ?: "")
+            add(
+                slice?.fraction
+                    ?.let { io.devkit.chartkit.layer.polar.percentage(it) }
+                    ?.ifEmpty { "\u2014" }
+                    ?: "\u2014",
+            )
+        }
+    }
+    return ChartDataTable(columns = columns, rows = rows, caption = caption)
+}
+
+/**
  * A hierarchy as rows: path, value, share of parent, share of root.
  *
  * The two percentages are the point. A treemap's numbers mean nothing in

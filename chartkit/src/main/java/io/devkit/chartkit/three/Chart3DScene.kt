@@ -32,9 +32,10 @@ data class Chart3DKey(
 /**
  * One thing in a 3D scene: geometry, a colour slot and an identity.
  *
- * The only concrete shape today is a [Cuboid3D], and the type exists anyway so
- * that a 3D scatter's spheres, a 3D pie's wedges or a surface's quads are added
- * beside it rather than by rewriting the projector. Everything downstream —
+ * The geometry is a [Chart3DGeometry] and not a concrete shape, which is what
+ * lets a [Cuboid3D] column and a [RadialSector3D] pie slice sit in the same
+ * scene, be projected by the same projector, culled by the same test, sorted
+ * into one depth order and hit tested by the same code. Everything downstream —
  * [SceneProjector], [Chart3DHitTest], the depth sort, the lighting — works on
  * faces and never asks what produced them.
  *
@@ -49,7 +50,7 @@ data class Chart3DKey(
  *   panels are drawn faintly; data is not.
  */
 class Chart3DObject(
-    val geometry: Cuboid3D,
+    val geometry: Chart3DGeometry,
     val paletteIndex: Int = 0,
     val colorOverride: Int? = null,
     val selectable: Boolean = true,

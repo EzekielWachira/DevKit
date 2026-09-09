@@ -79,7 +79,8 @@ devKitPublishing {
             "candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet, timeline, " +
             "range and Gantt on Cartesian coordinates, with grouped and stacked 3D " +
             "columns projected over the same engine; pie, donut, radial bar, radar, " +
-            "sunburst and gauge on polar ones; treemap, Sankey, funnel and network graphs " +
+            "sunburst and gauge on polar ones, with extruded 3D pies and donuts on the " +
+            "same scene; treemap, Sankey, funnel and network graphs " +
             "on planar ones. Axes, logarithmic and symmetric-log scales, secondary value " +
             "axes, legends, annotations, tooltips, crosshair, tap, scrub, pinch zoom, pan " +
             "and range selection, hierarchical drill-down, linked charts, cross-filtering, " +

@@ -51,7 +51,8 @@ import io.devkit.chartkit.three.Chart3DLighting
 import io.devkit.chartkit.three.Chart3DProjection
 import io.devkit.chartkit.three.Chart3DSideWall
 import io.devkit.chartkit.three.Column3DArrangement
-import io.devkit.chartkit.three.Column3DDepth
+import io.devkit.chartkit.three.COLUMN_3D_AUTO_DEPTH
+import io.devkit.chartkit.three.Chart3DDepth
 import io.devkit.chartkit.three.Vector3D
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -74,7 +75,7 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
     var rotationX by remember { mutableFloatStateOf(Chart3DCamera.DEFAULT_ROTATION_X.toFloat()) }
     var rotationY by remember { mutableFloatStateOf(Chart3DCamera.DEFAULT_ROTATION_Y.toFloat()) }
     var distance by remember { mutableFloatStateOf(Chart3DCamera.DEFAULT_DISTANCE.toFloat()) }
-    var depth by remember { mutableFloatStateOf(Column3DDepth.AUTO_FRACTION.toFloat()) }
+    var depth by remember { mutableFloatStateOf(COLUMN_3D_AUTO_DEPTH.toFloat()) }
     var selectionText by remember { mutableStateOf("") }
 
     val animation = if (animate) ChartAnimation.Default else ChartAnimation.None
@@ -153,7 +154,7 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
                 categoryAxis = ChartAxis(title = "Month"),
                 cameraState = camera,
                 projection = projection,
-                depth = Column3DDepth.Relative(depth.toDouble()),
+                depth = Chart3DDepth.Relative(depth.toDouble()),
                 animation = animation,
                 valueFormatter = whole,
                 onSelectionChanged = { selectionText = describe(it?.xLabel, it?.y, whole) },
@@ -168,7 +169,7 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
                 valueAxis = ChartAxis(title = "Picked"),
                 cameraState = camera,
                 projection = projection,
-                depth = Column3DDepth.Relative(depth.toDouble()),
+                depth = Chart3DDepth.Relative(depth.toDouble()),
                 animation = animation,
                 valueFormatter = whole,
                 legendTogglesSeries = true,
@@ -186,7 +187,7 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
                 valueAxis = ChartAxis(title = "Picked"),
                 cameraState = camera,
                 projection = projection,
-                depth = Column3DDepth.Relative(depth.toDouble()),
+                depth = Chart3DDepth.Relative(depth.toDouble()),
                 animation = animation,
                 valueFormatter = whole,
                 legendTogglesSeries = true,
@@ -204,7 +205,7 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
                 categoryAxis = ChartAxis(title = "Fruit"),
                 cameraState = camera,
                 projection = projection,
-                depth = Column3DDepth.Relative(depth.toDouble()),
+                depth = Chart3DDepth.Relative(depth.toDouble()),
                 animation = animation,
                 valueFormatter = whole,
                 legendTogglesSeries = true,
@@ -407,7 +408,7 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
                     value = { it.count },
                     grouping = BarGrouping.Stacked,
                     stack = households,
-                    depth = Column3DDepth.Relative(depth.toDouble()),
+                    depth = Chart3DDepth.Relative(depth.toDouble()),
                     valueLabels = Column3DLabelPlacement.Auto,
                 )
             }
@@ -453,7 +454,7 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
                     rotationX = Chart3DCamera.DEFAULT_ROTATION_X.toFloat()
                     rotationY = Chart3DCamera.DEFAULT_ROTATION_Y.toFloat()
                     distance = Chart3DCamera.DEFAULT_DISTANCE.toFloat()
-                    depth = Column3DDepth.AUTO_FRACTION.toFloat()
+                    depth = COLUMN_3D_AUTO_DEPTH.toFloat()
                     scope.launch { interactiveCamera.animateTo(Chart3DCamera.Presentation) }
                 },
                 modifier = Modifier.testTag("three-d-reset"),

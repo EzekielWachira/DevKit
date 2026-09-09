@@ -13,7 +13,7 @@ import io.devkit.chartkit.three.Chart3DProjector
 import io.devkit.chartkit.three.Chart3DReserve
 import io.devkit.chartkit.three.Chart3DScene
 import io.devkit.chartkit.three.Column3DArrangement
-import io.devkit.chartkit.three.Column3DDepth
+import io.devkit.chartkit.three.Chart3DDepth
 import io.devkit.chartkit.three.Column3DLayout
 import io.devkit.chartkit.three.Column3DLayoutEngine
 import io.devkit.chartkit.three.Column3DSeries
@@ -90,9 +90,8 @@ class Chart3DPipelineTest {
         // any camera the near one covers the far one, and a tap that resolved
         // to the far one would be the failure that makes a 3D chart feel
         // broken rather than merely wrong.
-        val near = Chart3DObject(
-            Cuboid3D(0.0, 100.0, 0.0, 100.0, 0.0, 40.0, key(0, "near")),
-        )
+        val nearBox = Cuboid3D(0.0, 100.0, 0.0, 100.0, 0.0, 40.0, key(0, "near"))
+        val near = Chart3DObject(nearBox)
         val far = Chart3DObject(
             Cuboid3D(0.0, 100.0, 0.0, 100.0, 200.0, 40.0, key(1, "far")),
         )
@@ -104,7 +103,7 @@ class Chart3DPipelineTest {
             plot,
         )!!
         val faces = projector.project(scene).faces
-        val centre = projector.toScreen(near.geometry.faceCenter(FaceSide.Front))!!
+        val centre = projector.toScreen(nearBox.faceCenter(FaceSide.Front))!!
         val hit = Chart3DHitTest.faceAt(faces, centre.x, centre.y)
         assertEquals("near", hit?.key?.seriesId)
     }
@@ -195,7 +194,7 @@ class Chart3DPipelineTest {
             items = emptyMap(),
             grouping = BarGrouping.Grouped,
             arrangement = Column3DArrangement.Side,
-            depth = Column3DDepth.Auto,
+            depth = Chart3DDepth.Auto,
             categoryCentres = List(categories.size) { plot.width / categories.size * (it + 0.5f) },
             bandWidth = band,
             valueFraction = { it / 35.0 },

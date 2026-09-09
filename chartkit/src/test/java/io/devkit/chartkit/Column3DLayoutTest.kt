@@ -2,7 +2,8 @@ package io.devkit.chartkit
 
 import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.three.Column3DArrangement
-import io.devkit.chartkit.three.Column3DDepth
+import io.devkit.chartkit.three.COLUMN_3D_AUTO_DEPTH
+import io.devkit.chartkit.three.Chart3DDepth
 import io.devkit.chartkit.three.Column3DLayoutEngine
 import io.devkit.chartkit.three.Column3DSeries
 import io.devkit.chartkit.three.Chart3DException
@@ -296,26 +297,26 @@ class Column3DLayoutTest {
         val auto = layout(listOf(series("a", listOf(10.0, 0.0, 0.0)))).segments.first()
         val square = layout(
             listOf(series("a", listOf(10.0, 0.0, 0.0))),
-            depth = Column3DDepth.Relative(1.0),
+            depth = Chart3DDepth.Relative(1.0),
         ).segments.first()
         assertEquals(band.toDouble(), square.cuboid.bounds.depth, tolerance)
-        assertEquals(band * Column3DDepth.AUTO_FRACTION, auto.cuboid.bounds.depth, 1e-6)
+        assertEquals(band * COLUMN_3D_AUTO_DEPTH, auto.cuboid.bounds.depth, 1e-6)
     }
 
     @Test
     fun `absolute depth is honoured exactly`() {
         val fixed = layout(
             listOf(series("a", listOf(10.0, 0.0, 0.0))),
-            depth = Column3DDepth.Absolute(24f),
+            depth = Chart3DDepth.Absolute(24f),
         ).segments.first()
         assertEquals(24.0, fixed.cuboid.bounds.depth, tolerance)
     }
 
     @Test
     fun `an impossible depth is rejected rather than clamped away`() {
-        assertThrows { Column3DDepth.Relative(0.0) }
-        assertThrows { Column3DDepth.Relative(Double.NaN) }
-        assertThrows { Column3DDepth.Absolute(-4f) }
+        assertThrows { Chart3DDepth.Relative(0.0) }
+        assertThrows { Chart3DDepth.Relative(Double.NaN) }
+        assertThrows { Chart3DDepth.Absolute(-4f) }
     }
 
     @Test
@@ -385,7 +386,7 @@ class Column3DLayoutTest {
         series: List<Column3DSeries>,
         grouping: BarGrouping = BarGrouping.Grouped,
         arrangement: Column3DArrangement = Column3DArrangement.Side,
-        depth: Column3DDepth = Column3DDepth.Auto,
+        depth: Chart3DDepth = Chart3DDepth.Auto,
         depthGap: Double = 0.25,
         reveal: Float = 1f,
         fraction: (Double) -> Double = this.fraction,
