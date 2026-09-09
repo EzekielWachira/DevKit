@@ -18,7 +18,11 @@ import io.devkit.chartkit.geo.GeoFeature
 import io.devkit.chartkit.geo.GeoFeatureCollection
 import io.devkit.chartkit.graph.ChartGraph
 import io.devkit.chartkit.hierarchy.ChartHierarchy
+import io.devkit.chartkit.charts.SetRegionNaming
 import io.devkit.chartkit.hierarchy.HierarchyNode
+import io.devkit.chartkit.layer.set.defaultRegionName
+import io.devkit.chartkit.set.SetDiagramData
+import io.devkit.chartkit.set.SetRelationship
 import io.devkit.chartkit.timeline.TimelineModel
 import io.devkit.chartkit.transform.FunnelStage
 import io.devkit.chartkit.transform.WaterfallStep
@@ -269,6 +273,123 @@ enum class GeoTableOrder {
 
     /** The order the geometry file lists them in. */
     AsGiven,
+}
+
+/**
+ * A set diagram as rows: region, value, share of the union.
+ *
+ * ```text
+ * Region          Value   Share
+ * Android only    130     33%
+ * iOS only         90     23%
+ * Android & iOS    70     18%
+ * ```
+ *
+ * ### The regions, never the sets
+ *
+ * A table of set totals would overlap: Android's 200 and iOS's 160 both count
+ * the seventy people who have both, so the column would sum to more than there
+ * are people and no reader could tell why. The regions partition the union, so
+ * these rows add up — which is the only version of this table that can be read
+ * without the picture.
+ *
+ * ### Why a set diagram needs one more than most charts
+ *
+ * The data is encoded in *overlap*, and overlap is not describable in a
+ * sentence. A summary can say how many sets there are and how big each is; it
+ * cannot let a reader compare the triple intersection against the pair, or find
+ * the region they care about among fifteen. For a reader who cannot see the
+ * diagram, this table is the diagram.
+ *
+ * @param naming how region names are written — see [SetRegionNaming]. Passing
+ *   the same value the chart uses keeps the table and the tooltip in step.
+ * @param includeEmpty whether combinations with nothing in them get a row. Off
+ *   by default: a four-set Venn has fifteen regions and usually a handful with
+ *   anything in them.
+ */
+@Suppress("LongParameterList")
+fun setDataTable(
+    data: SetDiagramData,
+    valueFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
+    naming: SetRegionNaming = SetRegionNaming(),
+    includeEmpty: Boolean = false,
+    showShare: Boolean = true,
+    caption: String? = null,
+): ChartDataTable {
+    val rows = data.regions
+        .filter { includeEmpty || it.value > 0.0 }
+        .sortedWith(compareBy({ it.size }, { it.id }))
+        .map { region ->
+            val name = defaultRegionName(region, data, naming.exclusiveSuffix, naming.separator)
+            buildList {
+                add(name)
+                add(valueFormatter.format(region.value))
+                if (showShare) {
+                    add(
+                        if (data.union <= 0.0) {
+                            ""
+                        } else {
+                            // Of the union, always. A share of a set would mean
+                            // something different in every row, because each row
+                            // belongs to a different combination of sets.
+                            percentageOf(region.value / data.union)
+                        },
+                    )
+                }
+            }
+        }
+    return ChartDataTable(
+        columns = if (showShare) listOf("Region", "Value", "Share of union") else listOf("Region", "Value"),
+        rows = rows,
+        caption = caption,
+    )
+}
+
+/**
+ * The relationships between the sets, in words.
+ *
+ * ```text
+ * Mammals is contained within Animals.
+ * Plants shares nothing with Animals.
+ * ```
+ *
+ * What an Euler diagram's *structure* means, which the value table does not
+ * carry: nesting and disjointness are the picture's content, and a reader who
+ * cannot see it has no other way to learn them.
+ *
+ * Every sentence comes from the modelled cardinalities. Nothing is inferred from
+ * a label — "Scotland is inside Great Britain" is said only because the numbers
+ * say so, never because the words look geographic.
+ */
+fun setRelationshipTable(
+    data: SetDiagramData,
+    containsText: String = "contains",
+    containedText: String = "is contained within",
+    overlapsText: String = "overlaps",
+    disjointText: String = "shares nothing with",
+    equalText: String = "is identical to",
+    caption: String? = null,
+): ChartDataTable {
+    val labelOf = { id: String -> data.set(id)?.label ?: id }
+    val rows = ArrayList<List<String>>()
+    data.sets.forEach { first ->
+        data.sets.forEach { second ->
+            if (first.id >= second.id) return@forEach
+            val relation = when (data.relationships.between(first.id, second.id)) {
+                SetRelationship.Contains -> containsText
+                SetRelationship.ContainedBy -> containedText
+                SetRelationship.Overlaps -> overlapsText
+                SetRelationship.Disjoint -> disjointText
+                SetRelationship.Equal -> equalText
+            }
+            rows += listOf(labelOf(first.id), relation, labelOf(second.id))
+        }
+    }
+    return ChartDataTable(
+        columns = listOf("Set", "Relationship", "Set"),
+        rows = rows,
+        caption = caption,
+    )
 }
 
 /**

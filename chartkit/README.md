@@ -6,9 +6,10 @@ Line, area, bar, scatter, bubble, histogram, box plot, violin, heatmap, calendar
 heatmap, candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet,
 timeline, range and Gantt on Cartesian coordinates; pie, donut, radial bar,
 radar, sunburst and gauge on polar ones; treemap, Sankey, funnel and network
-graphs on planar ones; choropleth maps on geographic ones. All four coordinate
-systems share the same scales, layout, layers, viewport, interaction, animation,
-theming, overlays and accessibility.
+graphs on planar ones; choropleth maps on geographic ones. Venn and Euler
+diagrams sit on the planar engine too. All four coordinate systems share the
+same scales, layout, layers, viewport, interaction, animation, theming, overlays
+and accessibility.
 
 It also handles the parts that decide whether a chart survives real data:
 annotations, hierarchical drill-down, linked charts and cross-filtering, viewport
@@ -30,8 +31,9 @@ LineChart(
 ```
 
 ChartKit owns its rendering. It does not wrap MPAndroidChart, Vico or
-KoalaPlot — a wrapper inherits somebody else's data model, view interop and
-theming, which is the opposite of the point.
+KoalaPlot, and nothing in it is a `WebView` around a JavaScript library — a
+wrapper inherits somebody else's data model, view interop and theming, which is
+the opposite of the point.
 
 ## Contents
 
@@ -46,6 +48,7 @@ theming, which is the opposite of the point.
 - Comparison: [Waterfall](#waterfall-chart) · [Dumbbell and lollipop](#dumbbell-and-lollipop) · [Bullet](#bullet-graph) · [Gauge](#gauge-chart)
 - Time: [Timeline, range and Gantt](#timeline-range-and-gantt-charts)
 - Relationships: [Network graph](#network-graph)
+- Sets: [Venn and Euler diagrams](#set-relationship-diagrams)
 - Geographic: [Choropleth map](#choropleth-map)
 - Dashboards: [Coordination](#dashboard-coordination) · [Navigator](#overview-navigator)
 - [Annotations](#annotations)
@@ -141,6 +144,7 @@ Open the drawer and pick a **ChartKit** destination:
 | Time and intervals | A point timeline, durations in lanes, and a Gantt chart with progress and milestones |
 | Relationships | A service graph, circular and force directed, draggable and zoomable, with its data table |
 | Geographic | A choropleth over the sample's own GeoJSON: quantile against continuous shading, both projections, labels, a legend, missing data, the join report and the data table |
+| Set relationships | Thirteen Venn and Euler demos: two, three and four sets, proportional sizing, Venn against Euler, hand-placed icon groups, icons in labels, packed image content, four-level nesting, disjoint sets, explicit intersection colours, collection-driven sets and the accessibility tables |
 | Dashboard | Linked candlestick and volume charts with aligned plots, an overview navigator, and cross-filtering |
 | Advanced | A custom layer, log and linear axes side by side, a second value axis, static report mode, and PNG and SVG export |
 
@@ -1669,6 +1673,369 @@ node, its degree and its neighbours. A semantics tree containing every edge of a
 three-hundred-node graph is not access, it is noise — `graphDataTable()` is how a
 reader gets at the connections.
 
+## Set relationship diagrams
+
+Venn and Euler diagrams over sets, intersections and containment:
+
+```kotlin
+VennDiagram(
+    sets = listOf(
+        SetDefinition(id = "android", label = "Android", value = 200),
+        SetDefinition(id = "ios", label = "iOS", value = 160),
+    ),
+    intersections = listOf(
+        SetIntersection(sets = setOf("android", "ios"), value = 70),
+    ),
+    modifier = Modifier.fillMaxWidth().height(280.dp),
+)
+```
+
+That draws three regions — "Android only" at 130, "iOS only" at 90, "Android and
+iOS" at 70 — and every one of those numbers is **derived**. You state totals; the
+exclusive values come from inclusion–exclusion, so the regions partition the
+union and the numbers in the picture add up.
+
+### Sets, intersections and regions
+
+Three quantities, and confusing any two of them is how a hand-built Venn diagram
+ends up self-contradictory:
+
+| | Means | Where it comes from |
+| --- | --- | --- |
+| `SetDefinition.value` | the set's **total** | you |
+| `SetIntersection.value` | items in *at least* these sets | you |
+| `SetRegion.value` | items in **exactly** these sets | derived |
+
+`{android, ios} = 70` means seventy people have both, *including* any who also
+have Web. The people who have Android and iOS and nothing else is a different,
+smaller number, and it is what a tooltip over that region reports.
+
+Intersections are keyed by a `Set`, so `{a, b}` and `{b, a}` are the same
+combination by construction. An unstated combination is read as **empty**, not
+as unknown.
+
+### Venn or Euler
+
+```kotlin
+VennDiagram(sets = kingdoms, containments = listOf(SetContainment("animals", "mammals")))
+EulerDiagram(sets = kingdoms, containments = listOf(SetContainment("animals", "mammals")))
+```
+
+Same data, two different pictures, and the difference is the point:
+
+- A **Venn** diagram draws every combination the sets could produce, whether or
+  not anything is in it. Three sets get seven regions even when two of them
+  share nothing, and tapping the empty one reports zero. It is a template for
+  discussing what *could* overlap.
+- An **Euler** diagram draws only what occurs. Mammals is nested inside Animals
+  because every mammal is an animal; Plants sits beside them touching nothing.
+  There is no region for "a mammal that is a plant", because there is no such
+  thing. It is a report of what *does*.
+
+Both run on the same engine. They differ in one thing — the layout strategy — so
+there is no second rendering stack, no second model, and no second set of
+behaviour to keep in step.
+
+### Containment
+
+Nesting is stated directly rather than as a lattice of intersections:
+
+```kotlin
+EulerDiagram(
+    sets = isles,
+    containments = listOf(
+        SetContainment("british-isles", "british-islands"),
+        SetContainment("british-islands", "united-kingdom"),
+        SetContainment("united-kingdom", "great-britain"),
+    ),
+    intersections = listOf(
+        // The one relationship the tree cannot express: Northern Ireland is in
+        // both the United Kingdom and the island of Ireland.
+        SetIntersection(setOf("united-kingdom", "ireland-island"), 8),
+    ),
+)
+```
+
+`SetContainment` is a claim about the **data**, not a layout hint: it changes the
+cardinalities, the regions, the validation and the accessibility text, and a Venn
+layout of the same data still draws every theoretical region. Containment is
+transitive, so stating `A ⊃ B` and `B ⊃ C` is enough, and the combinations it
+implies are derived — including the ones it implies *downward*, which is what
+makes an overlap deep in one branch propagate correctly to another.
+
+Without it, an unstated combination is empty, so a four-level nesting would need
+every triple and quadruple written out by hand.
+
+### Sizing
+
+```kotlin
+VennDiagram(sizing = SetSizing.Conceptual)    // the default for Venn
+VennDiagram(sizing = SetSizing.Proportional)
+EulerDiagram(sizing = SetSizing.Proportional) // the default for Euler
+```
+
+**Conceptual** draws equal, readable shapes and shows the *structure* — right
+for a teaching diagram, a marketing-scope diagram, or anything carrying icons,
+where the reader is being shown which things overlap rather than how many of each
+there are.
+
+**Proportional** makes area track cardinality — area, not radius, so a set twice
+the size is drawn twice as big rather than four times — and solves the centre
+positions for the stated intersection areas.
+
+### It is an approximation, and it says so
+
+Area-proportional set diagrams are not always possible. Three circles have six
+degrees of freedom and a three-set system has seven quantities to reproduce; no
+four circles can produce all fifteen regions of a four-set Venn at all. So the
+layout **measures** how close it got:
+
+```kotlin
+SetLayoutQuality(
+    meanAreaError,     // mean |desired − actual| as a share of the union
+    worstAreaError,    // and the combination it belongs to
+    regionCoverage,    // the fraction of asked-for combinations actually drawn
+    iterations,        // solver sweeps, bounded
+)
+```
+
+Four sets switch to four congruent ellipses, which do produce all fifteen
+regions. Five and above use an ellipse rosette whose coverage is sampled and
+reported rather than assumed — a diagram of eight sets wants an UpSet plot, and
+the model here is already the model that would feed one.
+
+### The solver is deterministic
+
+Same data, same configuration, same picture — on every recomposition, on every
+device, in every test. There is no seed because there is no randomness: the
+solver is a pattern search from a fixed analytic starting arrangement, bounded by
+`SetLayoutConfig.maxIterations`.
+
+```kotlin
+layoutConfig = SetLayoutConfig(maxIterations = 220, tolerance = 1e-4)
+layoutConfig = SetLayoutConfig.Fast   // fewer sweeps, for a diagram being scrubbed
+```
+
+An inconsistent dataset cannot spin it: the ceiling is reached rather than
+exceeded.
+
+### Placing the shapes yourself
+
+For the diagram whose arrangement *is* the message — five circles positioned to
+create exactly the overlaps being talked about — hand them over:
+
+```kotlin
+SetDiagram(
+    data = SetAnalyzer.analyze(scopes),
+    layout = SetDiagramLayout.Custom(
+        mapOf(
+            "ppc" to SetShape.Circle(-0.30, -0.55, 0.62),
+            "seo" to SetShape.Circle(-0.70, 0.05, 0.62),
+            …
+        ),
+    ),
+)
+```
+
+Everything else still works: the geometry is fitted to the plot, regions are
+found, labels are anchored, hit testing is exact.
+
+### From real collections
+
+```kotlin
+VennDiagram(
+    sets = listOf(
+        SetItems("android", "Android", androidUsers),
+        SetItems("ios", "iOS", iosUsers),
+    ),
+    itemKey = User::id,
+)
+```
+
+Every intersection is counted rather than stated, so the numbers cannot disagree
+with each other. The collections are read **once** and reduced to counts — the
+diagram never holds a hundred thousand user records — and an item whose key
+appears twice in one collection counts once, because these are sets and not
+multisets.
+
+### Impossible data is refused, not drawn
+
+```text
+A = 10, B = 20, A ∩ B = 50    ← the shared part cannot exceed either whole
+```
+
+Two rules are checked. **Monotonicity**: adding a set to a combination can only
+remove items, so no intersection can exceed any part of it. **Non-negative
+regions**: every derived exclusive value must be at least zero, which catches
+three pairwise overlaps that individually fit but together demand more items than
+the sets contain.
+
+`SetValidationMode.Strict` — the default — throws a `SetDataException` naming the
+offending combination. `Lenient` records diagnostics and draws the best
+approximation, for live data where a transient inconsistency should degrade the
+picture rather than take the screen down.
+
+### Colour
+
+```kotlin
+colorMode = SetColorMode.Blend   // the default for Venn
+colorMode = SetColorMode.BySet   // the default for Euler
+```
+
+Every logical region is drawn as a **real path** — the intersection of the shapes
+it belongs to, minus every shape it does not — and filled once with its own
+colour. That is what makes the rest of this possible.
+
+**Blend** gives each region the mean of its members' colours. It is *order
+independent*: the usual implementation paints translucent circles on top of one
+another, so the same overlap comes out differently depending on which set was
+declared first. Here it cannot. It is also opaque, so a region's colour is the
+colour the legend promised rather than that colour composited over whatever was
+behind the chart.
+
+**BySet** gives each region the colour of its first member — flat and
+unambiguous.
+
+Either can be overridden per region, which is what a design system with exact
+semantic colours needs:
+
+```kotlin
+intersectionStyle = { region ->
+    if (region.memberships == setOf("android", "ios")) SetStyle(fill = Brand.Shared) else null
+}
+```
+
+Set fills come from the theme's series palette, so a Venn diagram beside a bar
+chart of the same categories colours them alike. Outlines, label colours, the
+selection wash and the dimming come from `ChartKitTheme.colors.set`, and all of
+them are derived from the Material scheme, so a set diagram is legible in light
+and dark without being told.
+
+### Labels, icons and logos
+
+Canvas draws the shapes; **Compose** draws everything that has to be measured,
+themed, or carry its own semantics:
+
+```kotlin
+VennDiagram(
+    setLabel = { scope ->
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Icon(painterResource(R.drawable.leaf), contentDescription = null)
+            Text(scope.set.label)
+        }
+    },
+    regionLabel = { scope ->
+        Text(namesFor[scope.region.id].orEmpty())   // "Viable", "Sustainable"…
+    },
+    regionContent = { scope ->
+        SetIconGroup(items = tools[scope.region.id].orEmpty(), available = scope.clearance) {
+            Image(painterResource(it.logo), contentDescription = it.name)
+        }
+    },
+)
+```
+
+- A **set label** is anchored in the region where that set is the *innermost*
+  one, not at its centre — the middle of a circle in a three-set Venn is the
+  triple overlap, and a set labelled there names the wrong thing. A set that
+  contains others is labelled near the bottom of its own ring, which is the
+  conventional place and the one reliably clear of its children; one that
+  contains nothing is pushed away from the diagram's centre, so it does not land
+  on its own region's value.
+- A **region label** replaces the default value text. Naming intersections
+  instead of counting them is exactly what a conceptual diagram wants.
+- **Region content** is anything at all. `SetIconGroup` packs a group into the
+  square that fits inside the region and collapses the remainder to a `+N`,
+  because an icon straddling a boundary belongs, as far as a reader is concerned,
+  to whichever region it is mostly in.
+
+ChartKit loads no images and depends on no icon library. It supplies the anchor
+and the room; you supply the content.
+
+Every anchor comes with a **clearance** — the radius of the largest circle that
+fits there without leaving the region — so content knows how much space it has
+before it decides to appear. `SetContentOverflow` says what happens when it does
+not fit: `Hide` (the default, and the honest one), `Clip`, `ScaleDown` or
+`Allow`.
+
+### Selection
+
+A tap selects a **region**, not a set:
+
+```kotlin
+onSelectionChanged = { selection ->
+    val region = selection?.set ?: return@VennDiagram
+    readout = "${region.label}: ${region.value}"     // "Android & iOS: 70"
+}
+```
+
+Membership is decided by geometry, never by draw order. Every shape is tested,
+the full membership is collected, and the region is looked up by it — so tapping
+the middle of a three-circle overlap selects the triple intersection rather than
+whichever circle happened to be painted last, and the triple intersection is
+reachable at all.
+
+`ChartSelectionDetails.Set` carries the memberships, the exclusive value, the
+intersection total, the region's name, the set definitions behind it, and whether
+the region is one Venn semantics drew despite it being empty.
+
+`SetFocusMode.DimUnrelated` dims everything outside the selection, which is
+easier to read than an outline when the selected region is a sliver.
+
+### Naming, and other languages
+
+```kotlin
+naming = SetRegionNaming(separator = " et ", exclusiveSuffix = " seulement")
+```
+
+"only" and "&" are English. They are parameters rather than constants, so a
+diagram shipped anywhere else says the right thing — in the tooltip, in the
+selection callback and in the accessibility table alike.
+
+### Accessibility
+
+A set diagram encodes its data in *overlap*, and overlap is not describable in a
+sentence. So the tables are not a fallback here; for a reader who cannot see the
+picture they are the diagram:
+
+```kotlin
+ChartWithDataTable(table = setDataTable(data, caption = "Platform usage")) {
+    VennDiagram(sets = platforms, intersections = overlaps)
+}
+
+ChartDataTableView(setRelationshipTable(data))
+```
+
+`setDataTable` lists the **regions**, which partition the union and therefore add
+up — a table of set totals would double-count everyone in an overlap.
+`setRelationshipTable` states the structure in words: *contains*, *is contained
+within*, *overlaps*, *shares nothing with*.
+
+Every sentence comes from the modelled cardinalities. "Scotland is inside Great
+Britain" is said only when the numbers say so, never because the labels look
+geographic — and the relationship words are parameters too.
+
+### Performance
+
+```text
+data ──▶ analysis ──▶ solve (once, bounded)
+                          │
+             plot size ──▶ uniform fit  ──▶ region sampling ──▶ boolean paths
+```
+
+The analysis runs once per data change; the solve runs once per data-and-strategy
+change; the fit and the region sampling run once per plot size; the boolean
+region paths are cached against the arrangement. A selection, a hover, a tooltip,
+a colour-mode switch and an animation frame do none of them.
+
+The work is exponential in the number of **sets** and linear in the number of
+**items**, which is why `SetAnalyzer.MAX_ANALYZED_SETS` caps the former and
+nothing caps the latter. The conceptual arrangements are analytic and run no
+solver at all.
+
+Shapes, fills, outlines and the selection are one canvas pass. There is no
+composable per set and none per region.
+
 ## Choropleth map
 
 Regions shaded by a statistic — a bar chart whose category axis is geography:
@@ -3178,6 +3545,21 @@ selected. A semantics tree containing every edge of a three-hundred-node graph i
 not access, it is noise; [`graphDataTable()`](#data-tables) is how a reader gets
 at the connections.
 
+### Set diagrams
+
+Overlap is not describable in a sentence, so the tables are the diagram for a
+reader who cannot see it. `setDataTable` lists the **regions**, which partition
+the union and therefore add up; `setRelationshipTable` states the structure —
+contains, is contained within, overlaps, shares nothing with.
+
+Every sentence comes from the modelled cardinalities. A containment is announced
+only when the numbers establish it, never because two labels look as though one
+ought to be inside the other; and both tables' words are parameters, so a
+diagram in another language announces in that language.
+
+Selecting a region announces the region, not the set: "Android and iOS: 70",
+where 70 is the count of items in exactly that combination.
+
 ### Geographic
 
 A map is the case where a summary genuinely cannot carry the content. Shape,
@@ -3282,6 +3664,8 @@ hand against the model that produced it:
 | `timelineDataTable` | event · lane · start · end |
 | `graphDataTable` | node · connections · connected to |
 | `geoDataTable` | region · value, with "no data" spelled out |
+| `setDataTable` | region · value · share of the union |
+| `setRelationshipTable` | set · relationship · set |
 
 The alternative — walking your objects and guessing at their fields — would need
 reflection, would break under R8, and would produce column names from property
@@ -3629,6 +4013,11 @@ Core
 │                GeoProjection (equirectangular · Mercator) · ProjectedGeometry
 │                GeoGeometryMath (ray casting · centroids · simplification)
 │                GeoSpatialIndex (uniform grid)
+├── set          SetDefinition · SetIntersection · SetContainment · SetRegion
+│                SetAnalyzer (inclusion–exclusion, both directions) · SetValidator
+│                SetRelationshipGraph · SetShape (circle · ellipse)
+│                VennLayoutEngine · EulerLayoutEngine · CircleOptimizer
+│                RegionGeometryIndex · SetHitTester
 ├── timeline     TimelineModel · lane and row assignment · dependencies
 ├── transform    WaterfallTransform · FunnelTransform
 ├── scene        ChartScene · ChartSceneNode · ChartSceneBuilder
@@ -3654,6 +4043,7 @@ Layout engines
 ├── Hierarchical  squarified treemap · sunburst rings
 ├── Flow          Sankey columns, node placement, band routing
 ├── Graph         circular · force-directed
+├── Set           canonical Venn arrangements · Euler nesting · pattern search
 └── Geographic    project once → fit uniformly → zoom and pan
 
 Layers
@@ -3665,7 +4055,7 @@ Layers
 │               annotations (behind and above) · custom
 ├── Polar       slice (pie + donut) · radial bar · radar web · radar
 │               sunburst · gauge · custom
-├── Planar      treemap · Sankey · funnel · graph
+├── Planar      treemap · Sankey · funnel · graph · set diagram
 └── Geographic  choropleth
 
 Interaction
@@ -3770,6 +4160,15 @@ exists so that four layout-driven visualisations do not each get their own
 tooltip overlay, the legend, the animation clock, the theme lookup, the
 accessibility summary and the capture modifier, and four places for them to
 drift apart.
+
+Set diagrams were the second such test, and they needed no coordinate system at
+all: a Venn diagram is geometry placed inside a rectangle, which is what
+`PlanarCoordinates` already answers. What they did need was a *model* — sets,
+intersections, containment, logical regions — and that model is deliberately
+separate from the layout that draws it. `VennLayoutEngine` and
+`EulerLayoutEngine` are two strategies over one `SetDiagramData`, and an UpSet
+plot would be a third: same analysis, same validation, same regions, same
+selection, same accessibility, a completely different picture.
 
 `ChartLayerRenderer` is small and defaulted, so a candlestick, a violin, a
 heatmap or an annotation rule is a new implementation rather than a change to
@@ -3926,6 +4325,8 @@ adopted for something it cannot do.
   geocoding. `ChoroplethMap` shades boundaries you supply and is not a mapping
   SDK
 - 3D charts, chord and arc diagrams
+- UpSet plots and set matrices. The set model is built to feed one — see the
+  roadmap — but the layout does not exist yet
 - Polar-area charts, and stacked **areas** — multi-series areas overlap, each
   measured from the baseline
 - Interactive range **handles** on a chart's own range selection: a range is
@@ -4047,6 +4448,42 @@ adopted for something it cannot do.
 - Proportional-symbol maps, cartograms, flow maps and dot-density maps are not
   drawn. `Point` and `MultiPoint` geometry is parsed and carried, and is used
   for label placement, but nothing renders a sized marker from it yet
+- **Area-proportional set diagrams are approximations, and the size of the
+  approximation is reported.** Three circles have six degrees of freedom against
+  a three-set system's seven quantities; four circles cannot produce all fifteen
+  regions at all. `SetLayoutQuality` carries the mean and worst area error, the
+  combination the worst belongs to, and the fraction of asked-for regions
+  actually drawn
+- A four-set Venn uses four congruent **ellipses**, because no four circles
+  produce fifteen regions. Five sets and above use an ellipse rosette whose
+  region coverage is **measured and reported** rather than assumed; above about
+  five sets a Venn diagram has regions too thin to label or tap, and the right
+  answer is a different visualisation
+- An Euler layout **grows a parent to hold its children**, so a set that contains
+  another is drawn at least as large as its contents even when its cardinality
+  asks for less. The alternative — shrinking children — would make a nested set
+  smaller than an unrelated set of the same size, which is worse. The resulting
+  proportionality error is included in `SetLayoutQuality`
+- Not every set system can be drawn exactly with circles and ellipses. A set
+  buried in one branch that must overlap a set in another is placed by a bounded
+  coarse search followed by a bounded pattern search; where the arrangement
+  matters more than the arithmetic, `SetDiagramLayout.Custom` takes the shapes
+  directly
+- An unstated intersection is read as **empty**, not as unknown. Nested data
+  should be declared with `SetContainment` rather than by writing out the
+  combinations it implies
+- Two sets that share every item are indistinguishable by cardinality and are
+  drawn coincident. Which of them is on top is not defined; label them to tell
+  them apart
+- Set-diagram labels are skipped when they do not fit their region rather than
+  being shrunk, rotated or ellipsised. There is no label-placement engine, so a
+  dense diagram labels fewer regions than it has
+- `SetAnalyzer.fromItems` is capped at 20 collections, because the intersection
+  lattice is exponential in the number of sets. The number of *items* is not
+  capped
+- Set-diagram layout runs on the calling thread. It is bounded by
+  `SetLayoutConfig.maxIterations` and cached against the data, so it happens once
+  per data change rather than per frame; there is no background solver
 
 ## Roadmap
 
@@ -4060,6 +4497,9 @@ adopted for something it cannot do.
 - Proportional-symbol overlays on a choropleth, from the `Point` geometry that
   is already parsed
 - A pole-of-inaccessibility label point, for concave regions
+- UpSet plots, over the `SetDefinition` / `SetIntersection` / `SetAnalyzer`
+  model that already exists — a different layout, not a different model
+- Path-based set shapes, for Euler systems circles and ellipses cannot represent
 - Stabilising the `CartesianChart` layer DSL and the custom-layer API, and
   dropping the experimental marker
 - Benchmark coverage, if the repository grows benchmarking infrastructure
@@ -4068,8 +4508,8 @@ adopted for something it cannot do.
 ## Testing
 
 ```bash
-./gradlew :chartkit:testDebugUnitTest          # 770 JVM tests
-./gradlew :chartkit:connectedDebugAndroidTest  # 141 Compose UI tests
+./gradlew :chartkit:testDebugUnitTest          # 889 JVM tests
+./gradlew :chartkit:connectedDebugAndroidTest  # 169 Compose UI tests
 ```
 
 | Suite | Covers |
@@ -4094,6 +4534,11 @@ adopted for something it cannot do.
 | `ChartGraphTest` | Node order and identity, degree, symmetric adjacency, unknown endpoints, self-edges, the caller's object |
 | `CircularLayoutTest` | Placement, unit bounds, even spacing, settling, reproducibility, degree ordering, single node, mapping into a rectangle |
 | `ForceLayoutTest` | Seeded determinism, seed sensitivity, bounds, non-coincidence, settling, connected nodes ending closer, pinning, unsettling on drag, release, snapshot isolation, the simulation cap |
+| `SetAnalyzerTest` | Exclusive regions against inclusion–exclusion in both directions, totals against exclusives, order independence, unstated combinations, relationships, containment closure including the downward rule, transitivity, cycles, every validation rule, lenient mode, collections, duplicate keys as sets rather than multisets, and that the two input routes agree |
+| `SetLayoutTest` | Region counts for one to five sets, the four-ellipse construction, measured coverage above four, proportional sizing by area, solved overlaps, determinism, Euler nesting and disjointness, three-level nesting, cross-branch overlap, identical sets, the aspect-ratio-preserving fit, membership by geometry, anchors inside their own regions, custom arrangements, the iteration ceiling |
+| `SetGeometryTest` | Lens areas against known geometry, tangency and coincidence without NaN, containment, symmetry, monotonicity, solving for a distance, ellipse containment and rotated bounds, sampled against closed-form areas, and hit testing for every region of a three-set diagram |
+| `SetPresentationTest` | Order-independent and deterministic blending, region naming and its replaceable words, the regions table and its shares, and the relationship table saying nothing the labels did not earn |
+| `SetPerformanceTest` | Two, three, four and five sets, a complex nested Euler and a conceptual icon-group diagram: solver budgets, analytic arrangements needing no solve, re-fitting without re-solving, twenty thousand items, and deterministic sampling |
 | `GeoJsonTest` | Feature collections, bare features and bare geometries, properties, numeric keys as strings, closing points, holes, multi-polygons, points, unsupported geometry skipped and reported, the reject policy, malformed JSON, escapes and Unicode, degenerate rings, bounds |
 | `GeoProjectionTest` | Equirectangular identity and inversion, standard parallels, Mercator growth and pole clamping, non-finite input, the fit's single scale, the y flip, padding, exact screen/projected inversion, visible extent under zoom, fit-and-centre on a target |
 | `GeoGeometryTest` | Ray casting, concave rings, shared borders belonging to one region, holes, area centroids against vertex density, largest-component labels, simplification and its stack safety, projected geometry, the index against a brute-force scan, multi-polygon selection |
@@ -4139,6 +4584,7 @@ adopted for something it cannot do.
 | `ChartViewportInteractionTest` | Pinch zoom, pan, clamping, reset, crosshair, shared tooltips, range selection in both directions |
 | `ChartLinkedInteractionTest` | Shared viewport, shared crosshair, independent value scales, opt-in isolation |
 | `ChartSemanticsAndThemeTest` | Announcements, custom summaries, theme precedence, light and dark |
+| `ChartSetDiagramTest` | Two, three and four sets drawing; empty, coincident and tangent geometry; nested Euler; selection of exclusive, pairwise and triple regions; clearing outside; empty theoretical regions; static mode; the tooltip; custom set labels, region labels, region content and icon groups; reported clearance; colour modes leaving the data alone; explicit intersection colours; focus dimming; the generic API and custom arrangements; collection-driven counting; the data table; the animated reveal |
 | `ChartGeoTest` | A choropleth drawing under both projections, empty geometry, labels, the colour legend and its "no data" swatch, join reporting including a key mismatch, selection by region, unmeasured regions, clearing outside the geography, static mode taking no input, camera zoom/pan/reset, immediate tap selection, the tooltip, the data table |
 
 ## Licence

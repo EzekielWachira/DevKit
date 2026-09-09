@@ -52,6 +52,10 @@ data class ChartSelection<out T>(
     val geo: ChartSelectionDetails.Geo?
         get() = details as? ChartSelectionDetails.Geo
 
+    /** The logical region of this selection, or `null` for any other chart. */
+    val set: ChartSelectionDetails.Set?
+        get() = details as? ChartSelectionDetails.Set
+
     /** The x value as a label, for tooltips and accessibility text. */
     val xLabel: String
         get() = when (val value = x) {
@@ -104,6 +108,38 @@ sealed interface ChartSelectionDetails {
         val properties: io.devkit.chartkit.geo.GeoProperties,
         val hasValue: Boolean,
         val bounds: io.devkit.chartkit.geo.GeoBounds?,
+    ) : ChartSelectionDetails
+
+    /**
+     * One logical region of a Venn or Euler diagram.
+     *
+     * The unit of selection in a set diagram is a **region**, not a set. Tapping
+     * where two circles cross selects "A and B, and nothing else" — which has
+     * its own value, its own colour and its own place in the accessibility
+     * table — rather than selecting whichever circle happened to be drawn last.
+     *
+     * @param memberships the set ids an item must be in to be in this region,
+     *   and only these. Order-independent.
+     * @param value how many items are in exactly this combination. This is the
+     *   number a tooltip must show, and it is not the intersection cardinality
+     *   the caller stated unless this is the largest combination in the diagram.
+     * @param totalValue how many are in *at least* this combination — the
+     *   number the caller supplied for a pairwise intersection.
+     * @param label the region's name, as the diagram's own formatter rendered
+     *   it. Localisable: see `regionName` on the chart.
+     * @param sets the definitions behind [memberships], so a tooltip can read a
+     *   set's metadata without looking anything up.
+     * @param isTheoretical true when Venn semantics drew this region even though
+     *   the data puts nothing in it.
+     */
+    data class Set(
+        val memberships: kotlin.collections.Set<String>,
+        val kind: io.devkit.chartkit.set.SetRegionKind,
+        val value: Double,
+        val totalValue: Double,
+        val label: String,
+        val sets: List<io.devkit.chartkit.set.SetDefinition>,
+        val isTheoretical: Boolean,
     ) : ChartSelectionDetails
 
     /**

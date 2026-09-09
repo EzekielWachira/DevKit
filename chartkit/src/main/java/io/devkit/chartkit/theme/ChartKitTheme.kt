@@ -289,6 +289,37 @@ data class ChartGeoColors(
 )
 
 /**
+ * The colours a set diagram draws with.
+ *
+ * The set *fills* are not here: they come from the series palette, one slot per
+ * set, so a Venn diagram sitting beside a bar chart of the same categories
+ * colours them alike. What is here is the furniture — the outlines, the label
+ * text, and the treatment applied to regions that are and are not part of a
+ * selection.
+ *
+ * @param outline the boundary of a set. Boundaries matter more here than in most
+ *   charts: once fills blend, the outline is the only thing that still says
+ *   where one set ends.
+ * @param selectedOutline the boundary of a selected region.
+ * @param selectionFill washed over the selected region, on top of its own fill.
+ * @param label a set's own name.
+ * @param regionLabel text drawn inside a logical region.
+ * @param labelHalo drawn behind label text so it survives whatever fill is under
+ *   it — which for a blended overlap cannot be predicted in advance.
+ * @param dim laid over sets that are not part of the current focus.
+ */
+@Immutable
+data class ChartSetColors(
+    val outline: Color,
+    val selectedOutline: Color,
+    val selectionFill: Color,
+    val label: Color,
+    val regionLabel: Color,
+    val labelHalo: Color,
+    val dim: Color,
+)
+
+/**
  * The colours every ChartKit chart draws with.
  *
  * @param palette one colour per series, taken by index. Series keep their slot
@@ -447,6 +478,15 @@ data class ChartColors(
         label = axisLabel,
         labelHalo = tooltipContent,
     ),
+    val set: ChartSetColors = ChartSetColors(
+        outline = axisLine,
+        selectedOutline = selectionGuide,
+        selectionFill = selectionHighlight,
+        label = axisLabel,
+        regionLabel = axisLabel,
+        labelHalo = tooltipContent,
+        dim = emptyContent.copy(alpha = 0.55f),
+    ),
 ) {
     init {
         require(palette.isNotEmpty()) {
@@ -488,6 +528,10 @@ data class ChartTypography(
     val nodeLabel: TextStyle = valueLabel,
     /** A region's name, drawn on a thematic map. */
     val geoLabel: TextStyle = valueLabel,
+    /** A set's own name in a Venn or Euler diagram. */
+    val setLabel: TextStyle = nodeLabel,
+    /** Text inside one logical region of a set diagram. */
+    val setRegionLabel: TextStyle = valueLabel,
 )
 
 /**
@@ -728,6 +772,20 @@ data class ChartDimensions(
 
     /** The width a continuous colour-scale legend's ramp bar aims for. */
     val colorLegendBarWidth: Dp = 160.dp,
+
+    // ---- set diagrams ---------------------------------------------------
+
+    /** The outline of a set's shape. */
+    val setOutlineWidth: Dp = 1.dp,
+
+    /** The outline of a selected region. Heavier, so it reads over any fill. */
+    val setSelectedOutlineWidth: Dp = 2.dp,
+
+    /** Space kept between the diagram and the plot's edge. */
+    val setDiagramPadding: Dp = 12.dp,
+
+    /** The smallest region a label will be placed in. */
+    val setMinLabelClearance: Dp = 14.dp,
 )
 
 /**
@@ -988,6 +1046,21 @@ fun materialDerivedChartColors(
             // true colours — that is the part the reader is about to look at.
             mask = scheme.surface.copy(alpha = if (isDark) 0.55f else 0.65f),
             handle = scheme.primary,
+        ),
+        set = ChartSetColors(
+            // The surface between two sets, for the same reason a map's borders
+            // are the surface: once fills blend, an outline in a third colour
+            // reads as a shape of its own.
+            outline = scheme.surface,
+            selectedOutline = scheme.onSurface,
+            selectionFill = scheme.onSurface.copy(alpha = 0.12f),
+            label = scheme.onSurface,
+            regionLabel = scheme.onSurface,
+            // A halo rather than a chosen text colour: a blended overlap's fill
+            // cannot be predicted before it is composited, so the label carries
+            // its own background instead of guessing at the contrast.
+            labelHalo = scheme.surface,
+            dim = scheme.surface.copy(alpha = if (isDark) 0.6f else 0.7f),
         ),
     )
 }
