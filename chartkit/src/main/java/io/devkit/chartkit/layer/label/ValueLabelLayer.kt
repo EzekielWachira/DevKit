@@ -6,6 +6,7 @@ import androidx.compose.ui.text.drawText
 import io.devkit.chartkit.formatter.ChartValueFormatter
 import io.devkit.chartkit.geometry.BarSlice
 import io.devkit.chartkit.geometry.ChartOffset
+import io.devkit.chartkit.geometry.ChartRect
 import io.devkit.chartkit.layer.ChartLayerRenderer
 import io.devkit.chartkit.layer.ChartRenderContext
 
@@ -37,7 +38,7 @@ internal class ValueLabelLayer(
 
         val style = context.typography.valueLabel.copy(color = context.colors.valueLabel)
         val padding = context.px(context.dimensions.labelPadding)
-        val placed = ArrayList<FloatArray>(anchors.size)
+        val placer = LabelPlacer(plot, anchors.size)
 
         anchors.forEach { anchor ->
             val value = anchor.value ?: return@forEach
@@ -67,22 +68,51 @@ internal class ValueLabelLayer(
                     top = anchor.position.y - height / 2f
                 }
             }
-            val box = floatArrayOf(left, top, left + width, top + height)
-
-            if (box[0] < plot.left || box[2] > plot.right ||
-                box[1] < plot.top || box[3] > plot.bottom
-            ) {
-                return@forEach
-            }
-            if (placed.any { it.overlaps(box) }) return@forEach
-
-            placed += box
+            if (!placer.place(left, top, width, height)) return@forEach
             scope.drawText(measured, topLeft = Offset(left, top))
         }
+    }
+}
+
+/**
+ * Which labels get drawn when they cannot all fit.
+ *
+ * ### One rule, wherever labels are drawn
+ *
+ * Shared rather than reimplemented: the 3D column layer places its labels at
+ * draw time, because where they go depends on the camera and the camera is not
+ * known when the geometry is built — but *which* of them survive is exactly the
+ * same question, and answering it twice is how two parts of one library end up
+ * with two different ideas of what "too crowded" means.
+ *
+ * The rule is deliberately conservative. A label is dropped when it would leave
+ * the plot or overlap one already placed; nothing is shrunk, rotated or
+ * ellipsised, because a chart of half-readable numbers is worse than a chart of
+ * fewer whole ones.
+ */
+internal class LabelPlacer(private val bounds: ChartRect, capacity: Int = DEFAULT_CAPACITY) {
+
+    private val placed = ArrayList<FloatArray>(capacity)
+
+    /** Claims the box, or refuses it. Returns `true` when the label may be drawn. */
+    fun place(left: Float, top: Float, width: Float, height: Float): Boolean {
+        val box = floatArrayOf(left, top, left + width, top + height)
+        if (box[0] < bounds.left || box[2] > bounds.right ||
+            box[1] < bounds.top || box[3] > bounds.bottom
+        ) {
+            return false
+        }
+        if (placed.any { it.overlaps(box) }) return false
+        placed += box
+        return true
     }
 
     private fun FloatArray.overlaps(other: FloatArray): Boolean =
         this[0] < other[2] && other[0] < this[2] && this[1] < other[3] && other[1] < this[3]
+
+    private companion object {
+        const val DEFAULT_CAPACITY = 16
+    }
 }
 
 /** Which side of its anchor a label sits on. */

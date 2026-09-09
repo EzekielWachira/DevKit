@@ -93,6 +93,7 @@ import io.devkit.chartdemo.ChartComboScreen
 import io.devkit.chartdemo.ChartComparisonScreen
 import io.devkit.chartdemo.ChartDashboardScreen
 import io.devkit.chartdemo.ChartFlowScreen
+import io.devkit.chartdemo.Chart3DScreen
 import io.devkit.chartdemo.ChartGaugeScreen
 import io.devkit.chartdemo.ChartGeographicScreen
 import io.devkit.chartdemo.ChartGraphScreen
@@ -582,6 +583,12 @@ private enum class SampleScreen(
         SampleKit.ChartKit,
         "Several units, several Y axes, one shared X",
     ),
+    Chart3D(
+        "3D columns",
+        "3",
+        SampleKit.ChartKit,
+        "Grouped, stacked and depth-arranged columns under a camera",
+    ),
     ChartAdvanced(
         "Advanced",
         "X",
@@ -730,6 +737,7 @@ private fun FillKitSampleApp() {
                 SampleScreen.ChartSets -> ChartSetScreen(Modifier.padding(padding))
                 SampleScreen.ChartGauges -> ChartGaugeScreen(Modifier.padding(padding))
                 SampleScreen.ChartCombo -> ChartComboScreen(Modifier.padding(padding))
+                SampleScreen.Chart3D -> Chart3DScreen(Modifier.padding(padding))
                 SampleScreen.ChartAdvanced -> ChartAdvancedScreen(Modifier.padding(padding))
             }
         }

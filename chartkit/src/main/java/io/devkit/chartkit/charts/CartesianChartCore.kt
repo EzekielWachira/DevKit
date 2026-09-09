@@ -135,6 +135,18 @@ internal fun CartesianChartCore(
     overlay: (@Composable ChartOverlayScope.() -> Unit)? = null,
     sceneState: io.devkit.chartkit.scene.ChartSceneState? = null,
     keyboardNavigation: Boolean = true,
+    /**
+     * Extra pointer handling for a chart whose gestures the engine has no
+     * notion of.
+     *
+     * A 3D chart's drag-to-rotate is the case it exists for: rotating a camera
+     * is not a Cartesian gesture, it does not move the viewport, and it selects
+     * nothing — so [io.devkit.chartkit.interaction.chartGestures] has nothing
+     * to say about it. Applied innermost, so it sees events first and the
+     * engine's own gestures still receive whatever it does not consume. See
+     * [PolarChartCore], which takes the same parameter for an adjustable dial.
+     */
+    plotModifier: Modifier = Modifier,
     onSelectionChanged: ((AnyChartSelection?) -> Unit)?,
     onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)?,
     tooltip: (@Composable (AnyChartTooltipData) -> Unit)?,
@@ -207,6 +219,7 @@ internal fun CartesianChartCore(
                         overlay = overlay,
                         sceneState = sceneState,
                         keyboardNavigation = keyboardNavigation,
+                        plotModifier = plotModifier,
                         onSelectionChanged = onSelectionChanged,
                         onRangeSelectionChanged = onRangeSelectionChanged,
                         tooltip = tooltip,
@@ -295,6 +308,7 @@ private fun ChartPlot(
     overlay: (@Composable ChartOverlayScope.() -> Unit)?,
     sceneState: io.devkit.chartkit.scene.ChartSceneState?,
     keyboardNavigation: Boolean,
+    plotModifier: Modifier,
     onSelectionChanged: ((AnyChartSelection?) -> Unit)?,
     onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)?,
     tooltip: (@Composable (AnyChartTooltipData) -> Unit)?,
@@ -612,13 +626,22 @@ private fun ChartPlot(
                 },
             )
         } else {
-            describeSelection(
-                seriesName = selected.seriesName,
-                xLabel = geometry.formatDomainValue(selected.x),
-                value = selected.y,
-                formatter = selection.let { geometry.valueFormatter },
-                multiSeries = geometry.summaries.size > 1,
-            )
+            // A layer that knows what its own selection *means* says so, and
+            // only for a selection that belongs to it: a stacked column's total,
+            // a waterfall's running balance, a bullet's distance from target.
+            // Matched by series id rather than asked of every layer in turn,
+            // because on a combined chart the first layer to answer would
+            // otherwise describe another layer's mark.
+            geometry.hitTestable
+                .firstOrNull { renderer -> selected.seriesId in renderer.seriesIds }
+                ?.describeSelection(selected, geometry.valueFormatter)
+                ?: describeSelection(
+                    seriesName = selected.seriesName,
+                    xLabel = geometry.formatDomainValue(selected.x),
+                    value = selected.y,
+                    formatter = selection.let { geometry.valueFormatter },
+                    multiSeries = geometry.summaries.size > 1,
+                )
         }
     }
     // Announced only when the gesture settles. A live region updated on every
@@ -794,7 +817,8 @@ private fun ChartPlot(
                     // through the values without a keyboard and without having
                     // to place a finger accurately on a 3-pixel line.
                     if (stepActions.isNotEmpty()) customActions = stepActions
-                },
+                }
+                .then(plotModifier),
         ) {
             val plot = geometry.coordinates.plotArea
             if (geometry.isEmpty || plot.isEmpty) return@Canvas
