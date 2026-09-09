@@ -223,7 +223,54 @@ data class ChartGaugeColors(
     val track: Color,
     val progress: Color,
     val needle: Color,
-)
+    /**
+     * The dial's face, and the ring around it.
+     *
+     * Both default to the track's colour so an existing theme keeps working;
+     * neither is drawn unless a gauge asks for a pane.
+     */
+    val pane: Color = track,
+    val paneBorder: Color = track,
+    /** The hub the needles turn on. Defaults to the needle's own colour. */
+    val pivot: Color = needle,
+    /**
+     * The scale's marks and numbers.
+     *
+     * Quieter than the needle by default: a dial's ticks are the ruler and the
+     * needle is the reading, and ticks as loud as the needle make it hard to
+     * find.
+     */
+    val majorTick: Color = needle,
+    val minorTick: Color = track,
+    val label: Color = needle,
+    /** Target and limit marks on the arc. */
+    val marker: Color = needle,
+    /**
+     * Ordered colours for threshold bands, taken by position.
+     *
+     * A **monochrome ramp of increasing emphasis**, not a traffic light.
+     * ChartKit does not know whether high is good: on a battery gauge the last
+     * band is the desirable one and on a temperature gauge it is the alarming
+     * one, and a library that painted the third band red would be asserting a
+     * meaning it cannot have. A ramp says "further along the scale", which is
+     * the only thing the position actually tells us.
+     *
+     * Applications with a real severity to show pass their own colours through
+     * [io.devkit.chartkit.layer.polar.GaugeBand] or
+     * [io.devkit.chartkit.gauge.GaugeBandStyle] — and should also label the
+     * bands, because colour alone is not available to every reader.
+     */
+    val bands: List<Color> = listOf(
+        progress.copy(alpha = 0.22f),
+        progress.copy(alpha = 0.42f),
+        progress.copy(alpha = 0.62f),
+        progress.copy(alpha = 0.82f),
+    ),
+) {
+    /** The band colour at [index], wrapping when there are more bands than colours. */
+    fun band(index: Int): Color =
+        if (bands.isEmpty()) progress else bands[index.mod(bands.size)]
+}
 
 /**
  * Colours for timelines, range charts and Gantt-style views.
@@ -518,6 +565,9 @@ data class ChartTypography(
     val sliceLabel: TextStyle = valueLabel,
     /** The value readout a crosshair puts on an axis. */
     val crosshairLabel: TextStyle = axisLabel,
+
+    /** The numbers around a gauge's arc. */
+    val gaugeLabel: TextStyle = axisLabel,
     /** Text drawn inside a heatmap or calendar cell. */
     val cellLabel: TextStyle = valueLabel,
     /** An annotation's own label. */
@@ -730,6 +780,34 @@ data class ChartDimensions(
 
     /** The width of a gauge's needle at its base. */
     val gaugeNeedleWidth: Dp = 4.dp,
+
+    /** The width of a gauge needle at its tip, for the tapered blade shape. */
+    val gaugeNeedleTipWidth: Dp = 1.5.dp,
+
+    /** How far a major tick reaches across the track. */
+    val gaugeMajorTickLength: Dp = 10.dp,
+
+    /** How far a minor tick reaches. Shorter, so the two are distinguishable. */
+    val gaugeMinorTickLength: Dp = 5.dp,
+
+    val gaugeMajorTickWidth: Dp = 2.dp,
+    val gaugeMinorTickWidth: Dp = 1.dp,
+
+    /** The gap between the outside of the arc and a tick label. */
+    val gaugeLabelGap: Dp = 6.dp,
+
+    /** The size of a target or limit mark on the arc. */
+    val gaugeMarkerSize: Dp = 9.dp,
+
+    /**
+     * The outer radius below which [io.devkit.chartkit.gauge.GaugeDetail.Auto]
+     * drops a dial's minor ticks and thins its numbers.
+     *
+     * Measured rather than assumed: the same gauge on a dashboard tile and on a
+     * tablet wants two different amounts of scale, and neither is a property of
+     * the data.
+     */
+    val gaugeCompactRadius: Dp = 78.dp,
 
     // ---- timeline -------------------------------------------------------
 
@@ -1025,6 +1103,15 @@ fun materialDerivedChartColors(
             track = scheme.surfaceVariant,
             progress = scheme.primary,
             needle = scheme.onSurface,
+            // The face sits behind the track, so it has to differ from it or
+            // neither is visible.
+            pane = scheme.surface,
+            paneBorder = scheme.outlineVariant,
+            pivot = scheme.onSurface,
+            majorTick = scheme.onSurfaceVariant,
+            minorTick = scheme.outlineVariant,
+            label = scheme.onSurfaceVariant,
+            marker = scheme.onSurface,
         ),
         timeline = ChartTimelineColors(
             interval = scheme.primary,

@@ -93,6 +93,7 @@ import io.devkit.chartdemo.ChartComboScreen
 import io.devkit.chartdemo.ChartComparisonScreen
 import io.devkit.chartdemo.ChartDashboardScreen
 import io.devkit.chartdemo.ChartFlowScreen
+import io.devkit.chartdemo.ChartGaugeScreen
 import io.devkit.chartdemo.ChartGeographicScreen
 import io.devkit.chartdemo.ChartGraphScreen
 import io.devkit.chartdemo.ChartSetScreen
@@ -569,6 +570,12 @@ private enum class SampleScreen(
         SampleKit.ChartKit,
         "Venn and Euler diagrams, icons, logos and colour modes",
     ),
+    ChartGauges(
+        "Gauges",
+        "◔",
+        SampleKit.ChartKit,
+        "Speedometers, dials, bands, needles and adjustable gauges",
+    ),
     ChartCombo(
         "Multi-axis combos",
         "M",
@@ -721,6 +728,7 @@ private fun FillKitSampleApp() {
                 SampleScreen.ChartDashboard -> ChartDashboardScreen(Modifier.padding(padding))
                 SampleScreen.ChartGeographic -> ChartGeographicScreen(Modifier.padding(padding))
                 SampleScreen.ChartSets -> ChartSetScreen(Modifier.padding(padding))
+                SampleScreen.ChartGauges -> ChartGaugeScreen(Modifier.padding(padding))
                 SampleScreen.ChartCombo -> ChartComboScreen(Modifier.padding(padding))
                 SampleScreen.ChartAdvanced -> ChartAdvancedScreen(Modifier.padding(padding))
             }
