@@ -7,6 +7,11 @@ import kotlin.math.min
  * A rectangular box: the first reusable 3D primitive, and the shape a column
  * segment takes.
  *
+ * One implementation of [Chart3DGeometry], and deliberately not the only one:
+ * [RadialSector3D] is the second, and the scene, the camera, the projection,
+ * the culling, the depth sort, the lighting and the hit test are shared between
+ * them without a line of either shape's own code.
+ *
  * ### Built from chart terms, not from vertices
  *
  * The constructor takes a footprint, a value interval and a depth rather than
@@ -41,12 +46,12 @@ class Cuboid3D(
     yEnd: Double,
     z: Double,
     depth: Double,
-    val key: Chart3DKey? = null,
-) {
+    override val key: Chart3DKey? = null,
+) : Chart3DGeometry {
     /** True when the box was stated top-down: a value below the baseline. */
     val isNegative: Boolean = yEnd < yStart
 
-    val bounds: Bounds3D = Bounds3D(
+    override val bounds: Bounds3D = Bounds3D(
         minX = min(x, x + width),
         maxX = max(x, x + width),
         minY = min(yStart, yEnd),
@@ -56,7 +61,7 @@ class Cuboid3D(
     )
 
     /** True when the box encloses no volume — a zero value, or a footprint that rounded away. */
-    val isDegenerate: Boolean
+    override val isDegenerate: Boolean
         get() = !bounds.isFinite ||
             bounds.width <= 0.0 || bounds.depth <= 0.0 || bounds.height <= 0.0
 
@@ -92,7 +97,7 @@ class Cuboid3D(
      * and appears when looked away from, which reads as a rendering glitch
      * rather than as the winding bug it is.
      */
-    val faces: List<Face3D> = with(bounds) {
+    override val faces: List<Face3D> = with(bounds) {
         listOf(
             // Front, facing the reader: outward normal is -z.
             Face3D.of(

@@ -7,8 +7,9 @@ heatmap, candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet,
 timeline, range and Gantt on Cartesian coordinates; pie, donut, radial bar,
 radar, sunburst and gauge on polar ones; treemap, Sankey, funnel and network
 graphs on planar ones; choropleth maps on geographic ones. Venn and Euler
-diagrams sit on the planar engine too, and grouped and stacked 3D columns are a
-projected scene over the Cartesian one rather than a fifth engine. All four
+diagrams sit on the planar engine too, and the 3D charts — grouped and stacked
+columns, extruded pies and donuts — are a projected scene over the Cartesian and
+polar engines rather than a fifth engine of their own. All four
 coordinate systems share the same scales, layout, layers, viewport, interaction,
 animation, theming, overlays and accessibility.
 
@@ -40,7 +41,7 @@ the opposite of the point.
 
 - [Install](#install) · [Requirements](#requirements) · [Run the sample](#run-the-sample)
 - Cartesian charts: [Line](#line-chart) · [Area](#area-chart) · [Bar](#bar-chart) · [Horizontal](#horizontal-bars) · [Grouped](#grouped-bars) · [Stacked](#stacked-bars) · [100% stacked](#100-stacked-bars) · [Multi-series](#multiple-series) · [Combined](#combined-charts) · [Multi-axis combos](#multi-axis-combo-charts)
-- 3D: [3D columns](#3d-columns)
+- 3D: [3D columns](#3d-columns) · [3D pie and donut](#3d-pie-and-donut)
 - Polar charts: [Pie](#pie-chart) · [Donut](#donut-chart) · [Radial bar](#radial-bar-chart) · [Radar](#radar-chart) · [Polar coordinates](#polar-coordinates)
 - Statistical: [Scatter](#scatter-chart) · [Bubble](#bubble-chart) · [Histogram](#histogram) · [Box plot](#box-plot) · [Violin](#violin-plot) · [Statistics API](#statistics-api)
 - Density: [Heatmap](#heatmap) · [Calendar heatmap](#calendar-heatmap) · [Colour scales](#colour-scales)
@@ -147,6 +148,7 @@ Open the drawer and pick a **ChartKit** destination:
 | Relationships | A service graph, circular and force directed, draggable and zoomable, with its data table |
 | Geographic | A choropleth over the sample's own GeoJSON: quantile against continuous shading, both projections, labels, a legend, missing data, the join report and the data table |
 | Gauges | Ten demos: the reference speedometer, a semicircle stated as two angles, a full-circle compass, a three-quarter dial, four bands over a range crossing zero, three needles with a legend, an adjustable dial, a compact KPI pair, a deterministic realtime feed, and a custom counterweighted needle |
+| 3D pie and donut | Nineteen demos: the reference 3D pie and 3D donut, a plain pie and donut, exploded pies and donuts, tap-to-explode selection, perspective against orthographic, custom depth, custom lighting, a custom start angle with slice gaps, partial pies and donuts, Compose centre content, animated data updates, an interactive camera, dark mode, zero/null/negative values and twenty slices — with live pitch, yaw, distance, depth and projection controls and the accessible data table |
 | 3D columns | Fifteen demos: the reference grouped-and-stacked arrangement, a single series, grouped, stacked, depth rows, 100% stacked, negative values, null against zero, an interactive camera, custom lighting, the frame on and off, dark mode, twenty categories, and the low-level `CartesianChart3D` API — with live pitch, yaw, distance, depth and projection controls and the accessible data table |
 | Multi-axis combos | Six demos: the reference weather chart with three units, a business combo, a financial combo with volume on its own axis, legend toggling with axis auto-hide, zero alignment, and a shared crosshair with per-axis chips |
 | Set relationships | Thirteen Venn and Euler demos: two, three and four sets, proportional sizing, Venn against Euler, hand-placed icon groups, icons in labels, packed image content, four-level nesting, disjoint sets, explicit intersection colours, collection-driven sets and the accessibility tables |
@@ -414,6 +416,13 @@ PieChart(..., valuePolicy = PolarValuePolicy.Reject)   // throw instead
 Every degenerate input renders: an empty list and an all-zero dataset show the
 empty content, a single value fills the circle, and a value a millionth of the
 total still gets a real fraction rather than a division by zero.
+
+### In three dimensions
+
+[`PieChart3D` and `DonutChart3D`](#3d-pie-and-donut) plot the same data through
+the same slice engine, extruded and projected through a camera. Prefer the flat
+chart when comparing shares precisely is the point — see the note there on what
+perspective costs.
 
 ### Slice labels
 
@@ -3408,7 +3417,7 @@ the back row is both smaller under perspective and partly hidden.
 ### Depth
 
 ```kotlin
-ColumnChart3D(..., depth = Column3DDepth.Relative(0.6))
+ColumnChart3D(..., depth = Chart3DDepth.Relative(0.6))
 ```
 
 `Auto` derives the depth from the column's own footprint, which is what keeps
@@ -3581,7 +3590,7 @@ one to reach for unless you need the DSL. The scene plumbing in
 — is public because a future 3D chart type is built on it, and it may change
 shape before 1.0; the configuration types you actually pass to a chart
 (`Chart3DCamera`, `Chart3DProjection`, `Chart3DLighting`, `Chart3DFrame`,
-`Column3DDepth`, `Column3DArrangement`) are the stable surface.
+`Chart3DDepth`, `Chart3DQuality`, `Column3DArrangement`) are the stable surface.
 
 ### Accessibility
 
@@ -3633,8 +3642,13 @@ chart data
 Everything in `io.devkit.chartkit.three` — `Point3D`, `Vector3D`, `Matrix4`,
 `Bounds3D`, `Cuboid3D`, `Face3D`, the camera, both projections, the projector,
 the culling, the sort, the lighting and the hit test — is plain Kotlin with no
-Android or Compose types, and is tested on the JVM. A future 3D scatter, surface
-or pie adds a scene object and reuses all of it.
+Android or Compose types, and is tested on the JVM.
+
+That claim has since been tested rather than asserted: the
+[3D pie and donut](#3d-pie-and-donut) are a second shape in the *same* scene,
+and adding them needed one new abstraction in the core — `Chart3DGeometry`, so a
+scene can hold something that is not a box — and no radial copy of the camera,
+the projection, the culling, the sort, the lighting or the hit test.
 
 ### Performance and limitations
 
@@ -3664,14 +3678,445 @@ again on every frame of a camera drag:
 
 | Columns | Faces drawn | Per projection pass |
 |---|---|---|
-| 50 | 150 | 43–59 µs |
-| 120 | 360 | 105–170 µs |
-| 500 | 1,500 | 195–285 µs |
+| 50 | 150 | 22–80 µs |
+| 120 | 360 | 62–152 µs |
+| 500 | 1,500 | 226–237 µs |
+
+The spread at the small sizes is the machine, not the chart: a pass that takes
+tens of microseconds is close enough to the noise floor of a laptop under load
+that three runs disagree by more than the work does.
 
 Those are figures for the projection stage on that machine and nothing else. They
 are not frame times, they are not measured on a device, and they say nothing
 about what Compose then costs to draw the paths. Run the test to reproduce them
 on yours; no other performance claim is made here.
+
+## 3D pie and donut
+
+Extruded radial slices projected through a camera, on the same slice engine,
+legend, tooltip, selection, animation and accessibility model as the flat
+[pie chart](#pie-chart) — and on the same scene, camera, projection, lighting,
+depth sorting and hit testing as the [3D columns](#3d-columns).
+
+```kotlin
+data class Share(val browser: String, val users: Double)
+
+PieChart3D(
+    data = shares,
+    value = { it.users },
+    label = { it.browser },
+    modifier = Modifier.fillMaxWidth().height(320.dp),
+)
+```
+
+No conversion step and no slice type: `data` is a `List<Share>` and stays one,
+exactly as for a flat pie. Values are normalised, the first slice starts at
+twelve o'clock and the chart runs clockwise, because this **is** `PieChart`'s
+arithmetic — the same `computePolarSlices` call, with the same arguments — and
+then extruded.
+
+### What the third dimension costs
+
+Under perspective a slice at the front is drawn larger than a slice of the same
+share at the back. That is what perspective is, and it is the price of the depth
+cue.
+
+Where comparing shares precisely is the point of the chart, either use the flat
+[`PieChart`](#pie-chart) or keep the extrusion and drop the distortion:
+
+```kotlin
+PieChart3D(
+    data = shares,
+    value = { it.users },
+    label = { it.browser },
+    projection = Chart3DProjection.Orthographic,
+)
+```
+
+Nothing else moves with the camera. The values, the percentages, the tooltip, the
+legend and everything a screen reader hears are computed from the data and never
+measured from the picture, so they are identical at every angle.
+
+### Donut
+
+A donut is a pie with a hole, and the hole is what gives every slice an inner
+wall:
+
+```kotlin
+DonutChart3D(
+    data = shares,
+    value = { it.users },
+    label = { it.browser },
+    innerRadiusRatio = 0.55f,
+)
+```
+
+`innerRadiusRatio` is a fraction of the outer radius — the same units
+[`DonutChart`](#donut-chart) uses, so a 2D and a 3D donut configured alike have
+the same hole.
+
+### Depth
+
+How far the slices are extruded, as a fraction of the outer radius:
+
+```kotlin
+PieChart3D(
+    data = shares,
+    value = { it.users },
+    label = { it.browser },
+    depth = Chart3DDepth.Relative(0.35),
+)
+```
+
+`Chart3DDepth.Auto` is a quarter of the radius. Relative rather than absolute so
+one setting works at every chart size — the cue a reader uses is the *ratio* of
+depth to radius, not either alone. `Chart3DDepth.Absolute(46.dp.toPx())` is
+there for a chart that has to match another exactly, and is converted through
+the radius it will actually be drawn at.
+
+### Camera
+
+The same `Chart3DCameraState` the 3D columns use, and it can be shared between
+charts:
+
+```kotlin
+val camera = rememberChart3DCameraState(
+    camera = Chart3DCamera.Radial,
+    limits = Chart3DCameraLimits.Radial,
+)
+
+PieChart3D(data = shares, value = { it.users }, label = { it.browser }, cameraState = camera)
+DonutChart3D(data = shares, value = { it.users }, label = { it.browser }, cameraState = camera)
+
+TextButton(onClick = { camera.reset() }) { Text("Reset view") }
+```
+
+`Chart3DCamera.Radial` is the default: 45° of pitch and no yaw.
+
+The disc lies **flat** — on the same floor a 3D column stands on — so pitch here
+means what it means for a table. `0` is edge-on and useless; `90` looks straight
+down and is a 2D pie drawn the expensive way; around 45° squashes the circle to
+about seven tenths of its width and puts the near rim clearly below the surface.
+That is why a radial chart wants far more pitch than a column chart, and why
+`Chart3DCameraLimits.Radial` stops at 12° and 85° rather than at zero.
+
+Yaw spins the plate about its own axis rather than tipping it. Harmless, but it
+moves the twelve o'clock start, so it is zero by default and limited to ±30°.
+
+### Exploded slices
+
+Tapping a slice slides it out along its own mid-angle, and it stays out until
+another is chosen:
+
+```kotlin
+PieChart3D(
+    data = shares,
+    value = { it.users },
+    label = { it.browser },
+    explodeSelected = true,               // the default
+    explodeDistance = 18.dp,
+)
+```
+
+Displacement rather than a colour change, because it survives being printed,
+screenshotted, or read by somebody who cannot separate two colours.
+
+Slices can also be displaced permanently, and several at once:
+
+```kotlin
+PieChart3D(
+    data = shares,
+    value = { it.users },
+    label = { it.browser },
+    explode = { it.browser == "Safari" || it.browser == "Edge" },
+)
+```
+
+An exploded slice is *moved geometry*, not a drawing offset: the scene fit
+accounts for it, and hit testing finds the slice where it now is rather than
+where it started.
+
+### Labels
+
+```kotlin
+PieChart3D(
+    data = shares,
+    value = { it.users },
+    label = { it.browser },
+    labelPosition = SliceLabelPosition.Outside,
+    labelContent = SliceLabelContent.LabelAndPercentage,
+)
+```
+
+Every anchor comes from a point on the slice's own front cap or rim, pushed
+through the same projector the faces went through, so a label cannot drift from
+what it names however the chart is turned. The *text* is then drawn upright:
+skewing it onto the cap's plane would be more visually consistent and materially
+less readable.
+
+`SliceLabelPosition.Auto` puts a label inside the slice when the slice's
+projected cap can hold it and outside with a leader line when it cannot — decided
+from the *projected* extent, which is exactly right under perspective, where a
+far slice is smaller than a near one of the same share. A label that would then
+collide with one already placed is dropped rather than overlapped, by the same
+[`LabelPlacer`](#value-labels) the bar chart's value labels use.
+
+### Centre content
+
+```kotlin
+DonutChart3D(
+    data = spend,
+    value = { it.amount },
+    label = { it.category },
+    innerRadiusRatio = 0.58f,
+    centerContent = {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text("Total", style = MaterialTheme.typography.labelSmall)
+            Text("1.1M", style = MaterialTheme.typography.titleMedium)
+        }
+    },
+)
+```
+
+Ordinary Compose content, laid out inside the **projected** hole and never
+tilted, skewed or projected onto the ring's plane. A total drawn in perspective
+is a total that is harder to read, and the reason to put one in a donut is that
+it is easy to read. What the camera changes is where the box goes and how big it
+is. It takes no pointer input, so the hole stays inert and no slice loses a tap.
+
+Measured from the front cap's inner rim — the nearest edge of the hole, and so
+the conservative one — at a little under the inscribed square, so a long total
+leaves a margin rather than touching the arc.
+
+### Partial pies and donuts
+
+`startAngle` and `sweepAngle` work exactly as they do on a flat pie, and the same
+primitive draws all four:
+
+```kotlin
+PieChart3D(
+    data = platforms,
+    value = { it.users },
+    label = { it.name },
+    startAngle = 270f,
+    sweepAngle = 180f,      // a semicircle
+)
+```
+
+A partial chart's end faces are its slices' own radial walls, which the reader
+then sees — so the extrusion reads as a solid rather than as a shadow.
+
+### Quality
+
+Curved surfaces are approximated by flat quads, and how many is derived rather
+than configured:
+
+```kotlin
+PieChart3D(
+    data = shares,
+    value = { it.users },
+    label = { it.browser },
+    quality = Chart3DQuality.Auto,     // the default
+)
+```
+
+`Auto` states a *tolerance* — half a pixel between a chord and the arc it
+replaces — and works back to a segment count from the radius the chart is
+actually drawn at. A small chart is therefore cut more coarsely than a large one
+without anybody configuring it, which a fixed count cannot do. `Low`, `Medium`
+and `High` are the same rule at 2px, 1.5px and 0.2px.
+
+The count comes from each slice's *settled* sweep, not the one being animated, so
+an arriving chart keeps a stable topology instead of re-cutting every arc on
+every frame.
+
+### Interaction
+
+```kotlin
+PieChart3D(
+    data = shares,
+    value = { it.users },
+    label = { it.browser },
+    interaction = Chart3DInteraction.RotateAndSelect,
+)
+```
+
+Rotation is off by default, on the same reasoning as the 3D columns: a chart the
+reader can turn is a chart at an angle nobody chose, and under perspective two
+readers then see two different pictures of the same shares.
+
+Hit testing is geometric and front-most-first, over the same depth-ordered faces
+that were drawn. A tap on a cap, on the rim, on the wall of a donut's hole or on
+a radial edge all select the same slice, because they are all the same slice; and
+a slice hidden behind another cannot take a tap on the visible one.
+
+### Accessibility
+
+The semantics come from the data, so no camera angle can change them:
+
+```
+Browser share. 6 data points.
+Chrome (42.1%): 4823, Safari (27.2%): 3112, Edge (16.1%): 1841, …
+```
+
+and a selected slice announces its label, its value and its share. There is no
+mention of a camera, a projection, a face or a depth anywhere in it — a reader
+who cannot see the picture is not helped by being told which surface faces them,
+and a chart that announced its geometry would be describing a rendering choice
+rather than a measurement.
+
+For a table beside the chart:
+
+```kotlin
+ChartDataTableView(
+    table = pieDataTable(
+        data = shares,
+        value = { it.users },
+        label = { it.browser },
+        categoryColumn = "Browser",
+    ),
+)
+```
+
+Category, value and **share** — the share is a column rather than a footnote,
+because the proportion is what a part-to-whole chart communicates and a table of
+raw numbers alone would drop it.
+
+### The low-level API
+
+The radial geometry is public and experimental. Nothing here is needed to draw a
+pie; it is here so a future 3D radial chart is built on it rather than beside it:
+
+```kotlin
+val slice = RadialSector3D(
+    innerRadius = 0.5,          // zero for a pie
+    outerRadius = 1.0,
+    startAngle = 0.0,           // twelve o'clock, clockwise
+    sweepAngle = 90.0,
+    baseY = -0.125,             // the disc is horizontal and extrudes upward
+    topY = 0.125,
+    segments = ArcTessellator3D.segmentsFor(90.0, radiusPx = 300.0),
+)
+
+slice.faces          // top and bottom, outer wall, inner wall, both radial walls
+slice.fitPoints()    // its own rim, for fitting a scene to a disc
+```
+
+`Sector3D(...)` and `AnnularSector3D(...)` are named constructors over the same
+type: a pie slice and a donut segment differ by one number, and two types would
+have meant two copies of the cap tessellation, both walls and every winding
+decision.
+
+### Architecture
+
+The pie is a shape in the **same scene** as the columns, and that is the point of
+it:
+
+```
+chart data
+  → existing slice engine              (computePolarSlices, unchanged)
+  → radial 3D layout                   (RadialSector3D, per slice)
+  → adaptive arc tessellation          (ArcTessellator3D)
+  ↓  the disc lies in x–z and extrudes along +y — a plate on the floor
+  → camera transform                   (Matrix4 — the column chart's)
+  → projection                         (the column chart's, both modes)
+  → back-face culling                  (the column chart's)
+  → depth sorting                      (the column chart's, per face)
+  → lighting                           (the column chart's, at a radial angle)
+  → ChartKit's Canvas renderer
+  → shared interaction, theme, animation, accessibility
+```
+
+There is no `Radial3DScene`, no `Radial3DCamera`, no radial projection, no radial
+culler, no radial sorter and no radial hit test. Adding the pie needed one new
+abstraction in the shared core — `Chart3DGeometry`, so a scene can hold something
+that is not a box — and one new shape behind it.
+
+#### The disc lies flat, and that is the whole orientation
+
+A radial chart's disc is built in the **x–z plane** and extruded **upward** along
+`y`, which is the same floor a 3D column stands on. Everything else follows from
+that: the camera's existing meaning — positive pitch lifts the reader above the
+scene — tips the plate toward them without a single sign flip, the near edge of
+the rim appears *below* the surface where a solid disc's rim belongs, and looking
+into a donut's hole shows the far half of its inner wall, exactly as a ring on a
+table does.
+
+The obvious alternative — standing the disc upright in the x–y plane and
+extruding it away from the reader — produces a silhouette of almost identical
+proportions and is wrong. The extrusion then runs away rather than down, so the
+rim appears *above* the surface: the picture is the underside of the plate, seen
+from below. It is worth stating because nothing about the ellipse gives it away;
+`Radial3DPipelineTest` asserts which side the rim falls on for that reason.
+
+Depth sorting happens **per face and not per slice**, and the caps are
+tessellated as well as the walls partly for that reason: a 180° slice reaches
+from the front of the chart to the back, and a single depth for the whole of it
+would put its far half in front of a neighbour it actually passes behind. The
+other reason is hit testing, which tests convex polygons — and a whole cap stops
+being convex past a half turn.
+
+Two caches sit behind a drawn frame. World geometry depends on the data, the
+radius, the depth, the quality and the explode; the projection depends on all of
+that *and* the camera. Turning the chart therefore reprojects and re-cuts no
+arcs, and a tooltip appearing does neither.
+
+### Performance and limitations
+
+- **A pie is not a chart for many slices.** Twenty is drawn honestly and is in
+  the sample so the cost is visible rather than described, but past a handful the
+  slices stop being separable and the labels stop fitting. This is a limitation of
+  pie charts, which 3D makes worse rather than better.
+- **Perspective distortion.** Front slices are drawn larger than back slices of
+  the same share. `Orthographic` keeps the extrusion and removes it.
+- **Painter's algorithm.** Faces are sorted back to front by camera-space
+  centroid depth. Exact for non-intersecting solids, which is what a ring of
+  sectors is; it is not a general solution, and two interpenetrating polygons
+  cannot be ordered by one depth each. ChartKit's own radial geometry never
+  produces that case, and an explode moves slices apart rather than through each
+  other.
+- **Very thick extrusions.** Past about half the radius the rim starts to hide the
+  caps of the far slices, and the chart becomes a cylinder with a pattern on the
+  end.
+- **Extreme camera angles.** Near edge-on the surfaces collapse to slivers and
+  are dropped rather than painted as hairlines. Nothing produces `NaN`, but the
+  chart stops being readable well before it stops being drawn — which is why
+  `Chart3DCameraLimits.Radial` stops at 12°, and why it will not go below the
+  floor at all: a plate seen from underneath is the same disc mirrored, with no
+  cue that you are looking at the wrong side.
+- **Labels are dropped, never shrunk.** On a crowded chart what survives is
+  legible and the rest is left to the legend.
+
+Measured, on a JVM, warm, over three runs of `Chart3DPerformanceTest` on an
+Apple-silicon laptop. This is the projection pass — camera transform, culling,
+sort and lighting for every face — which is the part that runs again on every
+frame of a camera drag:
+
+| Slices | Radius | Faces built | Faces drawn | Per projection pass |
+|---|---|---|---|---|
+| 5 | 300px | 246 | 121 | 34–36 µs |
+| 10 | 300px | 256 | 126 | 34–35 µs |
+| 20 | 300px | 292 | 144 | 35–42 µs |
+| 20 | 700px | 412 | 203 | 36–68 µs |
+
+And the world build — the tessellation itself, which a camera move skips
+entirely:
+
+| Slices | Per world build |
+|---|---|
+| 5 | 35–66 µs |
+| 10 | 37–51 µs |
+| 20 | 35–43 µs |
+
+There is no clear trend across those three, and that is the honest reading: at
+tens of microseconds the run-to-run spread on a laptop is larger than the
+difference four times the slices makes.
+
+Those are figures for those two stages on that machine and nothing else. They are
+not frame times, they are not measured on a device, and they say nothing about
+what Compose then costs to draw the paths. Run
+`./gradlew :chartkit:testDebugUnitTest --tests '*Chart3DPerformanceTest*' -i` to
+reproduce them on yours; no other performance claim is made here.
 
 ## Grid lines
 
@@ -5205,11 +5650,14 @@ Core
 │                GaugeGeometry (needle and marker outlines · arc bounds · fit)
 │                GaugeValue · GaugeNeedleStyle · GaugePivotStyle · GaugeMarker
 │                GaugePane · GaugeDetail · GaugeInteraction · GaugeOverflow
-├── three        Point3D · Vector3D · Matrix4 · Bounds3D · Face3D · Cuboid3D
+├── three        Point3D · Vector3D · Matrix4 · Bounds3D · Face3D
+│                Chart3DGeometry — Cuboid3D · RadialSector3D (Sector3D ·
+│                AnnularSector3D) · ArcTessellator3D · Chart3DQuality
 │                Chart3DCamera · Chart3DProjection (perspective · orthographic)
 │                Chart3DScene · Chart3DObject · Chart3DLighting · Chart3DFrame
-│                Chart3DProjector (transform · cull · sort · light · fit)
-│                Chart3DHitTest · Column3DLayoutEngine · Chart3DDiagnostics
+│                Chart3DDepth · Chart3DProjector (transform · cull · sort ·
+│                light · fit) · Chart3DHitTest · Chart3DDiagnostics
+│                Column3DLayoutEngine · Radial3DLayoutEngine
 ├── timeline     TimelineModel · lane and row assignment · dependencies
 ├── transform    WaterfallTransform · FunnelTransform
 ├── scene        ChartScene · ChartSceneNode · ChartSceneBuilder
@@ -5229,6 +5677,8 @@ Coordinates
 │                           dimension is a scene above the same plot area,
 │                           not a fifth coordinate system)
 ├── PolarCoordinates       centre + inner/outer radius + start/sweep + direction
+│                          (3D pies and donuts are drawn on these too, on the
+│                           same terms: an extruded scene above the same ring)
 ├── PlanarCoordinates      a plain rectangle, for layout-driven visualisations
 └── GeoCoordinates         projection + fitted extent + two-dimensional camera
 
@@ -5254,6 +5704,10 @@ Layers
 │               sunburst · gauge arc · gauge dial · custom
 ├── 3D          columns (grouped · stacked · grouped and stacked · percent),
 │               on Cartesian coordinates and the same stack engine
+│               radial (pie · donut · partial · exploded), on polar
+│               coordinates and the same slice engine — and on the same
+│               scene, camera, projection, culling, sort, lighting and
+│               hit test as the columns
 ├── Planar      treemap · Sankey · funnel · graph · set diagram
 └── Geographic  choropleth
 

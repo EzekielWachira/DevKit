@@ -32,7 +32,7 @@ import io.devkit.chartkit.three.Chart3DReserve
 import io.devkit.chartkit.three.Chart3DRole
 import io.devkit.chartkit.three.Chart3DScene
 import io.devkit.chartkit.three.Column3DArrangement
-import io.devkit.chartkit.three.Column3DDepth
+import io.devkit.chartkit.three.Chart3DDepth
 import io.devkit.chartkit.three.Column3DLayout
 import io.devkit.chartkit.three.Column3DLayoutEngine
 import io.devkit.chartkit.three.Column3DSeries
@@ -76,6 +76,15 @@ enum class Chart3DDebug {
 
     /** The draw index of each face, so an out-of-order sort is visible. */
     DepthOrder,
+
+    /**
+     * Every face outlined, so a tessellated surface shows its segments.
+     *
+     * The one to reach for on a curved shape: a rim that looks faceted and a
+     * rim that is drawn from far too many slivers look identical until the
+     * segments are visible.
+     */
+    Wireframe,
 }
 
 /** One series' identity, for the legend, tooltips and the accessibility summary. */
@@ -115,7 +124,7 @@ internal class Column3DLayer(
     private val series: List<Column3DSeriesInfo>,
     private val grouping: BarGrouping,
     private val arrangement: Column3DArrangement,
-    private val depth: Column3DDepth,
+    private val depth: Chart3DDepth,
     private val groupPadding: Double,
     private val depthGap: Double,
     private val valueFraction: (Double) -> Double,
@@ -209,6 +218,8 @@ internal class Column3DLayer(
             when (debug) {
                 Chart3DDebug.DepthOrder -> scope.drawDebugIndex(face, drawIndex, context)
                 Chart3DDebug.Normals -> scope.drawDebugNormal(rendered, face, context)
+                Chart3DDebug.Wireframe ->
+                    scope.drawPath(path, colors.selectionGuide, style = Stroke(width = edgeWidth))
                 Chart3DDebug.None -> Unit
             }
         }

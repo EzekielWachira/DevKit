@@ -875,6 +875,17 @@ data class ChartDimensions(
      */
     val chart3DPadding: Dp = 6.dp,
 
+    /**
+     * How far a selected or configured slice of a 3D pie moves outward.
+     *
+     * Larger than the flat pie's [sliceSelectionOffset], and it has to be: a
+     * displacement is read against the size of the shape it moved, and a tilted
+     * pie is drawn smaller than the flat one that fits the same square. Six
+     * pixels that read clearly on a flat pie read as a rendering seam on a
+     * tilted one.
+     */
+    val chart3DExplodeOffset: Dp = 14.dp,
+
     // ---- timeline -------------------------------------------------------
 
     /** The height of one timeline row. */

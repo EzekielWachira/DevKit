@@ -42,7 +42,7 @@ import io.devkit.chartkit.three.Chart3DFrame
 import io.devkit.chartkit.three.Chart3DLighting
 import io.devkit.chartkit.three.Chart3DProjection
 import io.devkit.chartkit.three.Column3DArrangement
-import io.devkit.chartkit.three.Column3DDepth
+import io.devkit.chartkit.three.Chart3DDepth
 
 /**
  * What a pointer does to a 3D chart.
@@ -113,7 +113,7 @@ fun <T> ColumnChart3D(
     value: (T) -> Number?,
     modifier: Modifier = Modifier,
     seriesName: String = "",
-    depth: Column3DDepth = Column3DDepth.Auto,
+    depth: Chart3DDepth = Chart3DDepth.Auto,
     categoryPadding: Double = CategoryScale.DEFAULT_CATEGORY_PADDING,
     categoryAxis: ChartAxis = ChartAxis.Default,
     valueAxis: ChartAxis = ChartAxis.Default,
@@ -214,7 +214,7 @@ fun <T> ColumnChart3D(
     grouping: BarGrouping = BarGrouping.Grouped,
     stack: ((ChartSeries<T>) -> String?)? = null,
     arrangement: Column3DArrangement = Column3DArrangement.Side,
-    depth: Column3DDepth = Column3DDepth.Auto,
+    depth: Chart3DDepth = Chart3DDepth.Auto,
     categoryPadding: Double = CategoryScale.DEFAULT_CATEGORY_PADDING,
     groupPadding: Double = DEFAULT_GROUP_PADDING,
     depthGap: Double = DEFAULT_DEPTH_GAP,
@@ -577,7 +577,7 @@ class CartesianChart3DScope internal constructor(
         grouping: BarGrouping = BarGrouping.Grouped,
         stack: ((ChartSeries<T>) -> String?)? = null,
         arrangement: Column3DArrangement = Column3DArrangement.Side,
-        depth: Column3DDepth = Column3DDepth.Auto,
+        depth: Chart3DDepth = Chart3DDepth.Auto,
         categoryPadding: Double = CategoryScale.DEFAULT_CATEGORY_PADDING,
         groupPadding: Double = DEFAULT_GROUP_PADDING,
         depthGap: Double = DEFAULT_DEPTH_GAP,

@@ -9,7 +9,7 @@ import io.devkit.chartkit.three.Chart3DProjection
 import io.devkit.chartkit.three.Chart3DProjector
 import io.devkit.chartkit.three.Chart3DScene
 import io.devkit.chartkit.three.Column3DArrangement
-import io.devkit.chartkit.three.Column3DDepth
+import io.devkit.chartkit.three.Chart3DDepth
 import io.devkit.chartkit.three.Column3DLayout
 import io.devkit.chartkit.three.Column3DLayoutEngine
 import io.devkit.chartkit.three.Column3DSeries
@@ -121,11 +121,19 @@ class Chart3DPerformanceTest {
      */
     @Test
     fun `measure the projection pass`() {
-        listOf(
+        val cases = listOf(
             Triple("50 columns", 10, 5),
             Triple("120 columns", 20, 6),
             Triple("500 columns", 50, 10),
-        ).forEach { (label, categories, series) ->
+        )
+        // Warmed across every size first, so the first case measured is not the
+        // one paying for the JIT the others then benefit from.
+        cases.forEach { (_, categories, series) ->
+            val (warm, _) = sceneOf(categories, series)
+            val projector = projector(warm, Chart3DCamera.Default)
+            repeat(WARMUP) { projector.project(warm) }
+        }
+        cases.forEach { (label, categories, series) ->
             val (scene, _) = sceneOf(categories, series)
             val projector = projector(scene, Chart3DCamera.Default)
             repeat(WARMUP) { projector.project(scene) }
@@ -141,7 +149,124 @@ class Chart3DPerformanceTest {
         }
     }
 
+    // ---- radial -----------------------------------------------------------
+
+    @Test
+    fun `a radial chart's tessellation follows the radius, not the slice count`() {
+        // The property that makes Auto quality worth having: the same pie on a
+        // small chart and a large one is cut into different numbers of segments,
+        // so a dashboard tile does not pay for smoothness nobody can see.
+        val small = radialScene(slices = 8, radiusPx = 70.0)
+        val large = radialScene(slices = 8, radiusPx = 700.0)
+        assertTrue(
+            "a small pie should tessellate more coarsely: " +
+                "${small.second.tessellationSegments} vs ${large.second.tessellationSegments}",
+            small.second.tessellationSegments < large.second.tessellationSegments,
+        )
+    }
+
+    @Test
+    fun `a radial camera move reuses the tessellated sectors`() {
+        val (scene, layout) = radialScene(slices = 10, radiusPx = 300.0)
+        val before = layout.slices.map { it.sector }
+        projector(scene, Chart3DCamera(rotationX = 20.0)).project(scene)
+        projector(scene, Chart3DCamera(rotationX = 60.0)).project(scene)
+        // Same sectors, same faces, same vertices: turning a pie costs a matrix
+        // composition and one pass over the faces, and re-cuts no arcs.
+        layout.slices.forEachIndexed { index, slice -> assertSame(before[index], slice.sector) }
+    }
+
+    @Test
+    fun `culling removes about half of a pie's faces`() {
+        // A solid of revolution always has its whole back half turned away, and
+        // the back cap besides. Half the geometry is built and never drawn,
+        // which is the budget a curved surface is affordable within.
+        val (scene, _) = radialScene(slices = 8, radiusPx = 300.0)
+        val result = projector(scene, Chart3DCamera.Radial).project(scene)
+        val drawn = result.diagnostics.renderedFaces.toDouble() / result.diagnostics.faceCount
+        assertTrue("a pie drew ${(drawn * 100).toInt()}% of its faces", drawn < 0.6)
+    }
+
+    /**
+     * A measurement, printed rather than asserted.
+     *
+     * Reproduces the radial figures quoted in the handover. Like the column
+     * measurement above, it covers the projection pass and nothing else.
+     */
+    @Test
+    fun `measure the radial projection pass`() {
+        val cases = listOf(
+            Triple("5 slices", 5, 300.0),
+            Triple("10 slices", 10, 300.0),
+            Triple("20 slices", 20, 300.0),
+            Triple("20 slices, large", 20, 700.0),
+        )
+        cases.forEach { (_, slices, radius) ->
+            val (warm, _) = radialScene(slices, radius)
+            val projector = projector(warm, Chart3DCamera.Radial)
+            repeat(WARMUP) { projector.project(warm) }
+        }
+        cases.forEach { (label, slices, radius) ->
+            val (scene, layout) = radialScene(slices, radius)
+            val projector = projector(scene, Chart3DCamera.Radial)
+            repeat(WARMUP) { projector.project(scene) }
+            val start = System.nanoTime()
+            repeat(RUNS) { projector.project(scene) }
+            val perPass = (System.nanoTime() - start) / RUNS / 1000.0
+            val diagnostics = projector.project(scene).diagnostics
+            println(
+                "3D radial projection: $label (${scene.objects.size} sectors, " +
+                    "${layout.tessellationSegments} arc segments, " +
+                    "${diagnostics.faceCount} faces, " +
+                    "${diagnostics.renderedFaces} drawn) — " +
+                    "%.1f microseconds per pass".format(perPass),
+            )
+        }
+    }
+
+    /** The same measurement for the tessellation itself, which a camera move skips. */
+    @Test
+    fun `measure the radial world build`() {
+        val sizes = listOf(5, 10, 20)
+        // Every size warmed before any is measured. Warming each immediately
+        // before its own run charges the first case for the JIT compilation
+        // that the others then benefit from, which made the five-slice build
+        // look slower than the twenty-slice one.
+        repeat(WARMUP / 4) { sizes.forEach { radialScene(it, 300.0) } }
+        sizes.forEach { slices ->
+            val start = System.nanoTime()
+            repeat(RUNS / 5) { radialScene(slices, 300.0) }
+            val perBuild = (System.nanoTime() - start) / (RUNS / 5) / 1000.0
+            println(
+                "3D radial world build: $slices slices — " +
+                    "%.1f microseconds per build".format(perBuild),
+            )
+        }
+    }
+
     // ---- helpers ----------------------------------------------------------
+
+    private fun radialScene(
+        slices: Int,
+        radiusPx: Double,
+    ): Pair<Chart3DScene, io.devkit.chartkit.three.Radial3DLayout> {
+        val values = List(slices) { 40.0 + (it * 17) % 61 }
+        val layout = io.devkit.chartkit.three.Radial3DLayoutEngine.layout(
+            slices = io.devkit.chartkit.geometry.computePolarSlices(values = values),
+            labels = List(slices) { "S$it" },
+            seriesId = "pie",
+            direction = io.devkit.chartkit.geometry.PolarDirection.Clockwise,
+            chartStartAngle = 0f,
+            innerRadiusRatio = 0.45,
+            depth = Chart3DDepth.Auto,
+            quality = io.devkit.chartkit.three.Chart3DQuality.Auto,
+            radiusPx = radiusPx,
+            explodeOf = { 0.0 },
+            reveal = 1f,
+        )
+        val objects = layout.slices.map { Chart3DObject(it.sector, it.sourceIndex) }
+        return Chart3DScene(objects, Chart3DLighting.Default) to layout
+    }
 
     private fun projector(scene: Chart3DScene, camera: Chart3DCamera): Chart3DProjector =
         Chart3DProjector.of(scene, camera, Chart3DProjection.Perspective(), plot)!!
@@ -172,7 +297,7 @@ class Chart3DPerformanceTest {
             items = emptyMap(),
             grouping = BarGrouping.Stacked,
             arrangement = Column3DArrangement.Side,
-            depth = Column3DDepth.Auto,
+            depth = Chart3DDepth.Auto,
             categoryCentres = List(categories) { plot.width / categories * (it + 0.5f) },
             bandWidth = band,
             valueFraction = { it / (value * series + 50.0) },

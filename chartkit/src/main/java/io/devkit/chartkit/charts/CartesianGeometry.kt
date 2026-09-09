@@ -251,7 +251,7 @@ internal sealed class ResolvedLayer {
         val stacks: Map<String, String>,
         val grouping: BarGrouping,
         val arrangement: io.devkit.chartkit.three.Column3DArrangement,
-        val depth: io.devkit.chartkit.three.Column3DDepth,
+        val depth: io.devkit.chartkit.three.Chart3DDepth,
         val categoryPadding: Double,
         val groupPadding: Double,
         val depthGap: Double,

@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
@@ -146,6 +147,17 @@ internal fun PolarChartCore(
     /** Extra semantics for an adjustable gauge — range info and its actions. */
     semantics: (androidx.compose.ui.semantics.SemanticsPropertyReceiver.() -> Unit)? = null,
     plotModifier: Modifier = Modifier,
+    /**
+     * Where [centerContent] goes, when the middle of the plot is not the middle
+     * of the hole.
+     *
+     * `null` centres it, which is right for every flat polar chart: the ring is
+     * centred in its square, so the hole is too. A 3D donut's hole is neither
+     * centred nor circular — the camera has tilted it into an ellipse somewhere
+     * above or below the middle — and it says so here rather than every polar
+     * chart growing a camera it does not have.
+     */
+    centerContentBounds: ((PolarCoordinates) -> ChartRect?)? = null,
 ) {
     val theme = ChartKitTheme.current
     val density = LocalDensity.current
@@ -212,6 +224,7 @@ internal fun PolarChartCore(
                         dragAngles = dragAngles,
                         semantics = semantics,
                         plotModifier = plotModifier,
+                        centerContentBounds = centerContentBounds,
                         density = density,
                         textMeasurer = textMeasurer,
                     )
@@ -255,6 +268,7 @@ private fun PolarPlot(
     dragAngles: Boolean,
     semantics: (androidx.compose.ui.semantics.SemanticsPropertyReceiver.() -> Unit)?,
     plotModifier: Modifier,
+    centerContentBounds: ((PolarCoordinates) -> ChartRect?)?,
     density: androidx.compose.ui.unit.Density,
     textMeasurer: androidx.compose.ui.text.TextMeasurer,
 ) {
@@ -480,7 +494,12 @@ private fun PolarPlot(
         }
 
         if (centerContent != null) {
-            CenterContent(coordinates = coordinates, density = density, content = centerContent)
+            CenterContent(
+                coordinates = coordinates,
+                bounds = centerContentBounds?.invoke(coordinates),
+                density = density,
+                content = centerContent,
+            )
         }
 
         if (tooltipData != null && tooltip != null &&
@@ -512,9 +531,33 @@ private fun PolarPlot(
 @Composable
 private fun CenterContent(
     coordinates: PolarCoordinates,
+    bounds: ChartRect?,
     density: androidx.compose.ui.unit.Density,
     content: @Composable () -> Unit,
 ) {
+    if (bounds != null) {
+        // A hole the chart measured for itself. Placed by offset rather than by
+        // alignment, because it is not in the middle of anything.
+        if (bounds.isEmpty) return
+        val width = with(density) { bounds.width.toDp() }
+        val height = with(density) { bounds.height.toDp() }
+        if (width <= 0.dp || height <= 0.dp) return
+        Box(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .offset {
+                        androidx.compose.ui.unit.IntOffset(
+                            bounds.left.toInt(),
+                            bounds.top.toInt(),
+                        )
+                    }
+                    .size(width = width, height = height),
+                contentAlignment = Alignment.Center,
+            ) { content() }
+        }
+        return
+    }
+
     // The largest square inside the hole. A circle of radius r contains a
     // square of side r√2, and staying inside it is what keeps a long total
     // from spilling over the ring.

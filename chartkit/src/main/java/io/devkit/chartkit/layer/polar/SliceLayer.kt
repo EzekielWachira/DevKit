@@ -47,6 +47,16 @@ enum class SliceLabelPosition {
      * is skipped. Nothing is shrunk or ellipsised, so what survives is legible.
      */
     Outside,
+
+    /**
+     * [Inside] where the slice is big enough to hold the text, [Outside]
+     * otherwise, and nothing at all when neither fits.
+     *
+     * The policy most charts want and few state: the dominant slices carry
+     * their labels on themselves, the slivers get a leader line out to the
+     * margin, and whatever still collides is dropped rather than overlapped.
+     */
+    Auto,
 }
 
 /** What a slice label says. */
@@ -256,7 +266,10 @@ internal class SliceLayer(
         val style = context.typography.sliceLabel.copy(color = context.colors.tooltipContent)
         val outsideStyle = context.typography.sliceLabel.copy(color = context.colors.axisLabel)
         val gap = context.px(context.dimensions.labelPadding)
-        val placed = ArrayList<FloatArray>(slices.size)
+        // The same collision rule the bar chart's value labels and the 3D
+        // charts' labels use, so "this label was dropped" means the same thing
+        // everywhere in ChartKit.
+        val placer = io.devkit.chartkit.layer.label.LabelPlacer(polar.plotArea, slices.size)
 
         slices.forEach { slice ->
             if (slice.sweepAngle <= 0f) return@forEach
@@ -266,15 +279,25 @@ internal class SliceLayer(
 
             val mid = PolarGeometry.midAngle(slice.startAngle, slice.sweepAngle, polar.direction)
 
-            when (labelPosition) {
+            // Auto is not a third placement: it is Inside when the slice can
+            // hold the text and Outside when it cannot, decided per slice from
+            // the measured text rather than from the slice count.
+            val inside = context.textMeasurer.measure(text, style).let { layout ->
+                val radius = PolarGeometry.anchorRadius(polar.innerRadius, polar.outerRadius)
+                val arcLength = (Math.PI * radius * slice.sweepAngle / 180.0).toFloat()
+                arcLength >= layout.size.width && polar.ringThickness >= layout.size.height
+            }
+            val resolved = when (labelPosition) {
+                SliceLabelPosition.Auto ->
+                    if (inside) SliceLabelPosition.Inside else SliceLabelPosition.Outside
+                else -> labelPosition
+            }
+
+            when (resolved) {
                 SliceLabelPosition.Inside -> {
                     val layout: TextLayoutResult = context.textMeasurer.measure(text, style)
+                    if (!inside) return@forEach
                     val radius = PolarGeometry.anchorRadius(polar.innerRadius, polar.outerRadius)
-                    // The arc the label has to fit along, at its own radius.
-                    val arcLength = (Math.PI * radius * slice.sweepAngle / 180.0).toFloat()
-                    if (arcLength < layout.size.width || polar.ringThickness < layout.size.height) {
-                        return@forEach
-                    }
                     val anchor = PolarGeometry.pointOnCircle(polar.center, radius, mid)
                     scope.drawText(
                         layout,
@@ -289,19 +312,14 @@ internal class SliceLayer(
                     val layout = context.textMeasurer.measure(text, outsideStyle)
                     val from = PolarGeometry.pointOnCircle(polar.center, polar.outerRadius, mid)
                     val to = PolarGeometry.pointOnCircle(polar.center, polar.outerRadius + gap * 2f, mid)
-                    val rightHalf = to.x >= polar.center.x
-                    val left = if (rightHalf) to.x + gap else to.x - gap - layout.size.width
-                    val top = to.y - layout.size.height / 2f
-                    val box = floatArrayOf(left, top, left + layout.size.width, top + layout.size.height)
-
-                    val plot = polar.plotArea
-                    if (box[0] < plot.left || box[2] > plot.right ||
-                        box[1] < plot.top || box[3] > plot.bottom
-                    ) {
-                        return@forEach
-                    }
-                    if (placed.any { it.overlaps(box) }) return@forEach
-                    placed += box
+                    val at = placeOutsideLabel(
+                        placer = placer,
+                        to = to,
+                        rightHalf = to.x >= polar.center.x,
+                        gap = gap,
+                        width = layout.size.width.toFloat(),
+                        height = layout.size.height.toFloat(),
+                    ) ?: return@forEach
 
                     scope.drawLine(
                         color = context.colors.axisLine,
@@ -309,10 +327,10 @@ internal class SliceLayer(
                         end = Offset(to.x, to.y),
                         strokeWidth = context.px(context.dimensions.axisLineWidth),
                     )
-                    scope.drawText(layout, topLeft = Offset(left, top))
+                    scope.drawText(layout, topLeft = Offset(at.x, at.y))
                 }
 
-                SliceLabelPosition.None -> Unit
+                SliceLabelPosition.None, SliceLabelPosition.Auto -> Unit
             }
         }
     }
@@ -413,9 +431,6 @@ internal class SliceLayer(
         const val ANCHOR_RING_FRACTION = 0.5f
     }
 }
-
-private fun FloatArray.overlaps(other: FloatArray): Boolean =
-    this[0] < other[2] && other[0] < this[2] && this[1] < other[3] && other[1] < this[3]
 
 private val PERCENT_FORMAT = java.text.DecimalFormat("0.#")
 

@@ -87,6 +87,7 @@ import io.devkit.fillkit.generatorPack
 import io.devkit.fillkit.personaPack
 import io.devkit.fillkit.scenarioPack
 import io.devkit.chartdemo.ChartExploreScreen
+import io.devkit.chartdemo.RadialChart3DScreen
 import io.devkit.chartdemo.ChartAccessibilityScreen
 import io.devkit.chartdemo.ChartAdvancedScreen
 import io.devkit.chartdemo.ChartComboScreen
@@ -589,6 +590,12 @@ private enum class SampleScreen(
         SampleKit.ChartKit,
         "Grouped, stacked and depth-arranged columns under a camera",
     ),
+    RadialChart3D(
+        "3D pie and donut",
+        "P",
+        SampleKit.ChartKit,
+        "Extruded slices, exploded selection and centre content under a camera",
+    ),
     ChartAdvanced(
         "Advanced",
         "X",
@@ -738,6 +745,7 @@ private fun FillKitSampleApp() {
                 SampleScreen.ChartGauges -> ChartGaugeScreen(Modifier.padding(padding))
                 SampleScreen.ChartCombo -> ChartComboScreen(Modifier.padding(padding))
                 SampleScreen.Chart3D -> Chart3DScreen(Modifier.padding(padding))
+                SampleScreen.RadialChart3D -> RadialChart3DScreen(Modifier.padding(padding))
                 SampleScreen.ChartAdvanced -> ChartAdvancedScreen(Modifier.padding(padding))
             }
         }

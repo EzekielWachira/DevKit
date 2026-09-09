@@ -23,6 +23,17 @@ data class Chart3DDiagnostics(
     val renderedFaces: Int = 0,
     /** The uniform scale the fit chose, in screen pixels per scene unit. */
     val fitScale: Double = 0.0,
+    /**
+     * How many angular segments a curved surface was approximated with, summed
+     * over the scene.
+     *
+     * Zero for a scene of flat-sided shapes, which is every 3D column chart.
+     * Filled in by whichever layer did the tessellating, because the projector
+     * cannot tell an intrinsically flat quad from one segment of an arc — and
+     * this is the number to look at first when a pie is either visibly faceted
+     * or unexpectedly slow.
+     */
+    val tessellationSegments: Int = 0,
 )
 
 /**
@@ -97,7 +108,7 @@ class Chart3DProjector private constructor(
      * prevent.
      */
     fun project(scene: Chart3DScene): Chart3DProjectionResult {
-        val faces = ArrayList<ProjectedFace>(scene.objects.size * FACES_PER_CUBOID)
+        val faces = ArrayList<ProjectedFace>(scene.objects.size * TYPICAL_FACES_PER_OBJECT)
         var total = 0
         var culled = 0
         var degenerate = 0
@@ -167,7 +178,8 @@ class Chart3DProjector private constructor(
 
     companion object {
 
-        private const val FACES_PER_CUBOID = 6
+        /** A cuboid has six faces; a tessellated sector has more. Only a capacity hint. */
+        private const val TYPICAL_FACES_PER_OBJECT = 6
 
         /** Twice the area of the smallest polygon worth painting, in square pixels. */
         private const val MIN_DOUBLE_AREA = 0.25
@@ -228,6 +240,15 @@ class Chart3DProjector private constructor(
          *
          * @param reserve pixels held back on every side, for the axis labels a
          *   3D chart writes outside its own frame.
+         * @param fitTo the points the fit is measured against, or `null` for the
+         *   scene bounds' eight corners.
+         *
+         *   The corners are right for a scene of boxes, whose geometry reaches
+         *   them. They are wrong for a scene of round things: the corners of the
+         *   box around a disc are outside the disc, so fitting to them leaves a
+         *   pie noticeably smaller than the space it was given, and more so the
+         *   further it is tilted. A caller that knows its own silhouette passes
+         *   it, and the fit is then exact rather than conservative.
          */
         fun of(
             scene: Chart3DScene,
@@ -235,6 +256,7 @@ class Chart3DProjector private constructor(
             projection: Chart3DProjection,
             bounds: ChartRect,
             reserve: Chart3DReserve = Chart3DReserve.None,
+            fitTo: List<Point3D>? = null,
         ): Chart3DProjector? {
             val sceneBounds = scene.bounds ?: return null
             if (bounds.isEmpty) return null
@@ -264,7 +286,7 @@ class Chart3DProjector private constructor(
             var minY = Double.POSITIVE_INFINITY
             var maxY = Double.NEGATIVE_INFINITY
             var seen = false
-            for (corner in sceneBounds.corners()) {
+            for (corner in fitTo ?: sceneBounds.corners()) {
                 val projected = projection.project(view.transformPoint(corner), distance)
                     ?: continue
                 if (!projected.isFinite) continue

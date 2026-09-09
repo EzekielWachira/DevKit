@@ -154,6 +154,24 @@ data class Chart3DCamera(
         /** A wider turn and a nearer camera, for a slide rather than a dashboard. */
         val Presentation: Chart3DCamera =
             Chart3DCamera(rotationX = 22.0, rotationY = 32.0, distance = 2.4)
+
+        /**
+         * The default view for a pie or a donut: looking down at the plate.
+         *
+         * A radial chart's disc lies **flat**, so pitch here means what it
+         * means for a table: `0` is edge-on and useless, `90` looks straight
+         * down and is a 2D pie with no visible thickness. Around 45° squashes
+         * the circle to about seven tenths of its width and shows the near rim
+         * clearly below the surface — the proportions the reference charts have,
+         * and about as far as a reader can be tipped before the angles they are
+         * comparing start to foreshorten confusingly.
+         *
+         * Yaw spins the plate about its own axis rather than tipping it, which
+         * is harmless but moves the twelve o'clock start; it is zero by default
+         * so a chart is drawn where its `startAngle` says it is.
+         */
+        val Radial: Chart3DCamera =
+            Chart3DCamera(rotationX = 45.0, rotationY = 0.0, distance = 3.6)
     }
 }
 
@@ -176,6 +194,23 @@ data class Chart3DCameraLimits(
 ) {
     companion object {
         val Default: Chart3DCameraLimits = Chart3DCameraLimits()
+
+        /**
+         * Limits for a radial chart, whose disc lies flat.
+         *
+         * Both ends are real. Below about 12° the plate is close enough to
+         * edge-on that the slices stop having areas to compare, and at 0° the
+         * chart is a line. Above 85° the extrusion has no visible height left
+         * and the reader is looking at a flat pie drawn the expensive way. The
+         * floor is positive rather than negative for a further reason: a plate
+         * seen from underneath is the same disc mirrored, and nothing in the
+         * picture tells a reader they are reading it backwards.
+         */
+        val Radial: Chart3DCameraLimits = Chart3DCameraLimits(
+            rotationX = 12.0..85.0,
+            rotationY = -30.0..30.0,
+            distance = 1.6..12.0,
+        )
 
         /** Anything the maths can represent. For a caller who means it. */
         val None: Chart3DCameraLimits = Chart3DCameraLimits(
