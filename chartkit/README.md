@@ -6,9 +6,9 @@ Line, area, bar, scatter, bubble, histogram, box plot, violin, heatmap, calendar
 heatmap, candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet,
 timeline, range and Gantt on Cartesian coordinates; pie, donut, radial bar,
 radar, sunburst and gauge on polar ones; treemap, Sankey, funnel and network
-graphs on planar ones. All three coordinate systems share the same scales,
-layout, layers, viewport, interaction, animation, theming, overlays and
-accessibility.
+graphs on planar ones; choropleth maps on geographic ones. All four coordinate
+systems share the same scales, layout, layers, viewport, interaction, animation,
+theming, overlays and accessibility.
 
 It also handles the parts that decide whether a chart survives real data:
 annotations, hierarchical drill-down, linked charts and cross-filtering, viewport
@@ -46,6 +46,7 @@ theming, which is the opposite of the point.
 - Comparison: [Waterfall](#waterfall-chart) · [Dumbbell and lollipop](#dumbbell-and-lollipop) · [Bullet](#bullet-graph) · [Gauge](#gauge-chart)
 - Time: [Timeline, range and Gantt](#timeline-range-and-gantt-charts)
 - Relationships: [Network graph](#network-graph)
+- Geographic: [Choropleth map](#choropleth-map)
 - Dashboards: [Coordination](#dashboard-coordination) · [Navigator](#overview-navigator)
 - [Annotations](#annotations)
 - Configuration: [Axes](#axes) · [Scales](#scales) · [Secondary axes](#secondary-value-axes) · [Grid](#grid-lines) · [Formatting](#formatting) · [Legends](#legends) · [Value labels](#value-labels)
@@ -139,6 +140,7 @@ Open the drawer and pick a **ChartKit** destination:
 | Comparison | Waterfall, dumbbell, lollipop, bullet and gauge |
 | Time and intervals | A point timeline, durations in lanes, and a Gantt chart with progress and milestones |
 | Relationships | A service graph, circular and force directed, draggable and zoomable, with its data table |
+| Geographic | A choropleth over the sample's own GeoJSON: quantile against continuous shading, both projections, labels, a legend, missing data, the join report and the data table |
 | Dashboard | Linked candlestick and volume charts with aligned plots, an overview navigator, and cross-filtering |
 | Advanced | A custom layer, log and linear axes side by side, a second value axis, static report mode, and PNG and SVG export |
 
@@ -873,6 +875,9 @@ val severity = ChartColorScales.threshold(
     labels = listOf("ok", "elevated", "high", "critical"),
 )
 
+// Equal counts per band, computed from the data itself
+val quintiles = ChartColorScales.quantile(rates, groups = 5)
+
 Heatmap(data = activity, x = { it.day }, y = { it.hour }, value = { it.requests },
     colorScale = severity)
 ```
@@ -883,8 +888,21 @@ Explicit colours where the theme is not the source:
 ColorScale.Continuous(NumericDomain(0.0, 1.0), listOf(Color.White, Color.Blue))
 ColorScale.Threshold(thresholds = listOf(50.0), colors = listOf(Color.Green, Color.Red))
 ColorScale.Quantized(domain, listOf(low, high), steps = 4)
+ColorScale.Quantile(rates, listOf(low, high), groups = 5)
 ColorScale.Categorical(keys = listOf("ok", "down"), colors = listOf(green, red))
 ```
+
+A **quantile** scale puts an equal count of observations in each band rather than
+an equal slice of the range, which is what makes a skewed statistic readable —
+income, population, incidence. Its breaks are values that exist in the data (the
+nearest-rank definition), because a legend printing a break of 41.7 between two
+observations at 40 and 43 invites the reader to look for a number nobody
+measured. Tied values collapse into fewer bands rather than producing bands
+nothing can fall into.
+
+`ChartColorLegend` renders any of them: a gradient bar with labelled ends for a
+continuous scale, labelled swatches for a banded one, and an optional "no data"
+swatch.
 
 Every implementation returns `null` for a value it cannot place — a missing
 measurement, a `NaN` — and charts draw that as their theme's "no data"
@@ -1650,6 +1668,243 @@ The summary names the size and the most connected nodes; the selection names the
 node, its degree and its neighbours. A semantics tree containing every edge of a
 three-hundred-node graph is not access, it is noise — `graphDataTable()` is how a
 reader gets at the connections.
+
+## Choropleth map
+
+Regions shaded by a statistic — a bar chart whose category axis is geography:
+
+```kotlin
+val counties = remember { GeoJson.parse(assets.open("counties.geojson").readBytes().decodeToString()) }
+
+ChoroplethMap(
+    geometry = counties,
+    data = unemployment,
+    featureKey = { it.properties.string("fips") },
+    dataKey = { it.fips },
+    value = { it.rate },
+    modifier = Modifier.fillMaxWidth().height(320.dp),
+)
+```
+
+`featureKey` reads the join key out of each region's GeoJSON properties;
+`dataKey` reads it from your own record. Both are strings, compared exactly, and
+matched through a hash map rather than by scanning — a thousand counties against
+a thousand rows is a thousand lookups.
+
+### What this is, and what it is not
+
+A **statistical** chart. It draws boundaries you supply, shades them by value,
+and lets a reader tap one. There are no tiles, no basemap, no satellite imagery,
+no routing, no search and no GPS, and there is no dependency on Google Maps,
+Mapbox or MapLibre. Those need a mapping SDK; a charting library that offered
+half of one would be worse than one that offers none.
+
+### ChartKit ships no geography
+
+Deliberately. A usable world boundary file is several megabytes and a county
+file is tens, and bundling one would put that in every consumer's APK —
+including everyone who only wanted a bar chart. It would also be the wrong file
+for anyone mapping sales territories, delivery zones or postcodes, which is what
+most thematic maps in an app actually are.
+
+Load your own, parse it once, and hold it:
+
+```kotlin
+val geometry = remember { GeoJson.parse(json) }   // never inside the chart call
+```
+
+### GeoJSON
+
+`GeoJson.parse` accepts a `FeatureCollection`, a bare `Feature`, or a bare
+geometry, and reads `Polygon`, `MultiPolygon`, `Point` and `MultiPoint`,
+including polygons with holes.
+
+`LineString` and `MultiLineString` are not read: a choropleth cannot shade a
+line, and pretending otherwise would draw a road as a collapsed region. They are
+**skipped and reported** rather than ignored:
+
+```kotlin
+val collection = GeoJson.parse(json)              // GeoParsePolicy.Skip, the default
+collection.skipped.forEach { Log.w("geo", "${it.identifier}: ${it.reason}") }
+
+GeoJson.parse(json, GeoParsePolicy.Reject)        // throws on the first problem instead
+```
+
+A `MultiPolygon` is **one** region, not several: tapping an island selects the
+country it belongs to. Holes are genuinely unfilled rather than painted in the
+background colour, which is what makes an enclave — a country inside another
+country — correct rather than merely convincing.
+
+Numeric properties read back as strings without a decimal point, so a FIPS code
+written as `47` in the file matches the string `"47"` in your data. That single
+detail is the most common reason a choropleth comes out blank.
+
+### Projections
+
+```kotlin
+ChoroplethMap(projection = GeoProjection.Mercator, …)
+```
+
+| Projection | Use it for | It distorts |
+| --- | --- | --- |
+| `Equirectangular` (default) | A country, a state, a set of counties | East–west distance, increasingly with latitude |
+| `EquirectangularProjection(standardParallel = 60.0)` | A high-latitude region | Less: the scale is true at the parallel you name |
+| `Mercator` | A map that must line up with a tiled basemap | **Area**, severely — Greenland is drawn fourteen times its true size |
+
+Mercator's area distortion matters more for a choropleth than for a basemap: the
+reader is comparing coloured areas, and Mercator makes high-latitude regions
+shout. Latitude is clamped to ±85.0511°, the same cut-off every slippy map uses,
+so a single Antarctic vertex cannot produce an infinite bound and collapse the
+fit.
+
+Any other projection is a `GeoProjection` of your own — Albers, Equal Earth,
+Lambert, an orthographic globe. Nothing in the fit, the viewport, the hit test or
+the layer knows which one it was given.
+
+### Colour scales
+
+The default is a **quantile** scale over the joined values, and that default is
+the point: geographic statistics are nearly always skewed — one city holds a
+fifth of a country's population — and an equal-width ramp over that paints nine
+regions the same shade and one dark.
+
+```kotlin
+scale = ChartColorScales.quantile(values, groups = 5)          // equal counts per band
+scale = ChartColorScales.threshold(listOf(2.0, 5.0, 10.0), …)  // your own break points
+scale = ChartColorScales.continuous(NumericDomain(0.0, 100.0)) // a smooth ramp
+```
+
+Quantile breaks are values that **exist in the data** — the nearest-rank
+definition, not the interpolating one — because a legend printing a break of
+41.7 between two counties at 40 and 43 invites the reader to look for a number
+nobody measured. Ties collapse into fewer bands rather than producing bands
+nothing can fall into.
+
+`ChartColorLegend` renders whichever form the scale is: a gradient bar with
+labelled ends for a continuous scale, discrete swatches with range labels for a
+banded one. It is shown by `legend = LegendPosition.Bottom`, the choropleth's
+default.
+
+### Missing is not zero
+
+A region with no matching record is drawn in the theme's "no data" colour, not
+in the colour of zero; its tooltip and its screen-reader sentence both say "no
+data"; and the legend gets a swatch explaining the colour. Painting an
+unmeasured county with the low end of the ramp asserts a measurement nobody
+took.
+
+### The join report
+
+The commonest failure of any choropleth is a key mismatch — `"CA"` against
+`"California"`, `"06"` against `"6"` — and its symptom is a blank map with no
+error. So the join reports itself:
+
+```kotlin
+ChoroplethMap(
+    onJoin = { report ->
+        Log.d("geo", "${report.matched} matched, " +
+            "no data for ${report.unmatchedFeatureKeys}, " +
+            "no region for ${report.unmatchedDataKeys}")
+    },
+    …
+)
+```
+
+Duplicate keys are a `GeoDuplicatePolicy`: `First` (the default), `Last`, `Sum`
+— right for counts, wrong for rates, which is why it is not the default — or
+`Reject`, which throws naming the key.
+
+### Selecting a region
+
+A tap runs a bounding-box pre-filter through a uniform spatial grid, then an
+even–odd point-in-polygon test that respects holes. A point on a border between
+two regions belongs to exactly one of them, so selection does not flicker along
+every boundary.
+
+```kotlin
+onSelectionChanged = { selection ->
+    val geo = selection?.geo ?: return@ChoroplethMap
+    readout = if (geo.hasValue) "${geo.featureLabel}: ${selection.y}" else "${geo.featureLabel}: no data"
+}
+```
+
+`ChartSelectionDetails.Geo` carries the feature's id, its join key, its label,
+its whole `GeoProperties` bag, whether it had a value, and its geographic
+bounds — the last of which is what "focus on this region" needs.
+
+### Zoom, pan and focus
+
+```kotlin
+val camera = rememberChartGeoViewportState()
+
+ChoroplethMap(viewportState = camera, …)
+TextButton(onClick = { camera.reset() }, enabled = !camera.isReset) { Text("Reset") }
+```
+
+Pinch zooms about the point under the fingers and a drag pans once zoomed.
+Arrow keys pan, `+`/`-` zoom and `0` resets, so the map is explorable without a
+touchscreen.
+
+There is deliberately **no double-tap gesture**. A double-tap handler makes
+Compose withhold every single tap for the length of the double-tap window, and a
+third of a second before a region highlights is the wrong price for a shortcut
+that `reset()` and the `0` key already cover. `camera.focusOn(bounds)` frames a region: the
+zoom and pan are computed on the next frame, once the plot size is known, and
+eased into.
+
+At full extent there is nothing to pan — the map already fits — and the pan is
+clamped so the geography cannot be dragged off the plot.
+
+### Labels
+
+Off by default. `GeoLabels.Auto` draws a region's name only where it **measures**
+as fitting inside that region's own on-screen box, so a dense county map labels
+the large counties and leaves the rest to the tooltip; a label wider than the
+county it names reads as belonging to the neighbour it spills into.
+`GeoLabels.All` draws every one, for a map of a dozen regions where the caller
+knows they fit. `GeoLabels.SelectedOnly` draws just the selected region's.
+
+Labels sit at the **area centroid** of the largest component, so a country's name
+lands on its mainland rather than in the sea between it and its islands.
+
+### Accessibility
+
+A map encodes its data in position and colour, and a reader who cannot see it
+gets neither — shape and adjacency are not describable in a sentence. So the
+table is not a fallback here; it is the chart:
+
+```kotlin
+ChartWithDataTable(
+    table = geoDataTable(
+        geometry = counties,
+        data = unemployment,
+        featureKey = { it.properties.string("fips") },
+        dataKey = { it.fips },
+        value = { it.rate },
+        order = GeoTableOrder.ByValueDescending,
+    ),
+) {
+    ChoroplethMap(geometry = counties, data = unemployment, …)
+}
+```
+
+The summary names the regions and their values and makes no claim beyond them —
+no "high", no "clustered in the north-east", because those are statistical
+assertions ChartKit has not computed.
+
+### Performance
+
+Geography is projected **once** per geometry-and-projection pair and cached
+separately from the thematic style, so changing the year, the metric, the colour
+scale or the selection redraws without touching a vertex. Screen-space paths are
+cached against the transform, so only a zoom, a pan or a resize rebuilds them.
+Features outside the visible extent are culled by box, and above 64 features hit
+testing runs through a uniform grid rather than a scan.
+
+For a very dense boundary file, `simplification` drops vertices closer than a
+tolerance to the line they sit on (Ramer–Douglas–Peucker, iterative, in projected
+units). It is **off by default** — silently discarding your geographic fidelity
+is not a decision a chart should make for you.
 
 ## Annotations
 
@@ -2923,6 +3178,20 @@ selected. A semantics tree containing every edge of a three-hundred-node graph i
 not access, it is noise; [`graphDataTable()`](#data-tables) is how a reader gets
 at the connections.
 
+### Geographic
+
+A map is the case where a summary genuinely cannot carry the content. Shape,
+adjacency and area are not describable in a sentence, and the data is encoded in
+position and colour — both of which a non-sighted reader gets none of. The
+summary names the regions and their values; `geoDataTable()` is how a reader
+actually reads the map, and `ChartWithDataTable` is how it is offered.
+
+An unmeasured region announces as "no data", never as zero. Nothing announces an
+interpretation — no "high", no "clustered in the north-east" — because those are
+statistical claims ChartKit has not computed.
+
+Pan, zoom and reset are on the keyboard: arrows, `+`/`-` and `0`.
+
 ### Keyboard and screen-reader navigation
 
 Every Cartesian chart is focusable and steps its selection without a pointer:
@@ -3012,6 +3281,7 @@ hand against the model that produced it:
 | `waterfallDataTable` | step · change · running total |
 | `timelineDataTable` | event · lane · start · end |
 | `graphDataTable` | node · connections · connected to |
+| `geoDataTable` | region · value, with "no data" spelled out |
 
 The alternative — walking your objects and guessing at their fields — would need
 reflection, would break under R8, and would produce column names from property
@@ -3355,6 +3625,10 @@ Core
 ├── flow         SankeyGraph (validation, cycle cutting, column assignment)
 │                SankeyLayout (barycentre ordering, node sizing, band routing)
 ├── graph        ChartGraph · GraphLayout (circular) · ForceSimulation
+├── geo          GeoJson (hand-written reader) · GeoFeature · GeoGeometry
+│                GeoProjection (equirectangular · Mercator) · ProjectedGeometry
+│                GeoGeometryMath (ray casting · centroids · simplification)
+│                GeoSpatialIndex (uniform grid)
 ├── timeline     TimelineModel · lane and row assignment · dependencies
 ├── transform    WaterfallTransform · FunnelTransform
 ├── scene        ChartScene · ChartSceneNode · ChartSceneBuilder
@@ -3364,21 +3638,23 @@ Core
 │                typed adapters per chart shape
 ├── capture      ChartCaptureState · ChartCaptureOptions · Modifier.chartCapture
 └── state        ChartState<T> · ChartViewportState · ChartPlanarViewportState
-                 ChartSharedCrosshairState · ChartHierarchyState
+                 ChartGeoViewportState · ChartSharedCrosshairState · ChartHierarchyState
                  ChartGraphLayoutState · ChartFilterState · ChartBrushState
                  ChartPlotAlignment · ChartInteractionGroup
 
 Coordinates
 ├── CartesianCoordinates   DomainAxis + value scale + orientation
 ├── PolarCoordinates       centre + inner/outer radius + start/sweep + direction
-└── PlanarCoordinates      a plain rectangle, for layout-driven visualisations
+├── PlanarCoordinates      a plain rectangle, for layout-driven visualisations
+└── GeoCoordinates         projection + fitted extent + two-dimensional camera
 
 Layout engines
 ├── Cartesian     axis gutters → plot rectangle
 ├── Polar         largest centred square → ring
 ├── Hierarchical  squarified treemap · sunburst rings
 ├── Flow          Sankey columns, node placement, band routing
-└── Graph         circular · force-directed
+├── Graph         circular · force-directed
+└── Geographic    project once → fit uniformly → zoom and pan
 
 Layers
 ├── Cartesian   grid · line (line + area + points) · bar · histogram
@@ -3389,7 +3665,8 @@ Layers
 │               annotations (behind and above) · custom
 ├── Polar       slice (pie + donut) · radial bar · radar web · radar
 │               sunburst · gauge · custom
-└── Planar      treemap · Sankey · funnel · graph
+├── Planar      treemap · Sankey · funnel · graph
+└── Geographic  choropleth
 
 Interaction
 └── ChartGestureCoordinator   tap · scrub · pan · pinch · range, arbitrated once
@@ -3471,13 +3748,21 @@ canvas.
 
 ### Room to grow
 
-The architecture was built for a second coordinate system, and then got two.
-`PolarCoordinates` and `PlanarCoordinates` are siblings of
+The architecture was built for a second coordinate system, and then got three.
+`PolarCoordinates`, `PlanarCoordinates` and `GeoCoordinates` are siblings of
 `CartesianCoordinates` under the same `CoordinateSystem` interface, and adding
-either changed nothing in the layer model, the selection model, the overlay, the
-animation clock, the theme or the accessibility layer. Radar then cost two layers
-on top of the polar one and no new coordinate system at all; the treemap, Sankey,
-funnel and graph charts cost one layer each on top of the planar one.
+any of them changed nothing in the layer model, the selection model, the overlay,
+the animation clock, the theme or the accessibility layer. Radar then cost two
+layers on top of the polar one and no new coordinate system at all; the treemap,
+Sankey, funnel and graph charts cost one layer each on top of the planar one.
+
+Thematic maps were the strongest test of that claim, because "add maps to a
+charting library" usually means adding a mapping SDK. Here it meant a coordinate
+system that projects and fits, one layer that draws polygons, and an engine file
+that assembles the two — plus the geography package, which is pure Kotlin and
+verified on the JVM. The tooltip, the legend, the selection, the animation, the
+theme, the static render mode and the accessibility summary are the same code a
+line chart uses.
 
 `PlanarCoordinates` answers exactly one question — "where is the plot" — and
 exists so that four layout-driven visualisations do not each get their own
@@ -3600,6 +3885,30 @@ anything useful of. Above `ForceSimulation.MAX_SIMULATED` (1,200) nodes the
 circular layout is used instead; a Barnes–Hut tree would be the answer for tens
 of thousands, and tens of thousands of nodes is not a picture.
 
+### Geography is projected once
+
+The most expensive mistake a thematic map can make is reprojecting its geography
+because a number changed. So the projected geometry is cached against the
+geometry-and-projection pair, and the screen-space paths against the transform:
+
+```text
+GeoJSON ──parse──▶ features ──project──▶ ProjectedGeometry   (once, per projection)
+                                              │
+value ─▶ join ─▶ ColorScale ─▶ FeatureStyle ──┴──▶ Canvas     (every frame, cheap)
+```
+
+Changing the year, the metric, the colour scale, the selection or the animation
+frame touches the right-hand path only. A zoom, a pan or a resize rebuilds the
+paths; a new dataset or a new projection rebuilds everything.
+
+On top of that: features outside the visible extent are culled by bounding box,
+hit testing runs through a uniform grid above 64 features (below it, a scan of
+64 boxes is cheaper than the grid that would replace it), and candidates come
+back smallest-box-first so a tap in a nested region picks the inner one.
+Optional Ramer–Douglas–Peucker simplification drops vertices a screen cannot
+show — off by default, because discarding a caller's geographic fidelity is not
+a decision a chart should make for them.
+
 ### Culling in the planar charts
 
 A zoomed graph skips nodes outside the plot and edges whose bounding box misses
@@ -3613,7 +3922,10 @@ adopted for something it cannot do.
 
 **Not supported:**
 
-- Geographical maps, 3D charts, chord and arc diagrams
+- Street maps, basemaps, tiles, satellite imagery, routing, POI search and
+  geocoding. `ChoroplethMap` shades boundaries you supply and is not a mapping
+  SDK
+- 3D charts, chord and arc diagrams
 - Polar-area charts, and stacked **areas** — multi-series areas overlap, each
   measured from the baseline
 - Interactive range **handles** on a chart's own range selection: a range is
@@ -3631,7 +3943,8 @@ adopted for something it cannot do.
 - Project scheduling, critical-path analysis and resource levelling. The Gantt
   chart is a visualisation, not a planning tool
 - Spatial indexing beyond a uniform grid — a k-d tree or an R-tree would beat it
-  for a scatter with extreme clustering
+  for a scatter with extreme clustering, and for geography where a few enormous
+  regions overlap thousands of tiny ones
 - Barnes–Hut approximation for the force layout, so graphs above 1,200 nodes fall
   back to the circular layout
 - GPU / `RenderNode` rendering
@@ -3709,6 +4022,31 @@ adopted for something it cannot do.
   crowded chart labels fewer marks than it has
 - A captured image does not include a tooltip or dropdown drawn in a `Popup` or
   `Dialog`, because those are separate windows
+- **ChartKit ships no geography.** `ChoroplethMap` draws the boundaries you give
+  it and nothing else; there is no bundled world, country or county file
+- A geographic bounding box may not wrap past ±180°. A region genuinely
+  straddling the antimeridian — Fiji, Chukotka, a Pacific-centred world map —
+  produces a box spanning nearly the globe, and the map draws correspondingly
+  zoomed out. Handling the wrap properly means a second longitude convention
+  running through the projection, the fit, the viewport and the hit test, and
+  getting it half right would draw the region in two places
+- A map label sits at the **area centroid**, which for a crescent or a strongly
+  concave region is not inside the shape. The fix is a pole of inaccessibility,
+  which is a different, iterative algorithm
+- `GeoLabels.Auto` skips a label that does not fit its region rather than
+  shrinking, rotating or ellipsising it. There is no label-placement engine, so
+  a dense map labels fewer regions than it has
+- Mercator clamps latitude at ±85.0511°, so a polygon crossing the clamp is
+  drawn with a flat edge along it — Antarctica on a Mercator map is that edge
+- `GeoJson.parse` reads `Polygon`, `MultiPolygon`, `Point` and `MultiPoint`.
+  `LineString` and `MultiLineString` are skipped and reported, because a
+  choropleth cannot shade a line
+- Geographic hit testing and projection run on the calling thread. A very large
+  boundary file is parsed and projected where you call it, so parse it off the
+  main thread and hold the result
+- Proportional-symbol maps, cartograms, flow maps and dot-density maps are not
+  drawn. `Point` and `MultiPoint` geometry is parsed and carried, and is used
+  for label placement, but nothing renders a sized marker from it yet
 
 ## Roadmap
 
@@ -3719,6 +4057,9 @@ adopted for something it cannot do.
 - Completing vector export: a scene representation for the remaining layers
 - A Barnes–Hut force layout, for graphs beyond the current cap
 - A spatial index better suited to extreme clustering than a uniform grid
+- Proportional-symbol overlays on a choropleth, from the `Point` geometry that
+  is already parsed
+- A pole-of-inaccessibility label point, for concave regions
 - Stabilising the `CartesianChart` layer DSL and the custom-layer API, and
   dropping the experimental marker
 - Benchmark coverage, if the repository grows benchmarking infrastructure
@@ -3727,8 +4068,8 @@ adopted for something it cannot do.
 ## Testing
 
 ```bash
-./gradlew :chartkit:testDebugUnitTest          # 683 JVM tests
-./gradlew :chartkit:connectedDebugAndroidTest  # 124 Compose UI tests
+./gradlew :chartkit:testDebugUnitTest          # 770 JVM tests
+./gradlew :chartkit:connectedDebugAndroidTest  # 141 Compose UI tests
 ```
 
 | Suite | Covers |
@@ -3753,6 +4094,12 @@ adopted for something it cannot do.
 | `ChartGraphTest` | Node order and identity, degree, symmetric adjacency, unknown endpoints, self-edges, the caller's object |
 | `CircularLayoutTest` | Placement, unit bounds, even spacing, settling, reproducibility, degree ordering, single node, mapping into a rectangle |
 | `ForceLayoutTest` | Seeded determinism, seed sensitivity, bounds, non-coincidence, settling, connected nodes ending closer, pinning, unsettling on drag, release, snapshot isolation, the simulation cap |
+| `GeoJsonTest` | Feature collections, bare features and bare geometries, properties, numeric keys as strings, closing points, holes, multi-polygons, points, unsupported geometry skipped and reported, the reject policy, malformed JSON, escapes and Unicode, degenerate rings, bounds |
+| `GeoProjectionTest` | Equirectangular identity and inversion, standard parallels, Mercator growth and pole clamping, non-finite input, the fit's single scale, the y flip, padding, exact screen/projected inversion, visible extent under zoom, fit-and-centre on a target |
+| `GeoGeometryTest` | Ray casting, concave rings, shared borders belonging to one region, holes, area centroids against vertex density, largest-component labels, simplification and its stack safety, projected geometry, the index against a brute-force scan, multi-polygon selection |
+| `GeoJoinTest` | Feature-order rows, unmatched keys on both sides, missing against zero, non-finite values, every duplicate policy, quantile breaks and their nearest-rank definition, tie collapsing, missing colours, band labels |
+| `GeoViewportTest` | Zoom clamping, pan bounds by overhang, focal-point anchoring, reset, non-finite gestures, focus requests consumed once |
+| `GeoPerformanceTest` | 50 / 200 / 1,000-region fixtures: correct selection throughout, index narrowing, single index build, dense boundaries and simplification |
 | `TimelineModelTest` | Lane order, point events, intervals, inverted intervals, overlap stacking, row numbering, extents, progress clamping, milestones, dependencies |
 | `NavigatorViewportTest` | Window placement, sliding rather than shrinking at both ends, recentring, over-wide windows, edge resizing |
 | `PlotAlignmentTest` | Agreeing on the largest gutter, per-chart differences, idempotent re-reporting, forgetting a departed chart |
@@ -3792,6 +4139,7 @@ adopted for something it cannot do.
 | `ChartViewportInteractionTest` | Pinch zoom, pan, clamping, reset, crosshair, shared tooltips, range selection in both directions |
 | `ChartLinkedInteractionTest` | Shared viewport, shared crosshair, independent value scales, opt-in isolation |
 | `ChartSemanticsAndThemeTest` | Announcements, custom summaries, theme precedence, light and dark |
+| `ChartGeoTest` | A choropleth drawing under both projections, empty geometry, labels, the colour legend and its "no data" swatch, join reporting including a key mismatch, selection by region, unmeasured regions, clearing outside the geography, static mode taking no input, camera zoom/pan/reset, immediate tap selection, the tooltip, the data table |
 
 ## Licence
 

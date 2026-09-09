@@ -88,6 +88,11 @@ internal class ChartRenderContext(
         get() = coordinates as? io.devkit.chartkit.coordinate.PolarCoordinates
             ?: error("This layer requires polar coordinates, got \${coordinates::class.simpleName}")
 
+    /** The geographic coordinates, for a map layer. */
+    val geo: io.devkit.chartkit.coordinate.GeoCoordinates
+        get() = coordinates as? io.devkit.chartkit.coordinate.GeoCoordinates
+            ?: error("This layer requires geographic coordinates, got \${coordinates::class.simpleName}")
+
     /** The planar coordinates, for a treemap, flow, funnel or graph layer. */
     val planar: io.devkit.chartkit.coordinate.PlanarCoordinates
         get() = coordinates as? io.devkit.chartkit.coordinate.PlanarCoordinates
