@@ -228,6 +228,56 @@ internal sealed class ResolvedLayer {
     }
 
     /**
+     * Grouped and stacked columns drawn in three dimensions.
+     *
+     * A sibling of [Bars] and not a replacement for it. The two share the stack
+     * engine, the category order, the value domain, the palette, the legend,
+     * the tooltip and the accessibility model; what differs is that this one
+     * projects its geometry through a camera. Everything a caller can do to a
+     * 2D bar chart they can do to this, and the 2D chart is untouched by its
+     * existence.
+     *
+     * @param stacks which stack each series belongs to, by series id. A series
+     *   named nowhere in the map stacks with itself, which makes "grouped"
+     *   the same case as "one series per stack" rather than a second one.
+     * @param categoryAxis and [valueAxis] the caller's own axis configuration.
+     *   Carried rather than applied: a 3D chart draws its labels at *projected*
+     *   positions on its own frame, so the flat axis renderer is switched off
+     *   and this is where the titles, tick counts and formatters come from.
+     */
+    class Columns3D(
+        override val key: String,
+        val data: PlotData,
+        val stacks: Map<String, String>,
+        val grouping: BarGrouping,
+        val arrangement: io.devkit.chartkit.three.Column3DArrangement,
+        val depth: io.devkit.chartkit.three.Column3DDepth,
+        val categoryPadding: Double,
+        val groupPadding: Double,
+        val depthGap: Double,
+        val camera: () -> io.devkit.chartkit.three.Chart3DCamera,
+        val projection: io.devkit.chartkit.three.Chart3DProjection,
+        val lighting: io.devkit.chartkit.three.Chart3DLighting,
+        val frame: io.devkit.chartkit.three.Chart3DFrame,
+        val labels: io.devkit.chartkit.layer.three.Column3DLabelPlacement,
+        val categoryAxis: ChartAxis,
+        val valueAxis: ChartAxis,
+        val debug: io.devkit.chartkit.layer.three.Chart3DDebug,
+        val onDiagnostics: ((io.devkit.chartkit.three.Chart3DDiagnostics) -> Unit)?,
+        override val valueAxisId: ChartAxisId = ChartAxisId.DefaultY,
+        override val declaredUnits: Set<ChartUnit> = emptySet(),
+    ) : ResolvedLayer() {
+        override val axisKind: ChartXAxisKind get() = ChartXAxisKind.Category
+        override val seriesData: PlotData get() = data
+
+        /** Per stack, from the merged categories, in the builder. See [Bars]. */
+        override fun valueExtent(): NumericDomain? = null
+
+        /** The stack a series belongs to: its own id unless the caller said otherwise. */
+        fun stackOf(seriesId: String): String = stacks[seriesId] ?: seriesId
+    }
+
+    /**
      * Scatter or bubble marks.
      *
      * @param sizes the size-encoding value per series and source index, or
@@ -847,6 +897,12 @@ internal fun buildCartesianGeometry(
                     ?.let { BarStacking.domainOf(it) }
                     ?.let { add(it) }
 
+                // Stacked per stack group, then merged: two stacks side by
+                // side must both fit on one axis, and only stacking them
+                // separately keeps them two piles rather than one.
+                is ResolvedLayer.Columns3D ->
+                    columns3DValueDomain(layer, categories)?.let { add(it) }
+
                 else -> layer.valueExtent()?.let { add(it) }
             }
         }
@@ -1127,7 +1183,10 @@ internal fun buildCartesianGeometry(
     val domainEnd = if (orientation.isVertical) plot.right else plot.bottom
 
     val categoryPadding = layers.filterIsInstance<ResolvedLayer.Bars>()
-        .firstOrNull()?.categoryPadding ?: CategoryScale.DEFAULT_CATEGORY_PADDING
+        .firstOrNull()?.categoryPadding
+        ?: layers.filterIsInstance<ResolvedLayer.Columns3D>()
+            .firstOrNull()?.categoryPadding
+        ?: CategoryScale.DEFAULT_CATEGORY_PADDING
 
     val domainAxisModel: DomainAxis = when (axisKind) {
         // A category axis zooms by stretching the *whole* band run across a
@@ -1423,6 +1482,26 @@ internal fun buildCartesianGeometry(
                         ),
                         formatter = valueFormatter,
                     )
+                }
+            }
+
+            is ResolvedLayer.Columns3D -> {
+                val columns = buildColumns3DLayer(
+                    id = layerId,
+                    layer = layer,
+                    categories = categories,
+                    coords = coords,
+                    plot = plot,
+                    valueFormatter = layerFormatter,
+                    density = density,
+                    textMeasurer = textMeasurer,
+                    typography = typography,
+                    dimensions = dimensions,
+                )
+                if (columns != null) {
+                    renderers += columns
+                    hitTestable += columns
+                    summaries += columns.describe()
                 }
             }
 
@@ -1889,9 +1968,9 @@ internal data class LegendSeries(
 )
 
 /** A series' values placed into the chart's global category order. */
-private class AlignedSeries(val values: List<Double?>, val sourceIndices: List<Int>)
+internal class AlignedSeries(val values: List<Double?>, val sourceIndices: List<Int>)
 
-private fun alignToCategories(series: PlotSeries, categories: List<String>): AlignedSeries {
+internal fun alignToCategories(series: PlotSeries, categories: List<String>): AlignedSeries {
     val values = arrayOfNulls<Double>(categories.size)
     val indices = IntArray(categories.size) { -1 }
     series.points.forEach { point ->

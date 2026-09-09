@@ -77,7 +77,8 @@ devKitPublishing {
         "Compose-native data visualisation for Android, on one engine: line, area, bar, " +
             "scatter, bubble, histogram, box plot, violin, heatmap, calendar heatmap, " +
             "candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet, timeline, " +
-            "range and Gantt on Cartesian coordinates; pie, donut, radial bar, radar, " +
+            "range and Gantt on Cartesian coordinates, with grouped and stacked 3D " +
+            "columns projected over the same engine; pie, donut, radial bar, radar, " +
             "sunburst and gauge on polar ones; treemap, Sankey, funnel and network graphs " +
             "on planar ones. Axes, logarithmic and symmetric-log scales, secondary value " +
             "axes, legends, annotations, tooltips, crosshair, tap, scrub, pinch zoom, pan " +

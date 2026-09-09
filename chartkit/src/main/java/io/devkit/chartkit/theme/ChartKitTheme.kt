@@ -273,6 +273,37 @@ data class ChartGaugeColors(
 }
 
 /**
+ * Colours for 3D charts.
+ *
+ * Only the *furniture* is here. A column's own colour comes from the series
+ * palette, exactly as its 2D counterpart's does, and the three visible faces
+ * are that one colour shaded by the scene's lighting. Six colours per series
+ * would make the palette six times as large, would have to be re-derived every
+ * time a theme changed, and would let a caller pick a set of faces that no
+ * light source could produce — at which point the shading stops reading as a
+ * solid object and the depth cue is gone.
+ *
+ * @param frame the fill of the floor and walls. Faint by design: a frame is a
+ *   reference plane, not a surface anybody is reading.
+ * @param frameBorder the edge where two frame panels meet.
+ * @param frameGrid value grid lines projected onto the frame.
+ * @param edge the hairline between two faces of the same column. Present so a
+ *   dark column against a dark background still reads as a box rather than as a
+ *   silhouette; absent, the shading alone has to carry it, and at low contrast
+ *   it does not.
+ * @param selectedOutline the outline drawn around every visible face of a
+ *   selected column.
+ */
+@Immutable
+data class ChartThreeDColors(
+    val frame: Color,
+    val frameBorder: Color,
+    val frameGrid: Color,
+    val edge: Color,
+    val selectedOutline: Color,
+)
+
+/**
  * Colours for timelines, range charts and Gantt-style views.
  *
  * @param interval a duration bar.
@@ -504,6 +535,16 @@ data class ChartColors(
         track = radialTrack,
         progress = palette[0],
         needle = axisTitle,
+    ),
+    val threeD: ChartThreeDColors = ChartThreeDColors(
+        frame = gridLine.copy(alpha = 0.18f),
+        frameBorder = gridLine,
+        frameGrid = gridLine,
+        // The surface's own colour, at a low alpha: an edge in a third hue
+        // would outline every column in something that is neither the series
+        // nor the background.
+        edge = axisLine.copy(alpha = 0.35f),
+        selectedOutline = selectionGuide,
     ),
     val timeline: ChartTimelineColors = ChartTimelineColors(
         interval = palette[0],
@@ -808,6 +849,31 @@ data class ChartDimensions(
      * the data.
      */
     val gaugeCompactRadius: Dp = 78.dp,
+
+    // ---- 3D -------------------------------------------------------------
+
+    /**
+     * The hairline drawn between two faces of the same column.
+     *
+     * Sub-pixel on purpose. Thick enough to separate two similarly-shaded faces
+     * and thin enough that fifty columns do not turn into a wireframe.
+     */
+    val chart3DEdgeWidth: Dp = 0.5.dp,
+
+    /** The stroke of a frame panel's border and of a projected grid line. */
+    val chart3DFrameWidth: Dp = 1.dp,
+
+    /** The gap between a projected axis position and the label written beside it. */
+    val chart3DLabelGap: Dp = 8.dp,
+
+    /**
+     * The padding between a 3D scene's fitted bounds and the plot's edge.
+     *
+     * A perspective scene's corners reach further than its faces do, and a fit
+     * that used every pixel would put a corner exactly on the boundary — where
+     * the reader reads it as clipped even though nothing was cut.
+     */
+    val chart3DPadding: Dp = 6.dp,
 
     // ---- timeline -------------------------------------------------------
 

@@ -7,9 +7,10 @@ heatmap, candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet,
 timeline, range and Gantt on Cartesian coordinates; pie, donut, radial bar,
 radar, sunburst and gauge on polar ones; treemap, Sankey, funnel and network
 graphs on planar ones; choropleth maps on geographic ones. Venn and Euler
-diagrams sit on the planar engine too. All four coordinate systems share the
-same scales, layout, layers, viewport, interaction, animation, theming, overlays
-and accessibility.
+diagrams sit on the planar engine too, and grouped and stacked 3D columns are a
+projected scene over the Cartesian one rather than a fifth engine. All four
+coordinate systems share the same scales, layout, layers, viewport, interaction,
+animation, theming, overlays and accessibility.
 
 It also handles the parts that decide whether a chart survives real data:
 annotations, hierarchical drill-down, linked charts and cross-filtering, viewport
@@ -39,6 +40,7 @@ the opposite of the point.
 
 - [Install](#install) · [Requirements](#requirements) · [Run the sample](#run-the-sample)
 - Cartesian charts: [Line](#line-chart) · [Area](#area-chart) · [Bar](#bar-chart) · [Horizontal](#horizontal-bars) · [Grouped](#grouped-bars) · [Stacked](#stacked-bars) · [100% stacked](#100-stacked-bars) · [Multi-series](#multiple-series) · [Combined](#combined-charts) · [Multi-axis combos](#multi-axis-combo-charts)
+- 3D: [3D columns](#3d-columns)
 - Polar charts: [Pie](#pie-chart) · [Donut](#donut-chart) · [Radial bar](#radial-bar-chart) · [Radar](#radar-chart) · [Polar coordinates](#polar-coordinates)
 - Statistical: [Scatter](#scatter-chart) · [Bubble](#bubble-chart) · [Histogram](#histogram) · [Box plot](#box-plot) · [Violin](#violin-plot) · [Statistics API](#statistics-api)
 - Density: [Heatmap](#heatmap) · [Calendar heatmap](#calendar-heatmap) · [Colour scales](#colour-scales)
@@ -145,6 +147,7 @@ Open the drawer and pick a **ChartKit** destination:
 | Relationships | A service graph, circular and force directed, draggable and zoomable, with its data table |
 | Geographic | A choropleth over the sample's own GeoJSON: quantile against continuous shading, both projections, labels, a legend, missing data, the join report and the data table |
 | Gauges | Ten demos: the reference speedometer, a semicircle stated as two angles, a full-circle compass, a three-quarter dial, four bands over a range crossing zero, three needles with a legend, an adjustable dial, a compact KPI pair, a deterministic realtime feed, and a custom counterweighted needle |
+| 3D columns | Fifteen demos: the reference grouped-and-stacked arrangement, a single series, grouped, stacked, depth rows, 100% stacked, negative values, null against zero, an interactive camera, custom lighting, the frame on and off, dark mode, twenty categories, and the low-level `CartesianChart3D` API — with live pitch, yaw, distance, depth and projection controls and the accessible data table |
 | Multi-axis combos | Six demos: the reference weather chart with three units, a business combo, a financial combo with volume on its own axis, legend toggling with axis auto-hide, zero alignment, and a shared crosshair with per-axis chips |
 | Set relationships | Thirteen Venn and Euler demos: two, three and four sets, proportional sizing, Venn against Euler, hand-placed icon groups, icons in labels, packed image content, four-level nesting, disjoint sets, explicit intersection colours, collection-driven sets and the accessibility tables |
 | Dashboard | Linked candlestick and volume charts with aligned plots, an overview navigator, and cross-filtering |
@@ -3327,6 +3330,349 @@ When you do use them: label every axis, state every unit, keep the number small,
 and turn on `Aligned` ticks when readers will compare against the grid. When the
 quantities are not really related, prefer two [linked charts](#linked-charts).
 
+## 3D columns
+
+Grouped and stacked columns projected through a camera, on the same stack
+engine, axes, legend, tooltip, selection, animation and accessibility model as
+the flat [bar chart](#bar-chart).
+
+```kotlin
+data class Sale(val month: String, val total: Double)
+
+ColumnChart3D(
+    data = sales,
+    category = { it.month },
+    value = { it.total },
+)
+```
+
+### What the third dimension is for
+
+Depth carries **grouping**, not a quantity. There is no z axis to read a number
+off, and there is deliberately no way to ask for one: a numeric depth axis under
+perspective would encode values in the one direction the reader cannot measure.
+Height is the measurement; depth says which pile a segment belongs to.
+
+That distinction has a name in the API and it is worth keeping straight:
+
+| | Same footprint? | Accumulates in y? |
+|---|---|---|
+| **Stacking** (`grouping`) | yes | yes |
+| **Grouping** (`stack`) | no | no |
+| **Depth** (`arrangement`) | no, in z | no |
+
+### Grouped and stacked
+
+`grouping` says whether the members of one stack are piled. `stack` says which
+pile a series belongs to. Two piles are two footprints whether or not either is
+stacked, which is what makes "grouped and stacked" one configuration rather than
+a special case:
+
+```kotlin
+ColumnChart3D(
+    series = listOf(
+        ChartSeries("john", "John", john),
+        ChartSeries("jane", "Jane", jane),
+        ChartSeries("joe", "Joe", joe),
+        ChartSeries("janet", "Janet", janet),
+    ),
+    category = { it.fruit },
+    value = { it.count },
+    grouping = BarGrouping.Stacked,
+    // Two piles per category, side by side, each a stack of two people.
+    stack = { series -> if (series.id in setOf("john", "joe")) "first" else "second" },
+    valueAxis = ChartAxis(title = "Picked"),
+    categoryAxis = ChartAxis(title = "Fruit"),
+    legendTogglesSeries = true,
+)
+```
+
+With `grouping = BarGrouping.Grouped` and no `stack` at all, every series is its
+own pile and the chart is an ordinary grouped one. With one `stack` id shared by
+every series, it is a single pile per category. `BarGrouping.StackedPercent`
+normalises **each pile to its own total**, so two stacks compare shares rather
+than counts.
+
+### Side by side, or one behind the other
+
+```kotlin
+ColumnChart3D(..., arrangement = Column3DArrangement.Depth)
+```
+
+`Side` (the default) puts the piles across the category band at one depth, so
+every column is the same distance from the reader and heights stay directly
+comparable. `Depth` gives each pile its own row going back. `Depth` reads well
+for two or three piles over few categories and badly beyond that — a column in
+the back row is both smaller under perspective and partly hidden.
+
+### Depth
+
+```kotlin
+ColumnChart3D(..., depth = Column3DDepth.Relative(0.6))
+```
+
+`Auto` derives the depth from the column's own footprint, which is what keeps
+the depth cue — the *ratio* of depth to width — the same on a phone and on a
+tablet. `Relative(1.0)` gives a square footprint. `Absolute(pixels)` is there for
+a chart that has to match another exactly.
+
+### Camera
+
+```kotlin
+val camera = rememberChart3DCameraState(
+    rotationX = 15.0,   // pitch: lifts the reader, revealing the tops
+    rotationY = 20.0,   // yaw: brings the right-hand side forward
+    distance = 3.2,     // in scene widths; smaller is a stronger perspective
+)
+
+ColumnChart3D(data = sales, category = { it.month }, value = { it.total }, cameraState = camera)
+
+TextButton(onClick = { camera.reset() }) { Text("Reset view") }
+```
+
+The state is hoisted for the same reason the viewport is: the view is a property
+of the reader's session, not of the data. `rotateBy`, `zoomBy`, `reset` and a
+suspending `animateTo` are all on it, and `rememberSaveableChart3DCameraState`
+keeps the view across a configuration change.
+
+Presets: `Chart3DCamera.Default`, `Front`, `Isometric`, `Presentation`.
+
+Both angles default to something, and neither defaults to zero — a chart at
+`0, 0` is a bar chart with its columns hidden behind each other.
+`Chart3DCameraLimits` keeps interactive rotation the right way up; loosen it
+deliberately with `Chart3DCameraLimits.None`.
+
+If you are coming from a Highcharts 3D chart, the mapping is: `alpha` →
+`rotationX`, `beta` → `rotationY`, `depth` → the layer's `depth`, `viewDistance`
+→ `distance`.
+
+### Projection
+
+```kotlin
+ColumnChart3D(..., projection = Chart3DProjection.Orthographic)
+```
+
+`Perspective` (the default) divides by depth: things further away are smaller.
+That is the depth cue, and its cost is that two equal values at different depths
+are drawn at different heights.
+
+`Orthographic` is parallel: depth changes position but never size, so two equal
+values are drawn identically wherever they stand. **Prefer it whenever depth is
+grouping rather than decoration** — which, on a column chart, it always is. The
+cost is a flatter picture, and that two columns exactly in line can coincide;
+depth ordering still resolves which is in front.
+
+### Frame
+
+```kotlin
+ColumnChart3D(
+    ...,
+    frame = Chart3DFrame(
+        floor = true,
+        back = true,
+        side = Chart3DSideWall.Auto,
+        grid = Chart3DFrameGrid.Back,
+    ),
+)
+```
+
+`Chart3DFrame.Auto` is the default: a floor, a back wall, the far side wall, and
+the value grid projected onto the back. `Chart3DFrame.None` turns it all off;
+`Chart3DFrame.Visible` draws it more strongly and adds the floor's depth runs.
+
+`Chart3DSideWall.Auto` picks whichever wall ends up *behind* the data, from the
+camera's yaw. Drawing both would put one between the reader and the columns.
+
+The grid lines sit at the chart's own value-axis ticks, so a line on the back
+wall is at the same value as the number written beside it.
+
+### Lighting
+
+```kotlin
+ColumnChart3D(
+    ...,
+    lighting = Chart3DLighting(ambient = 0.45, diffuse = 0.55, direction = Vector3D(0.7, -0.6, 0.4)),
+)
+```
+
+One directional light, an ambient term and a diffuse term — enough to tell a
+column's three visible faces apart, which is all shading has to do here. The
+light is fixed to the *camera*, so rotating the chart turns the geometry under a
+steady light rather than swinging the light across it.
+
+Face colours are derived from the series colour rather than configured. Six
+colours per series would make the palette six times as large and would let a
+caller choose a set of faces no light source could produce, at which point the
+shading stops reading as a solid and the depth cue is gone.
+`Chart3DLighting.Flat` turns shading off entirely.
+
+### Interaction
+
+```kotlin
+ColumnChart3D(..., interaction = Chart3DInteraction.RotateAndSelect)
+```
+
+`Select` (the default) resolves a tap to a column. `Rotate` turns the camera on
+a drag and moves it on a pinch. `RotateAndSelect` does both; `None` makes the
+chart a picture.
+
+Rotation is **off by default**, and that is an analytical position rather than
+caution about the implementation: a chart the reader can turn is a chart at an
+angle nobody chose, so two readers of the same dashboard see two different
+pictures — and, under perspective, two different apparent heights.
+
+Selection is geometric. The projected faces are already computed for drawing;
+a tap is resolved by testing them front to back, so an overlapped column can
+never win a tap on the one in front of it. Selecting any visible face selects
+the whole segment, and every visible face of it is emphasised.
+
+Arrow keys still step through the categories, exactly as on a 2D bar chart. The
+camera does not take them: a reader navigating with a keyboard is reading values,
+and losing that to a rotation control would trade an accessible interaction for a
+decorative one.
+
+### Value labels
+
+```kotlin
+ColumnChart3D(..., valueLabels = Column3DLabelPlacement.Auto)
+```
+
+`Top`, `Inside`, `Auto` or `None` (the default). `Auto` writes the number inside
+the segment where it fits and above the column where it does not — and nothing at
+all when neither works, because a label over the wrong segment is worse than no
+label. Labels inside a column are written in black or white against the shaded
+fill's own luminance; the theme's label colour knows nothing about the series
+colour it would land on.
+
+Labels that would collide are dropped, nearest first, by the same rule the flat
+[value labels](#value-labels) use — nothing is shrunk, rotated or ellipsised,
+because a chart of half-readable numbers is worse than a chart of fewer whole
+ones.
+
+### The low-level API
+
+```kotlin
+@OptIn(ExperimentalChartKitApi::class)
+CartesianChart3D(
+    cameraState = camera,
+    projection = Chart3DProjection.Orthographic,
+    valueAxis = ChartAxis(title = "Picked"),
+) {
+    columns(
+        series = harvest,
+        category = { it.fruit },
+        value = { it.count },
+        grouping = BarGrouping.Stacked,
+        stack = { if (it.id in setOf("john", "joe")) "first" else "second" },
+    )
+}
+```
+
+`ColumnChart3D` is this with one layer and a shorter parameter list. Both reach
+the same engine, so the legend, tooltip, selection model, animation clock and
+accessibility summary are not merely similar between them — they are the same
+code.
+
+`CartesianChart3D` and its scope carry `@ExperimentalChartKitApi`, exactly as
+`CartesianChart` does and for the same reason: a layer grammar is where a real
+multi-layer 3D scene will want room to move. `ColumnChart3D` does not, and is the
+one to reach for unless you need the DSL. The scene plumbing in
+`io.devkit.chartkit.three` — the projector, the scene, the faces, the hit tester
+— is public because a future 3D chart type is built on it, and it may change
+shape before 1.0; the configuration types you actually pass to a chart
+(`Chart3DCamera`, `Chart3DProjection`, `Chart3DLighting`, `Chart3DFrame`,
+`Column3DDepth`, `Column3DArrangement`) are the stable surface.
+
+### Accessibility
+
+A 3D chart announces the same things its 2D counterpart does: the category, the
+series, the value and — on a stacked chart — the stack total. It never announces
+a face, a depth, a camera angle or a projection, because none of those is data.
+
+```
+Sales chart. January. Product A: 42. Product B: 31. Stack total: 73.
+```
+
+Perspective makes precise magnitude comparison harder than a flat bar chart does.
+That is worth knowing and it is not worth a warning on every chart, so it is
+documented here instead. Two things follow from it: prefer
+`Chart3DProjection.Orthographic` when the comparison matters, and offer the
+numbers as a table.
+
+```kotlin
+ChartDataTableView(
+    table = columns3DDataTable(
+        series = harvest,
+        category = { it.fruit },
+        value = { it.count },
+        stack = { if (it.id in setOf("john", "joe")) "first" else "second" },
+    ),
+)
+```
+
+Rows are category, series, stack and value — never projected coordinates.
+
+### Architecture
+
+3D is not a second chart engine. It is a scene system that the existing engine
+feeds:
+
+```
+chart data
+  → existing stack / group layout      (BarStacking, unchanged)
+  → 3D world geometry                  (Cuboid3D, per segment)
+  → camera transform                   (Matrix4)
+  → projection                         (perspective or parallel)
+  → back-face culling                  (normals, in camera space)
+  → depth sorting                      (camera-space centroid, far to near)
+  → lighting                           (per face)
+  → ChartKit's Canvas renderer
+  → shared interaction, theme, animation, accessibility
+```
+
+Everything in `io.devkit.chartkit.three` — `Point3D`, `Vector3D`, `Matrix4`,
+`Bounds3D`, `Cuboid3D`, `Face3D`, the camera, both projections, the projector,
+the culling, the sort, the lighting and the hit test — is plain Kotlin with no
+Android or Compose types, and is tested on the JVM. A future 3D scatter, surface
+or pie adds a scene object and reuses all of it.
+
+### Performance and limitations
+
+- **Painter's algorithm.** Faces are sorted back to front by camera-space
+  centroid depth. That is exact for non-intersecting boxes, which is what a
+  column chart is, and it is not a general solution: two polygons that
+  interpenetrate cannot be ordered by a single depth per face. ChartKit's own 3D
+  geometry never produces that case.
+- **Perspective distortion.** Under `Perspective`, a far column of the same value
+  is drawn shorter. Use `Orthographic` when the comparison matters more than the
+  arrangement.
+- **Extreme angles.** At an edge-on view faces collapse to near-zero area and are
+  dropped rather than painted as hairlines. Nothing produces `NaN`, but the chart
+  stops being readable well before it stops being drawn — which is why the default
+  camera limits stop short of it.
+- **Dataset size.** 3D is not the right chart for a large dataset. The sample's
+  twenty-category, six-series demo exists so that the cost is visible rather than
+  described. Sorting is `O(f log f)` in the visible faces, culling leaves at most
+  three faces of any box to draw, and a projection is reused across everything
+  but a camera change — but the honest guidance is that a 3D column chart is for
+  a handful of categories.
+
+Measured, on a JVM, warm, over three runs of `Chart3DPerformanceTest`
+(`measure the projection pass`) on an Apple-silicon laptop — the camera
+transform, culling, sort and lighting for every face, which is the part that runs
+again on every frame of a camera drag:
+
+| Columns | Faces drawn | Per projection pass |
+|---|---|---|
+| 50 | 150 | 43–59 µs |
+| 120 | 360 | 105–170 µs |
+| 500 | 1,500 | 195–285 µs |
+
+Those are figures for the projection stage on that machine and nothing else. They
+are not frame times, they are not measured on a device, and they say nothing
+about what Compose then costs to draw the paths. Run the test to reproduce them
+on yours; no other performance claim is made here.
+
 ## Grid lines
 
 ```kotlin
@@ -4859,6 +5205,11 @@ Core
 │                GaugeGeometry (needle and marker outlines · arc bounds · fit)
 │                GaugeValue · GaugeNeedleStyle · GaugePivotStyle · GaugeMarker
 │                GaugePane · GaugeDetail · GaugeInteraction · GaugeOverflow
+├── three        Point3D · Vector3D · Matrix4 · Bounds3D · Face3D · Cuboid3D
+│                Chart3DCamera · Chart3DProjection (perspective · orthographic)
+│                Chart3DScene · Chart3DObject · Chart3DLighting · Chart3DFrame
+│                Chart3DProjector (transform · cull · sort · light · fit)
+│                Chart3DHitTest · Column3DLayoutEngine · Chart3DDiagnostics
 ├── timeline     TimelineModel · lane and row assignment · dependencies
 ├── transform    WaterfallTransform · FunnelTransform
 ├── scene        ChartScene · ChartSceneNode · ChartSceneBuilder
@@ -4874,6 +5225,9 @@ Core
 
 Coordinates
 ├── CartesianCoordinates   DomainAxis + value scale + orientation
+│                          (3D columns are drawn on these too: the third
+│                           dimension is a scene above the same plot area,
+│                           not a fifth coordinate system)
 ├── PolarCoordinates       centre + inner/outer radius + start/sweep + direction
 ├── PlanarCoordinates      a plain rectangle, for layout-driven visualisations
 └── GeoCoordinates         projection + fitted extent + two-dimensional camera
@@ -4898,6 +5252,8 @@ Layers
 │               annotations (behind and above) · custom
 ├── Polar       slice (pie + donut) · radial bar · radar web · radar
 │               sunburst · gauge arc · gauge dial · custom
+├── 3D          columns (grouped · stacked · grouped and stacked · percent),
+│               on Cartesian coordinates and the same stack engine
 ├── Planar      treemap · Sankey · funnel · graph · set diagram
 └── Geographic  choropleth
 

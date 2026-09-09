@@ -117,6 +117,66 @@ private fun <T> comboRows(measure: ComboMeasure<T>, includeUnit: Boolean): List<
     }
 
 /**
+ * A 3D column chart as rows: category, series, stack, value.
+ *
+ * ### Why a 3D chart still has an ordinary table
+ *
+ * Nothing in the table mentions a camera, a projection, a face or a depth,
+ * because none of those is data. A 3D column chart plots exactly what its 2D
+ * counterpart plots — a value, for a series, in a category, in a stack — and
+ * the three-dimensional presentation is a rendering choice made on top of that.
+ * A table that reported projected coordinates would be describing ChartKit's
+ * drawing rather than the caller's numbers.
+ *
+ * The stack column is the one addition, and it earns its place: on a chart with
+ * two stacks per category the picture makes the grouping obvious and a flat
+ * list of series does not.
+ *
+ * ```kotlin
+ * ChartDataTableView(
+ *     table = columns3DDataTable(
+ *         series = listOf(john, jane, joe, janet),
+ *         category = { it.fruit },
+ *         value = { it.count },
+ *         stack = { if (it.id in setOf("john", "joe")) "male" else "female" },
+ *     ),
+ * )
+ * ```
+ */
+fun <T> columns3DDataTable(
+    series: List<ChartSeries<T>>,
+    category: (T) -> Any?,
+    value: (T) -> Number?,
+    stack: ((ChartSeries<T>) -> String?)? = null,
+    valueFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
+    unit: ChartUnit = ChartUnit.None,
+    caption: String? = null,
+    categoryColumn: String = "Category",
+): ChartDataTable {
+    val stacked = series.any { stack?.invoke(it) != null }
+    val columns = buildList {
+        add(categoryColumn)
+        add("Series")
+        if (stacked) add("Stack")
+        add("Value")
+        if (unit != ChartUnit.None) add("Unit")
+    }
+    val rows = series.flatMap { s ->
+        val stackId = stack?.invoke(s) ?: s.id
+        s.data.map { item ->
+            buildList {
+                add(category(item).toString())
+                add(s.name.ifBlank { s.id })
+                if (stacked) add(stackId)
+                add(value(item)?.toDouble()?.let(valueFormatter::format) ?: "no value")
+                if (unit != ChartUnit.None) add(unit.symbol ?: "")
+            }
+        }
+    }
+    return ChartDataTable(columns = columns, rows = rows, caption = caption)
+}
+
+/**
  * A hierarchy as rows: path, value, share of parent, share of root.
  *
  * The two percentages are the point. A treemap's numbers mean nothing in

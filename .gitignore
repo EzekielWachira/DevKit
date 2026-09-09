@@ -17,3 +17,6 @@
 /.idea/deploymentTargetSelector.xml
 local.properties
 consumer-test/local.properties
+
+# Kotlin compiler session files, written on every build.
+.kotlin/
