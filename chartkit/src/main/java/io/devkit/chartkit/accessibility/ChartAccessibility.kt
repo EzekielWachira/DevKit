@@ -71,10 +71,29 @@ internal fun buildChartSummary(
     accessibility: ChartAccessibility,
     summaries: List<ChartLayerSummary>,
     formatter: ChartValueFormatter,
+    /**
+     * The chart's value axes, when it has more than one.
+     *
+     * A chart measuring three quantities is not describable as "3 series" — a
+     * reader needs to know that one of them is in millimetres and another in
+     * degrees before any of the numbers mean anything. Named by their titles
+     * and never by their ids: "pressure-axis-2" is an implementation detail
+     * that would be read out loud.
+     */
+    axes: List<AxisDescription> = emptyList(),
 ): String {
     val parts = ArrayList<String>()
     accessibility.title?.takeIf { it.isNotBlank() }?.let { parts += it }
     accessibility.description?.takeIf { it.isNotBlank() }?.let { parts += it }
+
+    val described = axes.filter { it.title != null || it.unit != null }
+    if (described.size > 1) {
+        parts += "${described.size} measures."
+        described.forEach { axis ->
+            val name = axis.title ?: return@forEach
+            parts += if (axis.unit != null) "$name: ${axis.unit}." else "$name."
+        }
+    }
 
     if (summaries.isEmpty()) {
         parts += "No data."
@@ -129,6 +148,49 @@ internal fun buildChartSummary(
         }
     }
     return parts.joinToString(" ")
+}
+
+/**
+ * One value axis, as a screen reader hears it.
+ *
+ * @param title what the axis is called. `null` for an axis with no title, which
+ *   is announced by its unit alone rather than by an internal id.
+ * @param unit the unit spelled out — "millimetres", not "mm", which a reader
+ *   pronounces one letter at a time.
+ */
+internal data class AxisDescription(
+    val title: String?,
+    val unit: String?,
+)
+
+/**
+ * The announcement for a selection across several value axes.
+ *
+ * ```text
+ * March. Rainfall: 82 millimetres. Temperature: 14.2 degrees Celsius.
+ * Pressure: 1018 hectopascals.
+ * ```
+ *
+ * Each value spoken in its own axis' unit, because that is the only reading of
+ * them that is true — "March: 82, 14.2, 1018" is three numbers and no
+ * quantities.
+ */
+internal fun describeMultiAxisSelection(
+    xLabel: String,
+    entries: List<Triple<String, Double, io.devkit.chartkit.axis.ChartUnit>>,
+    formatters: List<ChartValueFormatter>,
+): String = buildString {
+    append(xLabel)
+    append(".")
+    entries.forEachIndexed { index, (name, value, unit) ->
+        append(" ")
+        if (name.isNotBlank()) {
+            append(name)
+            append(": ")
+        }
+        append(unit.spoken(formatters.getOrElse(index) { ChartValueFormatter.Raw }.format(value)))
+        append(".")
+    }
 }
 
 /** The announcement for the currently selected point. */

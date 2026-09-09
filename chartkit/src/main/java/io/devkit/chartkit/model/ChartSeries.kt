@@ -26,6 +26,15 @@ data class ChartSeries<out T>(
     val data: List<T>,
     val visible: Boolean = true,
     val color: Int? = null,
+    /**
+     * What this series measures in, or [io.devkit.chartkit.axis.ChartUnit.None].
+     *
+     * Optional and unused by most charts. Its purpose is the mismatch check: a
+     * series in `°C` bound to an axis in `USD` is a real mistake that nothing
+     * else can catch, because both are just numbers by the time they reach a
+     * scale. Stating nothing makes no claim and is never reported.
+     */
+    val unit: io.devkit.chartkit.axis.ChartUnit = io.devkit.chartkit.axis.ChartUnit.None,
 ) {
     init {
         require(id.isNotBlank()) {
@@ -42,7 +51,8 @@ fun <T> chartSeries(
     name: String = id,
     visible: Boolean = true,
     color: Int? = null,
-): ChartSeries<T> = ChartSeries(id, name, data, visible, color)
+    unit: io.devkit.chartkit.axis.ChartUnit = io.devkit.chartkit.axis.ChartUnit.None,
+): ChartSeries<T> = ChartSeries(id, name, data, visible, color, unit)
 
 /** Fails fast on duplicate ids, which would silently break animation matching. */
 internal fun <T> List<ChartSeries<T>>.requireDistinctIds() {

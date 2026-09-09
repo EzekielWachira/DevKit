@@ -49,6 +49,7 @@ import io.devkit.chartkit.animation.rememberChartReveal
 import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
 import io.devkit.chartkit.axis.drawAxis
+import io.devkit.chartkit.layer.crosshair.drawAxisReadouts
 import io.devkit.chartkit.components.legend.ChartLegend
 import io.devkit.chartkit.components.legend.ChartLegendEntry
 import io.devkit.chartkit.components.legend.LegendPosition
@@ -114,6 +115,14 @@ internal fun CartesianChartCore(
     sharedCrosshair: ChartSharedCrosshairState?,
     annotations: List<ResolvedAnnotation>,
     secondaryValueAxis: ChartAxis? = null,
+    /** Every axis this chart has, or `null` for the implicit one-per-dimension pair. */
+    axisRegistry: io.devkit.chartkit.axis.AxisRegistry? = null,
+    tickAlignment: io.devkit.chartkit.axis.AxisTickAlignment =
+        io.devkit.chartkit.axis.AxisTickAlignment.Independent,
+    axisDensity: io.devkit.chartkit.axis.AxisDensity = io.devkit.chartkit.axis.AxisDensity.Auto,
+    tooltipOrder: io.devkit.chartkit.model.ChartTooltipOrder =
+        io.devkit.chartkit.model.ChartTooltipOrder.Declaration,
+    onAxisDiagnostics: ((List<io.devkit.chartkit.axis.AxisDiagnostic>) -> Unit)? = null,
     customLayers: List<io.devkit.chartkit.layer.custom.CustomCartesianLayer> = emptyList(),
     xResolver: io.devkit.chartkit.model.ChartXResolver =
         io.devkit.chartkit.model.ChartXResolver.Default,
@@ -185,6 +194,11 @@ internal fun CartesianChartCore(
                         sharedCrosshair = sharedCrosshair,
                         annotations = annotations,
                         secondaryValueAxisConfig = secondaryValueAxis,
+                        axisRegistry = axisRegistry,
+                        tickAlignment = tickAlignment,
+                        axisDensity = axisDensity,
+                        tooltipOrder = tooltipOrder,
+                        onAxisDiagnostics = onAxisDiagnostics,
                         customLayers = customLayers,
                         xResolver = xResolver,
                         renderMode = renderMode,
@@ -268,6 +282,11 @@ private fun ChartPlot(
     sharedCrosshair: ChartSharedCrosshairState?,
     annotations: List<ResolvedAnnotation>,
     secondaryValueAxisConfig: ChartAxis?,
+    axisRegistry: io.devkit.chartkit.axis.AxisRegistry?,
+    tickAlignment: io.devkit.chartkit.axis.AxisTickAlignment,
+    axisDensity: io.devkit.chartkit.axis.AxisDensity,
+    tooltipOrder: io.devkit.chartkit.model.ChartTooltipOrder,
+    onAxisDiagnostics: ((List<io.devkit.chartkit.axis.AxisDiagnostic>) -> Unit)?,
     customLayers: List<io.devkit.chartkit.layer.custom.CustomCartesianLayer>,
     xResolver: io.devkit.chartkit.model.ChartXResolver,
     renderMode: io.devkit.chartkit.render.ChartRenderMode,
@@ -326,7 +345,7 @@ private fun ChartPlot(
         layers, size, orientation, domainAxisConfig, valueAxisConfig, grid,
         valueDomainPolicy, effectiveCrosshair, viewport, rangeSelectable, theme, density,
         locale, accessibility, annotations, secondaryValueAxisConfig, customLayers,
-        xResolver, alignmentPadding,
+        xResolver, alignmentPadding, axisRegistry, tickAlignment, axisDensity,
     ) {
         buildCartesianGeometry(
             bounds = ChartRect.fromSize(size.width.toFloat(), size.height.toFloat()),
@@ -347,6 +366,9 @@ private fun ChartPlot(
             accessibility = accessibility,
             annotations = annotations,
             secondaryValueAxisConfig = secondaryValueAxisConfig,
+            axisRegistry = axisRegistry,
+            tickAlignment = tickAlignment,
+            axisDensity = axisDensity,
             customLayers = customLayers,
             xResolver = xResolver,
             alignmentInsets = alignmentPadding,
@@ -362,6 +384,11 @@ private fun ChartPlot(
     LaunchedEffect(geometry) {
         viewportState.fullDomain = geometry.fullDomain
         viewportState.categoryCount = geometry.categoryCount
+    }
+
+    // Reported once per layout, and only when there is something to report.
+    LaunchedEffect(geometry.axisDiagnostics, onAxisDiagnostics) {
+        if (geometry.axisDiagnostics.isNotEmpty()) onAxisDiagnostics?.invoke(geometry.axisDiagnostics)
     }
 
     // A gesture cannot have produced a selection in a static render, so the only
@@ -428,7 +455,13 @@ private fun ChartPlot(
         if (best != null && best != state.selection) state.selection = best
     }
 
-    val renderContext = ChartRenderContext(
+    // Built in two steps. The first has everything a layer needs to draw except
+    // the per-axis crosshair readouts, which are derived from the tooltip's own
+    // entries — and the tooltip is resolved through the axis contexts that come
+    // from this one. Deriving them rather than hit testing twice is what keeps a
+    // crosshair chip and the tooltip row beside it the same number by
+    // construction.
+    val baseContext = ChartRenderContext(
         coordinates = geometry.coordinates,
         colors = theme.colors,
         typography = theme.typography,
@@ -443,24 +476,53 @@ private fun ChartPlot(
         renderMode = renderMode,
     )
 
-    // The same context over the second value scale, for layers bound to it. A
-    // derived copy rather than a flag inside the context, so a layer never has
-    // to ask which axis it is on: it draws against the coordinates it is given.
-    val secondaryContext = geometry.secondaryCoordinates?.let(renderContext::withCoordinates)
-
-    fun contextFor(renderer: io.devkit.chartkit.layer.ChartLayerRenderer): ChartRenderContext =
-        if (renderer.valueAxis == io.devkit.chartkit.axis.ValueAxisBinding.Secondary) {
-            secondaryContext ?: renderContext
-        } else {
-            renderContext
+    // One context per value axis, derived from the chart's and differing in
+    // exactly one thing: the coordinate system. A derived copy rather than a
+    // flag inside the context, so a layer never has to ask which axis it is on
+    // — it draws against the coordinates it is given.
+    //
+    // Built once per geometry and looked up by name, so a draw loop holds a
+    // direct reference rather than resolving an axis id per point.
+    val baseAxisContexts: Map<io.devkit.chartkit.axis.ChartAxisId, ChartRenderContext> =
+        remember(geometry, baseContext) {
+            geometry.axisCoordinates.mapValues { (_, coords) -> baseContext.withCoordinates(coords) }
         }
+    fun baseContextFor(renderer: io.devkit.chartkit.layer.ChartLayerRenderer): ChartRenderContext =
+        baseAxisContexts[geometry.axisOf(renderer)] ?: baseContext
 
     // One tooltip payload, built the same way whatever produced the selection.
     // Chart-specific code supplies the data; the overlay does the layout.
-    val tooltipData: AnyChartTooltipData? = remember(selection, geometry, sharedTooltip) {
+    val tooltipData: AnyChartTooltipData? = remember(selection, geometry, sharedTooltip, tooltipOrder) {
         selection?.let { selected ->
             val entries = if (sharedTooltip) {
-                geometry.hitTestable.flatMap { it.tooltipEntriesAt(selected, contextFor(it)) }
+                // Each layer reports its own value at the selected domain
+                // position; the axis it belongs to is then attached here, along
+                // with the text that axis would have written and the point the
+                // series occupies on screen. Doing it centrally rather than in
+                // every layer is what keeps a layer ignorant of how many axes
+                // the chart has.
+                val enriched = geometry.hitTestable.flatMap { renderer ->
+                    val axisId = geometry.axisOf(renderer)
+                    val coords = geometry.coordinatesFor(axisId)
+                    val domainPosition = geometry.coordinates.domainOf(selected.position)
+                    renderer.tooltipEntriesAt(selected, baseContextFor(renderer)).map { entry ->
+                        entry.copy(
+                            axisId = axisId,
+                            axisTitle = geometry.axisSpecs[axisId]?.displayName,
+                            // The unit the axis *writes*, not the one it
+                            // measures: a currency formatter already carries
+                            // its symbol.
+                            unit = geometry.axisLabelUnits[axisId]
+                                ?: io.devkit.chartkit.axis.ChartUnit.None,
+                            formattedValue = geometry.labelFor(axisId, entry.value),
+                            position = coords.pointAt(
+                                domainPosition,
+                                coords.positionOfValue(entry.value),
+                            ),
+                        )
+                    }
+                }
+                tooltipOrder.sort(enriched)
             } else {
                 emptyList()
             }
@@ -484,18 +546,80 @@ private fun ChartPlot(
         }
     }
 
+    // Step two: the readouts, and the contexts that carry them. One extra
+    // `mapValues` per axis, not per point.
+    val axisReadouts = remember(tooltipData, geometry, effectiveCrosshair.axisValueLabels) {
+        if (!effectiveCrosshair.axisValueLabels || tooltipData == null) {
+            emptyList()
+        } else {
+            val axisById = geometry.valueAxes.associateBy { it.id }
+            tooltipData.entries
+                .mapNotNull { entry -> entry.axisId?.let { it to entry } }
+                .distinctBy { it.first }
+                .mapNotNull { (axisId, entry) ->
+                    val axis = axisById[axisId] ?: return@mapNotNull null
+                    val coords = geometry.coordinatesFor(axisId)
+                    io.devkit.chartkit.layer.AxisValueReadout(
+                        axisId = axisId,
+                        position = axis.position,
+                        offset = axis.offset,
+                        at = coords.positionOfValue(entry.value),
+                        text = entry.formattedValue ?: geometry.labelFor(axisId, entry.value),
+                    )
+                }
+        }
+    }
+    val renderContext = if (axisReadouts.isEmpty()) baseContext else baseContext.withReadouts(axisReadouts)
+    val axisContexts = if (axisReadouts.isEmpty()) {
+        baseAxisContexts
+    } else {
+        baseAxisContexts.mapValues { (_, context) -> context.withReadouts(axisReadouts) }
+    }
+
+    // The context a layer draws with: the one built over its own axis' scale.
+    fun contextFor(renderer: io.devkit.chartkit.layer.ChartLayerRenderer): ChartRenderContext =
+        axisContexts[geometry.axisOf(renderer)] ?: renderContext
+
     val summary = remember(geometry, accessibilitySummary, accessibility) {
         accessibilitySummary?.invoke()
-            ?: buildChartSummary(accessibility, geometry.summaries, geometry.valueFormatter)
+            ?: buildChartSummary(
+                accessibility = accessibility,
+                summaries = geometry.summaries,
+                formatter = geometry.valueFormatter,
+                axes = geometry.valueAxes.map { axis ->
+                    val spec = geometry.axisSpecs[axis.id]
+                    io.devkit.chartkit.accessibility.AxisDescription(
+                        title = spec?.title ?: axis.config.title,
+                        unit = spec?.unit?.spokenName,
+                    )
+                },
+            )
     }
-    val selectionText = selection?.let {
-        describeSelection(
-            seriesName = it.seriesName,
-            xLabel = geometry.formatDomainValue(it.x),
-            value = it.y,
-            formatter = geometry.valueFormatter,
-            multiSeries = geometry.summaries.size > 1,
-        )
+    // A selection on a multi-axis chart is announced across every axis, each
+    // value in its own unit — "March. Rainfall: 82 millimetres. Temperature:
+    // 14.2 degrees Celsius." A single-axis chart keeps the shorter sentence.
+    val selectionText = selection?.let { selected ->
+        val entries = tooltipData?.entries.orEmpty()
+        val axisCount = entries.mapNotNull { it.axisId }.distinct().size
+        if (axisCount > 1) {
+            io.devkit.chartkit.accessibility.describeMultiAxisSelection(
+                xLabel = geometry.formatDomainValue(selected.x),
+                entries = entries.map { entry ->
+                    Triple(entry.seriesName.ifBlank { entry.seriesId }, entry.value, entry.unit)
+                },
+                formatters = entries.map { entry ->
+                    entry.axisId?.let(geometry::formatterFor) ?: geometry.valueFormatter
+                },
+            )
+        } else {
+            describeSelection(
+                seriesName = selected.seriesName,
+                xLabel = geometry.formatDomainValue(selected.x),
+                value = selected.y,
+                formatter = selection.let { geometry.valueFormatter },
+                multiSeries = geometry.summaries.size > 1,
+            )
+        }
     }
     // Announced only when the gesture settles. A live region updated on every
     // pointer frame turns a screen reader into a stream of half-sentences.
@@ -533,7 +657,7 @@ private fun ChartPlot(
     val gestures = rememberChartGestureCallbacks(
         geometry = geometry,
         renderContext = renderContext,
-        secondaryContext = secondaryContext,
+        axisContexts = axisContexts,
         hitTestMode = hitTestMode,
         interaction = interaction,
         state = state,
@@ -687,8 +811,12 @@ private fun ChartPlot(
                 .forEach { it.draw(this, contextFor(it)) }
 
             geometry.domainAxis?.let { drawAxis(it, plot, renderContext) }
-            geometry.valueAxis?.let { drawAxis(it, plot, renderContext) }
-            geometry.secondaryValueAxis?.let { drawAxis(it, plot, renderContext) }
+            // Every value axis, each at the offset the layout engine measured.
+            geometry.valueAxes.forEach { drawAxis(it, plot, renderContext) }
+            // Last: a readout chip sits at the same row as one of its axis' own
+            // tick labels, and an axis drawn afterwards would print straight
+            // through it.
+            drawAxisReadouts(axisReadouts, plot, renderContext)
         }
 
         if (geometry.isEmpty) {
@@ -735,7 +863,7 @@ private fun ChartPlot(
 private fun rememberChartGestureCallbacks(
     geometry: CartesianGeometry,
     renderContext: ChartRenderContext,
-    secondaryContext: ChartRenderContext?,
+    axisContexts: Map<io.devkit.chartkit.axis.ChartAxisId, ChartRenderContext>,
     hitTestMode: HitTestMode,
     interaction: ChartInteraction,
     state: ChartState<Any?>,
@@ -748,15 +876,11 @@ private fun rememberChartGestureCallbacks(
     val rangeAnchor = remember(geometry) { mutableStateOf<Double?>(null) }
 
     return remember(geometry, interaction, hitTestMode, state, viewportState, sharedCrosshair) {
-        // A layer bound to the second value axis is hit-tested against that
-        // axis' coordinates, so a tap on a conversion-rate line resolves against
-        // percentages rather than against pounds.
+        // A layer is hit-tested against its own axis' coordinates, so a tap on
+        // a conversion-rate line resolves against percentages rather than
+        // against pounds.
         fun contextOf(renderer: io.devkit.chartkit.layer.ChartLayerRenderer): ChartRenderContext =
-            if (renderer.valueAxis == io.devkit.chartkit.axis.ValueAxisBinding.Secondary) {
-                secondaryContext ?: renderContext
-            } else {
-                renderContext
-            }
+            axisContexts[geometry.axisOf(renderer)] ?: renderContext
 
         fun select(point: ChartOffset, mode: HitTestMode) {
             val best = geometry.hitTestable

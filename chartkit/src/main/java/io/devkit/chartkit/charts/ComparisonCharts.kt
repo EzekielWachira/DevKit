@@ -9,7 +9,7 @@ import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.annotation.ChartAnnotation
 import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
-import io.devkit.chartkit.axis.ValueAxisBinding
+import io.devkit.chartkit.axis.ChartAxisId
 import io.devkit.chartkit.components.legend.LegendPosition
 import io.devkit.chartkit.geometry.ChartOrientation
 import io.devkit.chartkit.interaction.ChartInteraction
@@ -113,7 +113,8 @@ fun <T> WaterfallChart(
             seriesName = seriesName,
             showConnectors = showConnectors,
             cornerRadius = cornerRadius,
-            valueAxis = ValueAxisBinding.Primary,
+            valueAxisId = ChartAxisId.DefaultY,
+            declaredUnits = emptySet(),
         )
     }
 
@@ -398,7 +399,8 @@ private fun <T> ConnectorMarkChart(
             seriesName = seriesName,
             startLabel = startLabel,
             endLabel = endLabel,
-            valueAxis = ValueAxisBinding.Primary,
+            valueAxisId = ChartAxisId.DefaultY,
+            declaredUnits = emptySet(),
         )
     }
 
@@ -523,7 +525,8 @@ fun <T> BulletChart(
             seriesId = seriesId,
             seriesName = seriesName,
             targetLabel = targetLabel,
-            valueAxis = ValueAxisBinding.Primary,
+            valueAxisId = ChartAxisId.DefaultY,
+            declaredUnits = emptySet(),
         )
     }
 

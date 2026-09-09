@@ -7,9 +7,21 @@ import androidx.compose.ui.unit.Dp
 import io.devkit.chartkit.accessibility.ChartAccessibility
 import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.annotation.ChartAnnotation
+import io.devkit.chartkit.axis.AxisDensity
+import io.devkit.chartkit.axis.AxisDimension
+import io.devkit.chartkit.axis.AxisGridMode
+import io.devkit.chartkit.axis.AxisPosition
+import io.devkit.chartkit.axis.AxisRegistry
+import io.devkit.chartkit.axis.AxisStyleMode
+import io.devkit.chartkit.axis.AxisTickAlignment
+import io.devkit.chartkit.axis.AxisVisibility
 import io.devkit.chartkit.axis.ChartAxis
+import io.devkit.chartkit.axis.ChartAxisId
+import io.devkit.chartkit.axis.ChartAxisSpec
 import io.devkit.chartkit.axis.ChartGrid
+import io.devkit.chartkit.axis.ChartUnit
 import io.devkit.chartkit.axis.ValueAxisBinding
+import io.devkit.chartkit.axis.axisId
 import io.devkit.chartkit.components.legend.LegendPosition
 import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.geometry.ChartOrientation
@@ -85,6 +97,119 @@ class CartesianChartScope internal constructor(
 ) {
     internal val layers = mutableListOf<ResolvedLayer>()
 
+    /** Axes declared through [yAxis] and [xAxis], in declaration order. */
+    internal val declaredAxes = mutableListOf<ChartAxisSpec>()
+
+    /**
+     * Declares a value axis.
+     *
+     * A chart that never calls this has one value axis and does not need to
+     * know it. Call it once per quantity the chart measures in a different
+     * unit, then bind each layer to one by name:
+     *
+     * ```kotlin
+     * CartesianChart {
+     *     yAxis(Rainfall, position = AxisPosition.Start, title = "Rainfall",
+     *         unit = ChartUnit.Custom("mm", "millimetres"))
+     *     yAxis(Temperature, position = AxisPosition.End, title = "Temperature",
+     *         unit = ChartUnit.Custom("°C", "degrees Celsius"))
+     *
+     *     bars(series = rain, category = { it.month }, value = { it.mm }, yAxis = Rainfall)
+     *     line(series = temp, x = { it.month }, y = { it.celsius }, yAxis = Temperature)
+     * }
+     * ```
+     *
+     * ### On how many
+     *
+     * Two independent scales in one plot let the author choose where the lines
+     * cross, which is a claim about the data that the data did not make.
+     * ChartKit does not cap the number — a legitimate chart with three is easy
+     * to think of, and a hard limit would be an engine restriction standing in
+     * for editorial judgement — but two or three is the practical maximum for
+     * something a reader can actually read.
+     *
+     * @param position which edge. `Start` and `End` on a vertical chart; two
+     *   axes may share an edge, and the layout engine stacks them outward in
+     *   declaration order.
+     * @param unit what the axis measures in. Written after each tick label and
+     *   spelled out for screen readers — see [ChartUnit].
+     * @param domain how the axis picks its interval. Derived from **its own**
+     *   layers only: a rainfall axis is never widened by a pressure series.
+     * @param grid whether this axis owns the horizontal grid. One axis should:
+     *   three sets of interleaved gridlines make every line look meaningful
+     *   when only a third of them are.
+     * @param primary the axis a tooltip, a crosshair readout and an unqualified
+     *   annotation are written by. The first declared, when none says so.
+     * @param alignZero whether this axis' zero shares a row with the other axes
+     *   asking for it; only meaningful under [AxisTickAlignment.Aligned].
+     */
+    @Suppress("LongParameterList")
+    fun yAxis(
+        id: ChartAxisId,
+        position: AxisPosition? = null,
+        title: String? = null,
+        unit: ChartUnit = ChartUnit.None,
+        domain: DomainPolicy? = null,
+        axis: ChartAxis = ChartAxis.Default,
+        visibility: AxisVisibility = AxisVisibility.Auto,
+        grid: AxisGridMode = AxisGridMode.Primary,
+        primary: Boolean = false,
+        offset: Dp? = null,
+        style: AxisStyleMode = AxisStyleMode.Neutral,
+        alignTicks: Boolean = true,
+        alignZero: Boolean = false,
+    ) {
+        declaredAxes += ChartAxisSpec(
+            id = id,
+            dimension = AxisDimension.Y,
+            position = position,
+            axis = axis,
+            title = title,
+            unit = unit,
+            domain = domain,
+            visibility = visibility,
+            grid = grid,
+            primary = primary,
+            offset = offset,
+            style = style,
+            alignTicks = alignTicks,
+            alignZero = alignZero,
+        )
+    }
+
+    /**
+     * Declares a domain axis.
+     *
+     * Rarely needed: combo charts share one X domain — that is what makes them
+     * comparable at all — and a chart that says nothing gets
+     * [ChartAxisId.DefaultX]. It exists so the registry has no special case for
+     * the domain, and so a later chart that genuinely needs a top axis has
+     * somewhere to say so.
+     */
+    @Suppress("LongParameterList")
+    fun xAxis(
+        id: ChartAxisId = ChartAxisId.DefaultX,
+        position: AxisPosition? = null,
+        title: String? = null,
+        unit: ChartUnit = ChartUnit.None,
+        axis: ChartAxis = ChartAxis.Default,
+        visibility: AxisVisibility = AxisVisibility.Visible,
+        primary: Boolean = true,
+        offset: Dp? = null,
+    ) {
+        declaredAxes += ChartAxisSpec(
+            id = id,
+            dimension = AxisDimension.X,
+            position = position,
+            axis = axis,
+            title = title,
+            unit = unit,
+            visibility = visibility,
+            primary = primary,
+            offset = offset,
+        )
+    }
+
     /**
      * Series declared so far, across every layer.
      *
@@ -110,6 +235,7 @@ class CartesianChartScope internal constructor(
         dataOrder: ChartDataOrder = ChartDataOrder.InputOrder,
         performance: ChartPerformance = ChartPerformance.Default,
         valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        yAxis: ChartAxisId? = null,
     ) {
         val data = normalizeSeries(
             series = series.applyVisibility(),
@@ -134,7 +260,8 @@ class CartesianChartScope internal constructor(
             pointMarkerThreshold = performance.pointMarkerThreshold,
             missingValuePolicy = missingValuePolicy,
             performance = performance,
-            valueAxis = valueAxis,
+            valueAxisId = yAxis ?: valueAxis.axisId(),
+            declaredUnits = series.units(),
         )
     }
 
@@ -151,6 +278,7 @@ class CartesianChartScope internal constructor(
         xResolver: ChartXResolver = ChartXResolver.Default,
         xAxisKind: ChartXAxisKind? = null,
         valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        yAxis: ChartAxisId? = null,
     ) = line(
         series = series,
         x = x,
@@ -163,6 +291,7 @@ class CartesianChartScope internal constructor(
         xResolver = xResolver,
         xAxisKind = xAxisKind,
         valueAxis = valueAxis,
+        yAxis = yAxis,
     )
 
     /** A bar layer. */
@@ -178,6 +307,7 @@ class CartesianChartScope internal constructor(
         missingValuePolicy: MissingValuePolicy = MissingValuePolicy.Break,
         xResolver: ChartXResolver = ChartXResolver.Default,
         valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        yAxis: ChartAxisId? = null,
     ) {
         val data = normalizeSeries(
             series = series.applyVisibility(),
@@ -197,7 +327,8 @@ class CartesianChartScope internal constructor(
             categoryPadding = categoryPadding,
             groupPadding = groupPadding,
             valueLabels = valueLabels,
-            valueAxis = valueAxis,
+            valueAxisId = yAxis ?: valueAxis.axisId(),
+            declaredUnits = series.units(),
         )
     }
 
@@ -222,6 +353,7 @@ class CartesianChartScope internal constructor(
         xAxisKind: ChartXAxisKind? = null,
         performance: ChartPerformance = ChartPerformance.Default,
         valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        yAxis: ChartAxisId? = null,
     ) {
         val visible = series.applyVisibility()
         val data = normalizeSeries(
@@ -243,7 +375,8 @@ class CartesianChartScope internal constructor(
             sizeScale = sizeScale,
             pointRadius = pointRadius,
             performance = performance,
-            valueAxis = valueAxis,
+            valueAxisId = yAxis ?: valueAxis.axisId(),
+            declaredUnits = series.units(),
         )
     }
 
@@ -278,6 +411,7 @@ class CartesianChartScope internal constructor(
         seriesName: String = "Price",
         xResolver: ChartXResolver = ChartXResolver.Time,
         xAxisKind: ChartXAxisKind = ChartXAxisKind.Time,
+        yAxis: ChartAxisId? = null,
     ) {
         val resolved = resolveOhlcLayer(data, x, open, high, low, close, volume, policy, xResolver)
         declaredSeries += 1
@@ -290,6 +424,7 @@ class CartesianChartScope internal constructor(
             seriesName = seriesName,
             items = data,
             axisKind = xAxisKind,
+            valueAxisId = yAxis ?: ChartAxisId.DefaultY,
         )
     }
 
@@ -313,6 +448,7 @@ class CartesianChartScope internal constructor(
         seriesName: String = "Volume",
         xResolver: ChartXResolver = ChartXResolver.Time,
         xAxisKind: ChartXAxisKind = ChartXAxisKind.Time,
+        yAxis: ChartAxisId? = null,
     ) {
         val resolved = resolveOhlcLayer(
             data = data,
@@ -333,6 +469,7 @@ class CartesianChartScope internal constructor(
             seriesName = seriesName,
             items = data,
             axisKind = xAxisKind,
+            valueAxisId = yAxis ?: ChartAxisId.DefaultY,
         )
     }
 
@@ -352,6 +489,7 @@ class CartesianChartScope internal constructor(
         seriesId: String = "waterfall",
         seriesName: String = "Waterfall",
         valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        yAxis: ChartAxisId? = null,
     ) {
         declaredSeries += 1
         layers += ResolvedLayer.Waterfall(
@@ -361,7 +499,8 @@ class CartesianChartScope internal constructor(
             seriesName = seriesName,
             showConnectors = showConnectors,
             cornerRadius = cornerRadius,
-            valueAxis = valueAxis,
+            valueAxisId = yAxis ?: valueAxis.axisId(),
+            declaredUnits = emptySet(),
         )
     }
 
@@ -385,6 +524,7 @@ class CartesianChartScope internal constructor(
         seriesId: String = "dumbbell",
         seriesName: String = "Change",
         valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        yAxis: ChartAxisId? = null,
     ) {
         val offset = declaredSeries
         declaredSeries += 1
@@ -406,7 +546,8 @@ class CartesianChartScope internal constructor(
             seriesName = seriesName,
             startLabel = startLabel,
             endLabel = endLabel,
-            valueAxis = valueAxis,
+            valueAxisId = yAxis ?: valueAxis.axisId(),
+            declaredUnits = emptySet(),
         )
     }
 
@@ -419,6 +560,7 @@ class CartesianChartScope internal constructor(
         seriesId: String = "lollipop",
         seriesName: String = "",
         valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        yAxis: ChartAxisId? = null,
     ) {
         val offset = declaredSeries
         declaredSeries += 1
@@ -441,7 +583,8 @@ class CartesianChartScope internal constructor(
             seriesName = seriesName,
             startLabel = "",
             endLabel = "",
-            valueAxis = valueAxis,
+            valueAxisId = yAxis ?: valueAxis.axisId(),
+            declaredUnits = emptySet(),
         )
     }
 
@@ -458,6 +601,7 @@ class CartesianChartScope internal constructor(
         seriesId: String = "bullet",
         seriesName: String = "Measure",
         valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        yAxis: ChartAxisId? = null,
     ) {
         val offset = declaredSeries
         declaredSeries += 1
@@ -478,7 +622,8 @@ class CartesianChartScope internal constructor(
             seriesId = seriesId,
             seriesName = seriesName,
             targetLabel = targetLabel,
-            valueAxis = valueAxis,
+            valueAxisId = yAxis ?: valueAxis.axisId(),
+            declaredUnits = emptySet(),
         )
     }
 
@@ -563,6 +708,7 @@ class CartesianChartScope internal constructor(
         seriesName: String = id,
         clipToPlot: Boolean = true,
         valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        yAxis: ChartAxisId? = null,
         hitTest: (CartesianLayerContext.(io.devkit.chartkit.geometry.ChartOffset) -> CustomLayerHit?)? = null,
         describe: (() -> List<CustomLayerItem>)? = null,
         legendEntries: List<CustomLayerLegendEntry> = emptyList(),
@@ -573,7 +719,7 @@ class CartesianChartScope internal constructor(
             spec = CustomCartesianLayer(
                 id = id,
                 clipToPlot = clipToPlot,
-                valueAxis = valueAxis,
+                valueAxisId = yAxis ?: valueAxis.axisId(),
                 draw = draw,
                 hitTest = hitTest,
                 describe = describe,
@@ -585,6 +731,10 @@ class CartesianChartScope internal constructor(
 
     private fun <T> List<ChartSeries<T>>.applyVisibility(): List<ChartSeries<T>> =
         map { it.copy(visible = it.visible && it.id !in hiddenSeriesIds) }
+
+    /** The units these series declared, for the axis mismatch check. */
+    private fun <T> List<ChartSeries<T>>.units(): Set<ChartUnit> =
+        mapNotNullTo(LinkedHashSet()) { series -> series.unit.takeIf { it != ChartUnit.None } }
 }
 
 /** The non-composable half of [rememberOhlc], for the layer DSL. */
@@ -681,6 +831,30 @@ fun CartesianChart(
      * they do not.
      */
     secondaryValueAxis: ChartAxis? = null,
+    /**
+     * Whether the value axes share tick rows.
+     *
+     * [AxisTickAlignment.Independent] by default: each axis picks its own round
+     * numbers, which is honest but leaves the gridlines meaningful for one axis
+     * only. [AxisTickAlignment.Aligned] widens each axis so corresponding ticks
+     * land on the same screen row — see [AxisTickAlignment] for the trade.
+     */
+    tickAlignment: AxisTickAlignment = AxisTickAlignment.Independent,
+    /**
+     * How much room the axes may take on a narrow screen.
+     *
+     * Never removes an axis: it thins ticks and abbreviates numbers, so the
+     * reader loses resolution rather than a quantity. See [AxisDensity].
+     */
+    axisDensity: AxisDensity = AxisDensity.Auto,
+    /**
+     * The order a shared tooltip lists its rows in.
+     *
+     * Declaration order by default. [io.devkit.chartkit.model.ChartTooltipOrder.ByAxis]
+     * groups by quantity, which reads better once a chart has three of them.
+     */
+    tooltipOrder: io.devkit.chartkit.model.ChartTooltipOrder =
+        io.devkit.chartkit.model.ChartTooltipOrder.Declaration,
     xResolver: ChartXResolver = ChartXResolver.Default,
     hitTestMode: HitTestMode = HitTestMode.NearestDomain,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
@@ -689,6 +863,16 @@ fun CartesianChart(
     plotAlignment: ChartPlotAlignment? = null,
     sceneState: ChartSceneState? = null,
     accessibilitySummary: (() -> String)? = null,
+    /**
+     * Called with anything the axis layer could not do as asked.
+     *
+     * Empty for almost every chart. Non-empty when an axis was left out of a
+     * tick alignment it asked for, when zero alignment was declined, or when
+     * the axes have crowded out the plot. Reported rather than thrown: each of
+     * these leaves a drawable chart, and each is worth knowing about while
+     * developing it.
+     */
+    onAxisDiagnostics: ((List<io.devkit.chartkit.axis.AxisDiagnostic>) -> Unit)? = null,
     state: ChartState<Any?> = rememberChartState(),
     onSelectionChanged: ((AnyChartSelection?) -> Unit)? = null,
     onRangeSelectionChanged: ((AnyChartRangeSelection?) -> Unit)? = null,
@@ -708,12 +892,47 @@ fun CartesianChart(
     content: CartesianChartScope.() -> Unit,
 ) {
     val hidden = state.hiddenSeriesIds
-    val layers = remember(content, hidden) {
-        CartesianChartScope(hidden).apply(content).layers
+    val scope = remember(content, hidden) { CartesianChartScope(hidden).apply(content) }
+    val layers = scope.layers
+
+    // The chart's axes: what the caller declared, plus the implicit ones a
+    // chart that declared none still has. Built here rather than in the
+    // geometry so a mis-declared axis is a composition-time error naming the
+    // chart, not a mystery at the first draw.
+    val registry = remember(scope.declaredAxes, orientation, domainAxis, valueAxis, secondaryValueAxis, valueDomain) {
+        if (scope.declaredAxes.isEmpty()) {
+            null
+        } else {
+            AxisRegistry.of(
+                buildList {
+                    // A caller who declared only value axes still gets a domain
+                    // axis, configured from the `domainAxis` parameter every
+                    // other Cartesian chart uses.
+                    if (scope.declaredAxes.none { it.dimension == AxisDimension.X }) {
+                        add(
+                            ChartAxisSpec(
+                                id = ChartAxisId.DefaultX,
+                                dimension = AxisDimension.X,
+                                position = domainAxis.position,
+                                axis = domainAxis,
+                                primary = true,
+                            ),
+                        )
+                    }
+                    addAll(scope.declaredAxes)
+                },
+                orientation = orientation,
+            )
+        }
     }
 
     CartesianChartCore(
         layers = layers,
+        axisRegistry = registry,
+        tickAlignment = tickAlignment,
+        axisDensity = axisDensity,
+        tooltipOrder = tooltipOrder,
+        onAxisDiagnostics = onAxisDiagnostics,
         modifier = modifier,
         orientation = orientation,
         domainAxis = domainAxis,

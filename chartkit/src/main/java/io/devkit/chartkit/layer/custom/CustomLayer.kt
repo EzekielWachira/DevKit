@@ -3,7 +3,7 @@ package io.devkit.chartkit.layer.custom
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.unit.Dp
-import io.devkit.chartkit.axis.ValueAxisBinding
+import io.devkit.chartkit.axis.ChartAxisId
 import io.devkit.chartkit.charts.ExperimentalChartKitApi
 import io.devkit.chartkit.coordinate.CartesianCoordinates
 import io.devkit.chartkit.coordinate.PolarCoordinates
@@ -183,7 +183,7 @@ data class CustomLayerLegendEntry(
 class CustomCartesianLayer internal constructor(
     val id: String,
     internal val clipToPlot: Boolean,
-    internal val valueAxis: ValueAxisBinding,
+    internal val valueAxisId: ChartAxisId,
     internal val draw: CartesianLayerScope.() -> Unit,
     internal val hitTest: (CartesianLayerContext.(ChartOffset) -> CustomLayerHit?)?,
     internal val describe: (() -> List<CustomLayerItem>)?,
@@ -207,7 +207,7 @@ internal class CustomLayerRenderer(
     override val id: String get() = spec.id
     override val seriesIds: List<String> get() = listOf(spec.id)
     override val clipToPlot: Boolean get() = spec.clipToPlot
-    override val valueAxis: ValueAxisBinding get() = spec.valueAxis
+    override val valueAxisId: ChartAxisId get() = spec.valueAxisId
 
     override fun draw(scope: DrawScope, context: ChartRenderContext) {
         val cartesian = context.coordinates as? CartesianCoordinates ?: return

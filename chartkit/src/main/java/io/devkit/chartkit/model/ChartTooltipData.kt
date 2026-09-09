@@ -18,7 +18,69 @@ data class ChartTooltipEntry<out T>(
     val value: Double,
     val item: T,
     val paletteIndex: Int,
-)
+    /**
+     * Which value axis this series is measured against.
+     *
+     * `null` on a chart whose layers produced entries before an axis was
+     * resolved — never on a Cartesian chart, which fills it in for every entry.
+     * What makes a multi-axis tooltip possible at all: `82` and `14.2` and
+     * `1018` are three quantities, and a tooltip that could not tell them apart
+     * would have to write all three the same way.
+     */
+    val axisId: io.devkit.chartkit.axis.ChartAxisId? = null,
+    /** That axis' title, for a tooltip that groups its rows by quantity. */
+    val axisTitle: String? = null,
+    /** What that axis measures in. */
+    val unit: io.devkit.chartkit.axis.ChartUnit = io.devkit.chartkit.axis.ChartUnit.None,
+    /**
+     * [value] written the way its own axis writes it, unit included.
+     *
+     * `82 mm`, `14.2 °C`, `1,018 hPa` — each through the formatter of the axis
+     * it belongs to, so a tooltip and the axis beside it never disagree.
+     */
+    val formattedValue: String? = null,
+    /** Where this series sits on screen at the selected position. */
+    val position: ChartOffset? = null,
+) {
+    /** [formattedValue] when the chart supplied one, else the raw number. */
+    val text: String get() = formattedValue ?: value.toString()
+}
+
+/**
+ * The order a multi-series tooltip lists its rows in.
+ *
+ * Deterministic by construction. The rows come from a map iteration somewhere
+ * upstream, and a tooltip whose lines rearranged themselves between two
+ * hovers over the same point would be the kind of bug that is reported as
+ * "it flickers" and never reproduced.
+ */
+sealed interface ChartTooltipOrder {
+
+    fun sort(entries: List<ChartTooltipEntry<Any?>>): List<ChartTooltipEntry<Any?>>
+
+    /** The order the layers were declared in. The default. */
+    data object Declaration : ChartTooltipOrder {
+        override fun sort(entries: List<ChartTooltipEntry<Any?>>) = entries
+    }
+
+    /**
+     * Grouped by axis, axes in declaration order.
+     *
+     * For a chart where the reader is comparing quantities rather than series:
+     * all the temperatures together, then all the pressures.
+     */
+    data class ByAxis(val axes: List<io.devkit.chartkit.axis.ChartAxisId>) : ChartTooltipOrder {
+        override fun sort(entries: List<ChartTooltipEntry<Any?>>) =
+            entries.sortedBy { entry ->
+                axes.indexOf(entry.axisId).takeIf { it >= 0 } ?: axes.size
+            }
+    }
+
+    /** Whatever the caller wants. */
+    data class Custom(val comparator: Comparator<ChartTooltipEntry<Any?>>) : ChartTooltipOrder {
+        override fun sort(entries: List<ChartTooltipEntry<Any?>>) = entries.sortedWith(comparator)
+    }
+}
 
 /**
  * Everything a tooltip needs, whatever chart produced it.

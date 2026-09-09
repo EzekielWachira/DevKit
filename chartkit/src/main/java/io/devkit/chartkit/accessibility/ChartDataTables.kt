@@ -13,7 +13,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import io.devkit.chartkit.flow.SankeyGraph
+import io.devkit.chartkit.axis.ChartUnit
 import io.devkit.chartkit.formatter.ChartValueFormatter
+import io.devkit.chartkit.model.ChartSeries
 import io.devkit.chartkit.geo.GeoFeature
 import io.devkit.chartkit.geo.GeoFeatureCollection
 import io.devkit.chartkit.graph.ChartGraph
@@ -41,6 +43,78 @@ import io.devkit.chartkit.transform.WaterfallStep
  * would need reflection, would break under R8, and would produce column names
  * from property names rather than from what the chart actually plotted.
  */
+
+/**
+ * One measure of a combo chart: its series, its axis and how it is written.
+ *
+ * @param axisTitle what the quantity is called — "Rainfall", "Temperature".
+ * @param unit what it is measured in. Written in the table's unit column and
+ *   spelled out nowhere else, because a table is read and not spoken.
+ * @param value the accessor the chart itself was given, so the table cannot
+ *   disagree with what was drawn.
+ */
+class ComboMeasure<T>(
+    val axisTitle: String,
+    val series: List<ChartSeries<T>>,
+    val category: (T) -> Any?,
+    val value: (T) -> Number?,
+    val unit: ChartUnit = ChartUnit.None,
+    val valueFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
+)
+
+/**
+ * A multi-axis chart as rows: x, series, value, unit.
+ *
+ * ### Why the unit column exists
+ *
+ * A combo chart's table without one is a column of numbers that cannot be read:
+ * `82`, `14.2` and `1018` under a single "Value" heading are three quantities
+ * presented as if they were comparable, which is precisely the misreading a
+ * second axis invites in the picture and which a table has no excuse for.
+ *
+ * ```kotlin
+ * ChartDataTableView(
+ *     table = comboDataTable(
+ *         ComboMeasure("Rainfall", rainSeries, { it.month }, { it.mm },
+ *             unit = ChartUnit.Custom("mm", "millimetres")),
+ *         ComboMeasure("Temperature", tempSeries, { it.month }, { it.celsius },
+ *             unit = ChartUnit.Custom("°C", "degrees Celsius")),
+ *     ),
+ * )
+ * ```
+ *
+ * Rows are grouped by measure, in the order the measures were given — the same
+ * order the axes were declared in, so the table reads the way the chart does.
+ */
+fun comboDataTable(
+    vararg measures: ComboMeasure<*>,
+    caption: String? = null,
+    xColumn: String = "X",
+): ChartDataTable {
+    val anyUnit = measures.any { it.unit != ChartUnit.None }
+    val columns = buildList {
+        add(xColumn)
+        add("Measure")
+        add("Series")
+        add("Value")
+        if (anyUnit) add("Unit")
+    }
+    val rows = measures.flatMap { measure -> comboRows(measure, anyUnit) }
+    return ChartDataTable(columns = columns, rows = rows, caption = caption)
+}
+
+private fun <T> comboRows(measure: ComboMeasure<T>, includeUnit: Boolean): List<List<String>> =
+    measure.series.flatMap { series ->
+        series.data.map { item ->
+            buildList {
+                add(measure.category(item).toString())
+                add(measure.axisTitle)
+                add(series.name.ifBlank { series.id })
+                add(measure.value(item)?.toDouble()?.let(measure.valueFormatter::format) ?: "no value")
+                if (includeUnit) add(measure.unit.symbol ?: "")
+            }
+        }
+    }
 
 /**
  * A hierarchy as rows: path, value, share of parent, share of root.

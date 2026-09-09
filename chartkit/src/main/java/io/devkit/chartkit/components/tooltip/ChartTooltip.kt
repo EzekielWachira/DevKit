@@ -95,7 +95,16 @@ fun <T> ChartTooltip(
                     Spacer(Modifier.width(dimensions.legendItemSpacing))
                 }
                 Text(
-                    text = formatter.format(entry.value),
+                    // The entry's own axis wrote this — `82 mm` beside `14.2 °C`
+                    // beside `1,018 hPa`. A single chart-wide formatter would
+                    // write two of those three wrong, which is the whole
+                    // difference between a multi-axis tooltip and a list of
+                    // numbers. A caller's explicit formatter still wins.
+                    text = when {
+                        valueFormatter != null -> valueFormatter.format(entry.value)
+                        entry.formattedValue != null -> entry.formattedValue
+                        else -> formatter.format(entry.value)
+                    },
                     style = typography.tooltipTitle,
                     color = colors.tooltipContent,
                 )
