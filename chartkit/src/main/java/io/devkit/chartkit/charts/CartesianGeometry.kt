@@ -11,7 +11,12 @@ import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
 import io.devkit.chartkit.axis.MeasuredAxis
 import io.devkit.chartkit.axis.MeasuredAxisLabel
-import io.devkit.chartkit.axis.ValueAxisBinding
+import io.devkit.chartkit.axis.AxisDiagnostic
+import io.devkit.chartkit.axis.AxisRegistry
+import io.devkit.chartkit.axis.AxisStyleMode
+import io.devkit.chartkit.axis.AxisTickAlignment
+import io.devkit.chartkit.axis.ChartAxisId
+import io.devkit.chartkit.axis.ChartUnit
 import io.devkit.chartkit.axis.selectLabelIndices
 import io.devkit.chartkit.coordinate.CartesianCoordinates
 import io.devkit.chartkit.coordinate.DomainAxis
@@ -133,13 +138,23 @@ internal sealed class ResolvedLayer {
     abstract val axisKind: ChartXAxisKind
 
     /**
-     * Which value axis this layer is measured against.
+     * Which value axis this layer is measured against, by name.
      *
      * Explicit, never inferred from the magnitudes — see
      * [io.devkit.chartkit.axis.ValueAxisBinding] for why a chart that guessed
-     * would be wrong intermittently and invisibly.
+     * would be wrong intermittently and invisibly, and
+     * [io.devkit.chartkit.axis.ChartAxisId] for why it is a name rather than an
+     * index.
      */
-    open val valueAxis: ValueAxisBinding get() = ValueAxisBinding.Primary
+    open val valueAxisId: ChartAxisId get() = ChartAxisId.DefaultY
+
+    /**
+     * Units the layer's series declared, for the axis mismatch check.
+     *
+     * Empty when the caller stated none, which is not an error — see
+     * [io.devkit.chartkit.charts.validateSeriesUnits].
+     */
+    open val declaredUnits: Set<ChartUnit> get() = emptySet()
 
     /** Normalised series data, for the layers that have any. */
     open val seriesData: PlotData? get() = null
@@ -187,7 +202,8 @@ internal sealed class ResolvedLayer {
         val pointMarkerThreshold: Int,
         val missingValuePolicy: MissingValuePolicy,
         val performance: ChartPerformance,
-        override val valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        override val valueAxisId: ChartAxisId = ChartAxisId.DefaultY,
+        override val declaredUnits: Set<ChartUnit> = emptySet(),
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = data.xAxisKind
         override val seriesData: PlotData get() = data
@@ -201,7 +217,8 @@ internal sealed class ResolvedLayer {
         val categoryPadding: Double,
         val groupPadding: Double,
         val valueLabels: Boolean,
-        override val valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        override val valueAxisId: ChartAxisId = ChartAxisId.DefaultY,
+        override val declaredUnits: Set<ChartUnit> = emptySet(),
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = data.xAxisKind
         override val seriesData: PlotData get() = data
@@ -229,7 +246,8 @@ internal sealed class ResolvedLayer {
         val sizeScale: SizeScale?,
         val pointRadius: androidx.compose.ui.unit.Dp?,
         val performance: ChartPerformance,
-        override val valueAxis: ValueAxisBinding = ValueAxisBinding.Primary,
+        override val valueAxisId: ChartAxisId = ChartAxisId.DefaultY,
+        override val declaredUnits: Set<ChartUnit> = emptySet(),
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = data.xAxisKind
         override val seriesData: PlotData get() = data
@@ -336,6 +354,7 @@ internal sealed class ResolvedLayer {
         val seriesName: String,
         val items: List<Any?>,
         override val axisKind: ChartXAxisKind,
+        override val valueAxisId: ChartAxisId = ChartAxisId.DefaultY,
     ) : ResolvedLayer() {
         override val isEmpty: Boolean get() = points.isEmpty()
 
@@ -369,6 +388,7 @@ internal sealed class ResolvedLayer {
         val seriesName: String,
         val items: List<Any?>,
         override val axisKind: ChartXAxisKind,
+        override val valueAxisId: ChartAxisId = ChartAxisId.DefaultY,
     ) : ResolvedLayer() {
         override val isEmpty: Boolean get() = points.none { it.volume != null }
 
@@ -391,7 +411,8 @@ internal sealed class ResolvedLayer {
         val seriesName: String,
         val showConnectors: Boolean,
         val cornerRadius: androidx.compose.ui.unit.Dp?,
-        override val valueAxis: ValueAxisBinding,
+        override val valueAxisId: ChartAxisId,
+        override val declaredUnits: Set<ChartUnit>,
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = ChartXAxisKind.Category
         override val isEmpty: Boolean get() = steps.isEmpty()
@@ -415,7 +436,8 @@ internal sealed class ResolvedLayer {
         val seriesName: String,
         val startLabel: String,
         val endLabel: String,
-        override val valueAxis: ValueAxisBinding,
+        override val valueAxisId: ChartAxisId,
+        override val declaredUnits: Set<ChartUnit>,
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = ChartXAxisKind.Category
         override val isEmpty: Boolean get() = entries.isEmpty()
@@ -440,7 +462,8 @@ internal sealed class ResolvedLayer {
         val seriesId: String,
         val seriesName: String,
         val targetLabel: String,
-        override val valueAxis: ValueAxisBinding,
+        override val valueAxisId: ChartAxisId,
+        override val declaredUnits: Set<ChartUnit>,
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = ChartXAxisKind.Category
         override val isEmpty: Boolean get() = entries.isEmpty()
@@ -505,7 +528,7 @@ internal sealed class ResolvedLayer {
         val spec: CustomCartesianLayer,
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = ChartXAxisKind.Numeric
-        override val valueAxis: ValueAxisBinding get() = spec.valueAxis
+        override val valueAxisId: ChartAxisId get() = spec.valueAxisId
 
         /** Never empty: a chart whose only layer is custom still has content. */
         override val isEmpty: Boolean get() = false
@@ -532,16 +555,52 @@ internal class CartesianGeometry(
     val renderers: List<ChartLayerRenderer>,
     val hitTestable: List<ChartLayerRenderer>,
     val domainAxis: MeasuredAxis?,
+    /**
+     * The chart's primary value axis — the one a tooltip, a crosshair readout
+     * and an unqualified annotation are written by.
+     */
     val valueAxis: MeasuredAxis?,
     /**
-     * The second value axis, when the chart declared one.
+     * Every visible value axis, in declaration order.
      *
-     * Drawn on the opposite edge from [valueAxis]; layers bound to it are given
-     * [secondaryCoordinates] to draw against.
+     * One entry for an ordinary chart; three for a combo chart with rainfall,
+     * temperature and pressure. Drawn in this order, each at the offset the
+     * layout engine measured for it.
      */
-    val secondaryValueAxis: MeasuredAxis? = null,
-    /** The coordinate system for layers bound to the second value axis. */
+    val valueAxes: List<MeasuredAxis> = listOfNotNull(valueAxis),
+    /** The coordinate system for layers bound to the legacy second value axis. */
     val secondaryCoordinates: CartesianCoordinates? = null,
+    /**
+     * One coordinate system per value axis, keyed by name.
+     *
+     * All share the plot area and the domain axis and differ only in their
+     * value scale, which is the whole of "independent scales, shared plot
+     * area". A layer is handed the one for the axis it named, resolved once
+     * before drawing — see [io.devkit.chartkit.axis.AxisRegistry].
+     */
+    val axisCoordinates: Map<io.devkit.chartkit.axis.ChartAxisId, CartesianCoordinates> = emptyMap(),
+    /** Each axis' own number formatter, for tooltips and crosshair readouts. */
+    val axisFormatters: Map<io.devkit.chartkit.axis.ChartAxisId, ChartValueFormatter> = emptyMap(),
+    /** Each axis' declaration, for units, titles and accessibility. */
+    val axisSpecs: Map<io.devkit.chartkit.axis.ChartAxisId, io.devkit.chartkit.axis.ChartAxisSpec> = emptyMap(),
+    /**
+     * The unit each axis writes after its numbers.
+     *
+     * [io.devkit.chartkit.axis.ChartUnit.None] where the caller supplied their
+     * own formatter — see [PreparedValueAxis.labelUnit]. Separate from the
+     * declared unit in [axisSpecs], which stays what the axis *measures*.
+     */
+    val axisLabelUnits: Map<io.devkit.chartkit.axis.ChartAxisId, io.devkit.chartkit.axis.ChartUnit> = emptyMap(),
+    /** What the axis layer could not do as asked. Empty for almost every chart. */
+    val axisDiagnostics: List<io.devkit.chartkit.axis.AxisDiagnostic> = emptyList(),
+    /**
+     * Which value axis each renderer is measured against, by renderer id.
+     *
+     * Layers, not renderers, declare a binding — see the comment where this is
+     * built. This is how the chart gets from a renderer back to the axis whose
+     * coordinates, formatter and hit test it should be given.
+     */
+    private val rendererAxes: Map<String, io.devkit.chartkit.axis.ChartAxisId> = emptyMap(),
     /**
      * The gutters this chart needs around its plot, before alignment padding.
      *
@@ -584,6 +643,36 @@ internal class CartesianGeometry(
     /** A domain value's position as a fraction of the full domain. */
     private val fractionOfDomain: (ChartX) -> Double? = { null },
 ) {
+    /**
+     * Which value axis [renderer] is measured against.
+     *
+     * The recorded binding when the renderer came from a layer, and the
+     * renderer's own when it did not — an annotation layer or a custom layer
+     * states it directly.
+     */
+    fun axisOf(renderer: ChartLayerRenderer): io.devkit.chartkit.axis.ChartAxisId =
+        rendererAxes[renderer.id] ?: renderer.valueAxisId
+
+    /** The coordinate system layers on [axisId] are measured in. */
+    fun coordinatesFor(axisId: io.devkit.chartkit.axis.ChartAxisId): CartesianCoordinates =
+        axisCoordinates[axisId] ?: coordinates
+
+    /** How axis [axisId] writes a number, falling back to the chart's own. */
+    fun formatterFor(axisId: io.devkit.chartkit.axis.ChartAxisId): ChartValueFormatter =
+        axisFormatters[axisId] ?: valueFormatter
+
+    /** How axis [axisId] labels a value, unit included. */
+    fun labelFor(axisId: io.devkit.chartkit.axis.ChartAxisId, value: Double): String {
+        val text = formatterFor(axisId).format(value)
+        return axisLabelUnits[axisId]?.label(text) ?: text
+    }
+
+    /** How axis [axisId] announces a value, with the unit spelled out. */
+    fun spokenFor(axisId: io.devkit.chartkit.axis.ChartAxisId, value: Double): String {
+        val text = formatterFor(axisId).format(value)
+        return axisLabelUnits[axisId]?.spoken(text) ?: text
+    }
+
     /** The full-domain fraction under a pixel, for range selection. */
     fun domainFractionAt(position: ChartOffset): Double {
         val plot = coordinates.plotArea
@@ -659,8 +748,68 @@ internal fun buildCartesianGeometry(
     customLayers: List<CustomCartesianLayer> = emptyList(),
     xResolver: ChartXResolver = ChartXResolver.Default,
     alignmentInsets: ChartInsets = ChartInsets.Zero,
+    /**
+     * Every axis this chart has.
+     *
+     * `null` for a chart that never mentioned axis ids, which is most of them:
+     * one is built from [domainAxisConfig], [valueAxisConfig] and
+     * [secondaryValueAxisConfig] so that a `LineChart` and a three-axis combo
+     * chart go through the same code rather than through a simple path and a
+     * general one that drift.
+     */
+    axisRegistry: AxisRegistry? = null,
+    tickAlignment: AxisTickAlignment = AxisTickAlignment.Independent,
+    axisDensity: io.devkit.chartkit.axis.AxisDensity = io.devkit.chartkit.axis.AxisDensity.Auto,
 ): CartesianGeometry {
     if (bounds.isEmpty || layers.isEmpty()) return CartesianGeometry.empty()
+
+    val registry = axisRegistry ?: defaultRegistry(
+        orientation = orientation,
+        domainAxis = domainAxisConfig,
+        valueAxis = valueAxisConfig,
+        secondaryValueAxis = secondaryValueAxisConfig,
+        valueDomainPolicy = valueDomainPolicy,
+    )
+    // Checked here rather than at declaration, because a layer names an axis
+    // before the chart has finished being described. A binding to an axis that
+    // was never registered has no correct fallback — see [AxisRegistry].
+    layers.forEach { layer ->
+        registry.requireAxis(
+            id = layer.valueAxisId,
+            requestedBy = "Layer \"${layer.key}\"",
+            dimension = io.devkit.chartkit.axis.AxisDimension.Y,
+        )
+    }
+    // Stacking is only meaningful within one scale: two stacked bar layers on
+    // different axes occupy the same category bands and read as one stack
+    // measured in two units, which is a chart that cannot be right. Rejected
+    // rather than drawn, because the picture gives no clue that it happened.
+    val stackedAxes = layers.filterIsInstance<ResolvedLayer.Bars>()
+        .filter { it.grouping != BarGrouping.Grouped }
+        .map { it.valueAxisId }
+        .distinct()
+    if (stackedAxes.size > 1) {
+        throw io.devkit.chartkit.axis.ChartAxisException(
+            "Stacked bar layers are bound to ${stackedAxes.size} different value axes " +
+                "(${stackedAxes.joinToString { "\"${it.value}\"" }}). Stacked bars share a " +
+                "baseline and a scale; stacking across axes would draw one pile of segments " +
+                "measured in two units.",
+        )
+    }
+    layers.filterIsInstance<ResolvedLayer.Bars>()
+        .filter { it.grouping != BarGrouping.Grouped && it.declaredUnits.size > 1 }
+        .forEach { layer ->
+            throw io.devkit.chartkit.axis.ChartAxisException(
+                "Layer \"${layer.key}\" stacks series declaring " +
+                    "${layer.declaredUnits.size} different units " +
+                    "(${layer.declaredUnits.joinToString { it.symbol ?: it.toString() }}). " +
+                    "A stack adds its segments together, which only means something when they " +
+                    "measure the same thing.",
+            )
+        }
+
+    val diagnostics = mutableListOf<AxisDiagnostic>()
+    diagnostics += validateSeriesUnits(registry, layers)
 
     // ---- merge every layer's data into one domain ---------------------------
 
@@ -687,11 +836,12 @@ internal fun buildCartesianGeometry(
         BarStacking.bounds(aligned.map { it.values }, layer.grouping) to aligned
     }
 
-    // Two intervals, not one. A layer bound to the second axis must not widen
-    // the first — that is the whole point of having two — so the extents are
-    // collected per binding rather than merged and split afterwards.
-    fun valueExtentsFor(binding: ValueAxisBinding): List<NumericDomain> = buildList {
-        layers.filter { it.valueAxis == binding }.forEach { layer ->
+    // One interval per axis, never merged. A layer bound to the pressure axis
+    // must not widen the rainfall one — that is the whole point of having more
+    // than one — so extents are collected per axis id and stay separate all the
+    // way to the scales.
+    fun valueExtentsFor(axisId: ChartAxisId): List<NumericDomain> = buildList {
+        layers.filter { it.valueAxisId == axisId }.forEach { layer ->
             when (layer) {
                 is ResolvedLayer.Bars -> barBounds[layer]?.first
                     ?.let { BarStacking.domainOf(it) }
@@ -702,20 +852,17 @@ internal fun buildCartesianGeometry(
         }
     }
 
-    val secondaryDataDomain = secondaryValueAxisConfig
-        ?.let { valueExtentsFor(ValueAxisBinding.Secondary) }
-        ?.reduceOrNull { a, b -> NumericDomain(minOf(a.min, b.min), maxOf(a.max, b.max)) }
-
-    val valueDataDomain = buildList {
-        addAll(valueExtentsFor(ValueAxisBinding.Primary))
-        // An annotation that names a threshold above every observed value is
-        // invisible unless the axis is widened to it — and a reader who cannot
-        // see the target cannot see the gap to it. Annotations are stated in
-        // the *primary* axis' units, so only that axis is widened; an
-        // annotation against a second axis would have no way to say which.
+    // An annotation that names a threshold above every observed value is
+    // invisible unless the axis is widened to it — and a reader who cannot see
+    // the target cannot see the gap to it. Each annotation widens the axis it
+    // is stated against, which for an unqualified one is the primary.
+    fun annotationExtentsFor(axisId: ChartAxisId): List<NumericDomain> = buildList {
         annotations.forEach { resolved ->
-            if (!resolved.annotation.extendsDomain) return@forEach
-            when (val annotation = resolved.annotation) {
+            val annotation = resolved.annotation
+            if (!annotation.extendsDomain) return@forEach
+            val target = annotation.valueAxis ?: registry.primaryY?.id ?: return@forEach
+            if (target != axisId) return@forEach
+            when (annotation) {
                 is io.devkit.chartkit.annotation.ChartAnnotation.HorizontalRule ->
                     add(NumericDomain(annotation.value, annotation.value))
                 is io.devkit.chartkit.annotation.ChartAnnotation.ValueRange ->
@@ -743,12 +890,57 @@ internal fun buildCartesianGeometry(
                 else -> Unit
             }
         }
-    }.reduceOrNull { a, b -> NumericDomain(minOf(a.min, b.min), maxOf(a.max, b.max)) }
-
-    val valueDomain = valueDomainPolicy.apply(valueDataDomain)
-    val secondaryDomain = secondaryValueAxisConfig?.let { config ->
-        (config.domain ?: valueDomainPolicy).apply(secondaryDataDomain)
     }
+
+    val dataDomains: Map<ChartAxisId, NumericDomain?> = registry.yAxes.associate { spec ->
+        spec.id to (valueExtentsFor(spec.id) + annotationExtentsFor(spec.id))
+            .reduceOrNull { a, b -> NumericDomain(minOf(a.min, b.min), maxOf(a.max, b.max)) }
+    }
+
+    // An axis with no visible layer on it is measuring nothing; see
+    // [AxisVisibility.Auto]. Counted from the layers rather than from the
+    // series, so a legend toggle that empties a layer empties its axis.
+    val boundLayerCounts: Map<ChartAxisId, Int> = registry.yAxes.associate { spec ->
+        spec.id to layers.count { it.valueAxisId == spec.id && !it.isEmpty }
+    }
+
+    // The colour an axis borrows under [AxisStyleMode.MatchSeries]: the first
+    // series drawn against it, so the tick labels match the line the reader is
+    // trying to trace back to them.
+    val axisAccents: Map<ChartAxisId, Int> = buildMap {
+        layers.forEach { layer ->
+            if (containsKey(layer.valueAxisId)) return@forEach
+            layer.legendRows().firstOrNull()?.let { put(layer.valueAxisId, it.paletteIndex) }
+        }
+    }
+
+    val compactAxes = axisDensity.isCompact(
+        availableWidth = if (orientation.isVertical) bounds.width else bounds.height,
+        axisCount = registry.yAxes.count { boundLayerCounts[it.id] != 0 },
+        widthPerAxis = with(density) { dimensions.compactAxisWidth.toPx() },
+    )
+
+    val preparedAxes = prepareValueAxes(
+        registry = registry,
+        orientation = orientation,
+        dataDomains = dataDomains,
+        boundLayerCounts = boundLayerCounts,
+        accentPaletteIndices = axisAccents,
+        defaultPolicy = valueDomainPolicy,
+        tickAlignment = tickAlignment,
+        compact = compactAxes,
+        textMeasurer = textMeasurer,
+        typography = typography,
+        locale = locale,
+    )
+    diagnostics += preparedAxes.diagnostics
+
+    // The chart's own value axis: the one a tooltip, a crosshair readout and an
+    // unqualified annotation are written by. Layers on other axes still use
+    // their own formatters — see [PreparedValueAxis.formatter].
+    val primaryAxis = preparedAxes.primary
+    val valueDomain = primaryAxis?.domain ?: valueDomainPolicy.apply(null)
+    val valueFormatter = primaryAxis?.formatter ?: ChartValueFormatter.Raw
 
     val xDataDomain = if (axisKind == ChartXAxisKind.Category) {
         null
@@ -772,23 +964,10 @@ internal fun buildCartesianGeometry(
 
     // ---- tick values and their labels, before any pixels exist --------------
 
-    // Ticks come from the axis' own scale kind, so a logarithmic axis is
-    // labelled in powers and a linear one in round numbers without the axis
-    // renderer knowing which it is drawing.
-    val valueTransform = valueAxisConfig.scale.transform()
-    val valueTickValues = valueAxisConfig.ticks
-        ?: valueTransform.ticks(valueDomain, valueAxisConfig.tickCount)
-    val valueFormatter = valueAxisConfig.valueFormatter
-        ?: ChartNumberFormatters.forTicks(valueTickValues, locale)
-    val valueLabels = valueTickValues.map(valueFormatter::format)
-
-    val secondaryTransform = secondaryValueAxisConfig?.scale?.transform()
-    val secondaryTickValues = secondaryValueAxisConfig?.let { config ->
-        config.ticks ?: secondaryTransform!!.ticks(secondaryDomain!!, config.tickCount)
-    }.orEmpty()
-    val secondaryFormatter = secondaryValueAxisConfig?.valueFormatter
-        ?: ChartNumberFormatters.forTicks(secondaryTickValues, locale)
-    val secondaryLabels = secondaryTickValues.map(secondaryFormatter::format)
+    // Value-axis ticks, labels and formatters were resolved above, per axis, by
+    // [prepareValueAxes] — ticks come from each axis' own scale kind, so a
+    // logarithmic axis is labelled in powers and a linear one in round numbers
+    // without the axis renderer knowing which it is drawing.
 
     val domainTickValues: List<Double>
     val domainLabels: List<String>
@@ -823,62 +1002,22 @@ internal fun buildCartesianGeometry(
 
     val labelStyle = typography.axisLabel
     val titleStyle = typography.axisTitle
-    val measuredValueLabels = if (valueAxisConfig.showLabels && valueAxisConfig.visible) {
-        valueLabels.map { textMeasurer.measure(it, labelStyle) }
-    } else {
-        emptyList()
-    }
     val measuredDomainLabels = if (domainAxisConfig.showLabels && domainAxisConfig.visible) {
         domainLabels.map { textMeasurer.measure(it, labelStyle) }
     } else {
         emptyList()
     }
 
-    val measuredSecondaryLabels =
-        if (secondaryValueAxisConfig != null &&
-            secondaryValueAxisConfig.showLabels && secondaryValueAxisConfig.visible
-        ) {
-            secondaryLabels.map { textMeasurer.measure(it, labelStyle) }
-        } else {
-            emptyList()
-        }
-
     val domainPosition = domainAxisConfig.positionOr(
         if (orientation.isVertical) AxisPosition.Bottom else AxisPosition.Start,
     )
-    val valuePosition = valueAxisConfig.positionOr(
-        if (orientation.isVertical) AxisPosition.Start else AxisPosition.Bottom,
-    )
-    // The opposite edge, always. Two value axes on the same side would overlap,
-    // and a caller who put them there would not find out until they ran it.
-    val secondaryPosition = when (valuePosition) {
-        AxisPosition.Start -> AxisPosition.End
-        AxisPosition.End -> AxisPosition.Start
-        AxisPosition.Bottom -> AxisPosition.Top
-        AxisPosition.Top -> AxisPosition.Bottom
-    }
 
     val domainTitle = domainAxisConfig.title
         ?.takeIf { it.isNotBlank() && domainAxisConfig.visible }
         ?.let { textMeasurer.measure(it, titleStyle) }
-    val valueTitle = valueAxisConfig.title
-        ?.takeIf { it.isNotBlank() && valueAxisConfig.visible }
-        ?.let { textMeasurer.measure(it, titleStyle) }
-    val secondaryTitle = secondaryValueAxisConfig?.title
-        ?.takeIf { it.isNotBlank() && secondaryValueAxisConfig.visible }
-        ?.let { textMeasurer.measure(it, titleStyle) }
 
     val tickLength = with(density) { dimensions.tickLength.toPx() }
     val labelPadding = with(density) { dimensions.labelPadding.toPx() }
-
-    fun extentAcross(position: AxisPosition, labels: List<TextLayoutResult>): Float =
-        if (labels.isEmpty()) {
-            0f
-        } else if (position.isHorizontal) {
-            labels.maxOf { it.size.height }.toFloat()
-        } else {
-            labels.maxOf { it.size.width }.toFloat()
-        }
 
     val rotateDomain = domainPosition.isHorizontal &&
         domainAxisConfig.labelOverflow == AxisLabelOverflow.Rotate &&
@@ -888,38 +1027,29 @@ internal fun buildCartesianGeometry(
         // A 45° label occupies roughly its own width in height; using its
         // measured height instead would clip every rotated label.
         measuredDomainLabels.maxOf { it.size.width }.toFloat() * ROTATED_LABEL_FACTOR
+    } else if (domainPosition.isHorizontal) {
+        measuredDomainLabels.maxOfOrNull { it.size.height }?.toFloat() ?: 0f
     } else {
-        extentAcross(domainPosition, measuredDomainLabels)
+        measuredDomainLabels.maxOfOrNull { it.size.width }?.toFloat() ?: 0f
     }
 
-    val axisMetrics = listOfNotNull(
-        AxisMetrics(
-            position = domainPosition,
-            visible = domainAxisConfig.visible,
-            labelExtent = domainLabelExtent,
-            tickLength = if (domainAxisConfig.showTicks) tickLength else 0f,
-            labelPadding = if (domainAxisConfig.showLabels) labelPadding else 0f,
-            titleExtent = domainTitle?.let { it.size.height + labelPadding }?.toFloat() ?: 0f,
-        ),
-        AxisMetrics(
-            position = valuePosition,
-            visible = valueAxisConfig.visible,
-            labelExtent = extentAcross(valuePosition, measuredValueLabels),
-            tickLength = if (valueAxisConfig.showTicks) tickLength else 0f,
-            labelPadding = if (valueAxisConfig.showLabels) labelPadding else 0f,
-            titleExtent = valueTitle?.let { it.size.height + labelPadding }?.toFloat() ?: 0f,
-        ),
-        secondaryValueAxisConfig?.let { config ->
+    // The domain axis first, then every value axis in declaration order. Order
+    // is what the layout engine stacks by, so the first axis declared on a side
+    // is the one against the plot.
+    val axisMetrics = buildList {
+        add(
             AxisMetrics(
-                position = secondaryPosition,
-                visible = config.visible,
-                labelExtent = extentAcross(secondaryPosition, measuredSecondaryLabels),
-                tickLength = if (config.showTicks) tickLength else 0f,
-                labelPadding = if (config.showLabels) labelPadding else 0f,
-                titleExtent = secondaryTitle?.let { it.size.height + labelPadding }?.toFloat() ?: 0f,
-            )
-        },
-    )
+                position = domainPosition,
+                visible = domainAxisConfig.visible,
+                labelExtent = domainLabelExtent,
+                tickLength = if (domainAxisConfig.showTicks) tickLength else 0f,
+                labelPadding = if (domainAxisConfig.showLabels) labelPadding else 0f,
+                titleExtent = domainTitle?.let { it.size.height + labelPadding }?.toFloat() ?: 0f,
+                id = registry.primaryX?.id ?: ChartAxisId.DefaultX,
+            ),
+        )
+        preparedAxes.axes.forEach { add(it.metrics(density, dimensions)) }
+    }
 
     val contentPadding = with(density) { dimensions.contentPadding.toPx() }
     val overhang = if (domainPosition.isHorizontal && measuredDomainLabels.isNotEmpty() && !rotateDomain) {
@@ -945,6 +1075,25 @@ internal fun buildCartesianGeometry(
     val plot = layout.plotArea
     if (plot.isEmpty) return CartesianGeometry.empty()
 
+    // A plot squeezed into a sliver by its own axes is legible in no sense that
+    // matters, and compaction has already done what it can by this point. The
+    // chart still draws — refusing to would be worse — but it says so, because
+    // a caller who put four axes on a phone should find out from a diagnostic
+    // rather than from a screenshot.
+    val plotShare = if (orientation.isVertical) {
+        if (bounds.width > 0f) plot.width / bounds.width else 1f
+    } else {
+        if (bounds.height > 0f) plot.height / bounds.height else 1f
+    }
+    if (plotShare < MIN_PLOT_SHARE && preparedAxes.axes.count { it.visible } > 1) {
+        diagnostics += AxisDiagnostic(
+            axisId = null,
+            message = "The axes take ${((1f - plotShare) * 100).toInt()}% of the chart's width; " +
+                "the plot has ${(plotShare * 100).toInt()}% left. Consider fewer axes, shorter " +
+                "tick labels, or AxisDensity.Compact.",
+        )
+    }
+
     // The gutters this chart needs on its own, before any alignment padding —
     // which is what a group of stacked charts takes the maximum of.
     val naturalInsets = ChartInsets(
@@ -956,22 +1105,23 @@ internal fun buildCartesianGeometry(
 
     // ---- scales, now that the plot area is known ----------------------------
 
-    // The value axis runs "backwards" in pixels: larger values sit at smaller y
-    // on a vertical chart. Building the scale inverted is the only place that
-    // fact is encoded — nothing downstream flips a sign.
-    val valueScale = if (orientation.isVertical) {
-        LinearScale(valueDomain, plot.bottom, plot.top, transform = valueTransform)
-    } else {
-        LinearScale(valueDomain, plot.left, plot.right, transform = valueTransform)
+    // One scale per value axis, all mapping into the *same* vertical extent:
+    // rainfall's 0..250, temperature's -10..40 and pressure's 980..1040 each
+    // run from `plot.bottom` to `plot.top`. That is what "independent scales,
+    // shared plot area" means in one expression.
+    //
+    // The scales run "backwards" in pixels — larger values at smaller y on a
+    // vertical chart — and building them inverted is the only place that fact
+    // is encoded; nothing downstream flips a sign.
+    val axisScales: Map<ChartAxisId, LinearScale> = preparedAxes.axes.associate { axis ->
+        axis.id to axis.scaleFor(plot, orientation)
     }
-
-    val secondaryScale = if (secondaryDomain == null || secondaryTransform == null) {
-        null
-    } else if (orientation.isVertical) {
-        LinearScale(secondaryDomain, plot.bottom, plot.top, transform = secondaryTransform)
-    } else {
-        LinearScale(secondaryDomain, plot.left, plot.right, transform = secondaryTransform)
-    }
+    val valueScale = primaryAxis?.let { axisScales.getValue(it.id) }
+        ?: if (orientation.isVertical) {
+            LinearScale(valueDomain, plot.bottom, plot.top)
+        } else {
+            LinearScale(valueDomain, plot.left, plot.right)
+        }
 
     val domainStart = if (orientation.isVertical) plot.left else plot.top
     val domainEnd = if (orientation.isVertical) plot.right else plot.bottom
@@ -1014,17 +1164,26 @@ internal fun buildCartesianGeometry(
 
     val coordinates = CartesianCoordinates(plot, domainAxisModel, valueScale, orientation)
 
-    // A parallel coordinate system differing only in its value scale. Layers
-    // bound to the second axis are built and drawn against it and need to know
-    // nothing about the arrangement — which is what keeps "two axes" out of
-    // every layer's implementation.
-    val secondaryCoordinates = secondaryScale?.let {
-        CartesianCoordinates(plot, domainAxisModel, it, orientation)
+    // One coordinate system per value axis, differing from the chart's in
+    // exactly one thing: the value scale. A layer bound to the pressure axis is
+    // built and drawn against its own, and needs to know nothing about the
+    // arrangement — which is what keeps "how many axes" out of every layer's
+    // implementation and is why bars, lines, candles and custom layers all
+    // gained multi-axis support without being touched.
+    val axisCoordinates: Map<ChartAxisId, CartesianCoordinates> = axisScales.mapValues { (_, scale) ->
+        coordinatesFor(plot, domainAxisModel, scale, orientation)
     }
+    val secondaryCoordinates = axisCoordinates[ChartAxisId.SecondaryY]
+
+    fun coordinatesOf(axisId: ChartAxisId): CartesianCoordinates =
+        axisCoordinates[axisId] ?: coordinates
+
+    fun formatterOf(axisId: ChartAxisId): ChartValueFormatter =
+        preparedAxes.find(axisId)?.formatter ?: valueFormatter
 
     // ---- tick positions and label thinning ----------------------------------
 
-    val valueTickPositions = valueTickValues.map(valueScale::scale)
+    val valueTickPositions = primaryAxis?.tickValues?.map(valueScale::scale).orEmpty()
     val domainTickPositions = when (val axis = domainAxisModel) {
         is DomainAxis.Categories -> categories.indices.map(axis.scale::positionAt)
         is DomainAxis.Continuous -> domainTickValues.map { axis.scale.scale(it) }
@@ -1062,20 +1221,6 @@ internal fun buildCartesianGeometry(
         ).mapNotNull { candidateDomainIndices.getOrNull(it) }
     }
 
-    val valueSpacing = if (measuredValueLabels.isEmpty()) {
-        0f
-    } else {
-        measuredValueLabels.maxOf { it.size.height }.toFloat() + labelPadding
-    }
-    val keptValueIndices = selectLabelIndices(
-        count = measuredValueLabels.size,
-        available = if (orientation.isVertical) plot.height else plot.width,
-        labelExtent = if (orientation.isVertical) valueSpacing else {
-            measuredValueLabels.maxOf { it.size.width }.toFloat() + labelPadding * 2f
-        },
-        maxLabels = valueAxisConfig.maxLabels,
-    )
-
     val measuredDomainAxis = MeasuredAxis(
         position = domainPosition,
         config = domainAxisConfig,
@@ -1087,47 +1232,20 @@ internal fun buildCartesianGeometry(
         },
         title = domainTitle,
         rotated = rotateDomain,
-    )
-    val secondaryTickPositions = secondaryScale?.let { scale ->
-        secondaryTickValues.map(scale::scale)
-    }.orEmpty()
-    val keptSecondaryIndices = selectLabelIndices(
-        count = measuredSecondaryLabels.size,
-        available = if (orientation.isVertical) plot.height else plot.width,
-        labelExtent = if (measuredSecondaryLabels.isEmpty()) {
-            0f
-        } else if (orientation.isVertical) {
-            measuredSecondaryLabels.maxOf { it.size.height }.toFloat() + labelPadding
-        } else {
-            measuredSecondaryLabels.maxOf { it.size.width }.toFloat() + labelPadding * 2f
-        },
-        maxLabels = secondaryValueAxisConfig?.maxLabels,
+        id = registry.primaryX?.id ?: ChartAxisId.DefaultX,
     )
 
-    val measuredValueAxis = MeasuredAxis(
-        position = valuePosition,
-        config = valueAxisConfig,
-        ticks = valueTickPositions,
-        labels = keptValueIndices.mapNotNull { index ->
-            val layout1 = measuredValueLabels.getOrNull(index) ?: return@mapNotNull null
-            val at = valueTickPositions.getOrNull(index) ?: return@mapNotNull null
-            MeasuredAxisLabel(layout1, at)
-        },
-        title = valueTitle,
-        rotated = false,
-    )
-    val measuredSecondaryAxis = secondaryValueAxisConfig?.let { config ->
-        MeasuredAxis(
-            position = secondaryPosition,
-            config = config,
-            ticks = secondaryTickPositions,
-            labels = keptSecondaryIndices.mapNotNull { index ->
-                val layout = measuredSecondaryLabels.getOrNull(index) ?: return@mapNotNull null
-                val at = secondaryTickPositions.getOrNull(index) ?: return@mapNotNull null
-                MeasuredAxisLabel(layout, at)
-            },
-            title = secondaryTitle,
-            rotated = false,
+    // Every value axis, positioned and thinned. The offset each one is drawn at
+    // came out of the layout engine, which stacked them per side — nothing here
+    // knows how many there are.
+    val measuredValueAxes: List<MeasuredAxis> = preparedAxes.axes.mapNotNull { axis ->
+        if (!axis.visible) return@mapNotNull null
+        axis.measured(
+            plot = plot,
+            orientation = orientation,
+            scale = axisScales.getValue(axis.id),
+            offset = layout.offsetOf(axis.id),
+            labelPadding = labelPadding,
         )
     }
 
@@ -1199,34 +1317,63 @@ internal fun buildCartesianGeometry(
     val summaries = ArrayList<ChartLayerSummary>()
     val legendSeries = ArrayList<LegendSeries>()
 
-    renderers += GridLayer(grid, domainTickPositions, valueTickPositions)
+    // Grid rows come from the axes that own them, not from every axis. Three
+    // interleaved sets of horizontal lines at unrelated intervals is a moiré in
+    // which every line looks meaningful and only a third of them are for any
+    // one series — see [AxisGridMode].
+    val gridValuePositions = preparedAxes.axes
+        .filter { it.ownsGrid && it.visible }
+        .flatMap { axis -> axis.tickValues.map(axisScales.getValue(axis.id)::scale) }
+        .ifEmpty { valueTickPositions }
+    renderers += GridLayer(grid, domainTickPositions, gridValuePositions)
     // Behind the data: a range band drawn over the lines would hide what the
     // reader selected it to look at.
     if (rangeSelectable) renderers += RangeSelectionLayer()
 
-    val behindAnnotations = annotations.filter { it.annotation.order == AnnotationOrder.Behind }
-    if (behindAnnotations.isNotEmpty()) {
+    // One annotation layer per value axis, because an annotation's value only
+    // means something on the axis it was stated against: a rule at `30` is 30°C
+    // on the temperature axis and 30mm on the rainfall one. Grouping here is
+    // what lets the layer itself keep asking its coordinates unqualified.
+    val defaultAnnotationAxis = registry.primaryY?.id ?: ChartAxisId.DefaultY
+    fun annotationsByAxis(order: AnnotationOrder): Map<ChartAxisId, List<ResolvedAnnotation>> =
+        annotations.filter { it.annotation.order == order }
+            .groupBy { it.annotation.valueAxis ?: defaultAnnotationAxis }
+
+    annotationsByAxis(AnnotationOrder.Behind).forEach { (axisId, group) ->
         renderers += AnnotationLayer(
-            id = "annotations-behind",
-            annotations = behindAnnotations,
+            id = "annotations-behind-${axisId.value}",
+            annotations = group,
             order = AnnotationOrder.Behind,
             positionOfDomain = positionOfDomain,
-            valueFormatter = valueFormatter,
+            valueFormatter = formatterOf(axisId),
+            valueAxisId = axisId,
         )
     }
 
     val plotExtent = if (orientation.isVertical) plot.width else plot.height
 
+    // Which axis each renderer is measured against, by renderer id.
+    //
+    // A layer produces one or more renderers — a bar layer and its value
+    // labels, say — and none of them carries the binding itself: making every
+    // renderer class take an axis id would be forty constructors changed to
+    // carry something only the chart uses. Recording it here instead keeps the
+    // layer model exactly as it was and still lets the chart hand each renderer
+    // the coordinates, formatter and hit test of its own axis.
+    val rendererAxes = HashMap<String, ChartAxisId>()
+
     layers.forEachIndexed { layerIndex, layer ->
         val layerId = "${layer.key}-$layerIndex"
-        // The coordinate system this layer is measured in. Identical to the
-        // chart's unless the layer asked for the second value axis, in which
-        // case it differs in exactly one thing — the value scale.
-        val coords = if (layer.valueAxis == ValueAxisBinding.Secondary && secondaryCoordinates != null) {
-            secondaryCoordinates
-        } else {
-            coordinates
-        }
+        val renderersBefore = renderers.size
+        val hitTestableBefore = hitTestable.size
+        // The coordinate system this layer is measured in: the one built over
+        // the axis it named. Resolved once, here, so the draw loop holds a
+        // direct reference to a scale rather than looking an id up per point.
+        val coords = coordinatesOf(layer.valueAxisId)
+        // And the formatter that axis writes numbers with, so a value label on
+        // a temperature bar reads `14.2 °C` and one on a pressure line reads
+        // `1,018 hPa`.
+        val layerFormatter = formatterOf(layer.valueAxisId)
         when (layer) {
             is ResolvedLayer.Bars -> {
                 val (bounds1, aligned) = barBounds[layer] ?: return@forEachIndexed
@@ -1237,7 +1384,7 @@ internal fun buildCartesianGeometry(
                     paletteIndices = layer.data.visibleSeries.map { it.paletteIndex },
                     bounds = bounds1,
                     categoryScale = categoryScale,
-                    valueScale = valueScale,
+                    valueScale = coords.valueScale,
                     orientation = orientation,
                     grouping = layer.grouping,
                     plotArea = plot,
@@ -1377,7 +1524,7 @@ internal fun buildCartesianGeometry(
                     entries = layer.entries,
                     seriesId = layer.seriesId,
                     seriesName = layer.seriesName,
-                    valueFormatter = valueFormatter,
+                    valueFormatter = layerFormatter,
                 )
                 renderers += boxLayer
                 hitTestable += boxLayer
@@ -1391,7 +1538,7 @@ internal fun buildCartesianGeometry(
                     seriesId = layer.seriesId,
                     seriesName = layer.seriesName,
                     overlay = layer.overlay,
-                    valueFormatter = valueFormatter,
+                    valueFormatter = layerFormatter,
                 )
                 renderers += violinLayer
                 hitTestable += violinLayer
@@ -1409,7 +1556,7 @@ internal fun buildCartesianGeometry(
                     seriesId = layer.seriesId,
                     seriesName = layer.seriesName,
                     cellLabels = layer.cellLabels,
-                    valueFormatter = valueFormatter,
+                    valueFormatter = layerFormatter,
                     showMissing = layer.showMissing,
                     cornerRadiusOverride = layer.cornerRadius,
                 )
@@ -1440,7 +1587,7 @@ internal fun buildCartesianGeometry(
                     seriesName = layer.seriesName,
                     items = layer.items,
                     bodyWidth = width,
-                    valueFormatter = valueFormatter,
+                    valueFormatter = layerFormatter,
                     domainLabel = formatDomain,
                     xValues = layer.xValues,
                 )
@@ -1457,7 +1604,7 @@ internal fun buildCartesianGeometry(
                     seriesName = layer.seriesName,
                     showConnectors = layer.showConnectors,
                     cornerRadius = layer.cornerRadius,
-                    valueFormatter = valueFormatter,
+                    valueFormatter = layerFormatter,
                 )
                 renderers += waterfallLayer
                 hitTestable += waterfallLayer
@@ -1474,7 +1621,7 @@ internal fun buildCartesianGeometry(
                     startLabel = layer.startLabel,
                     endLabel = layer.endLabel,
                     baseline = lollipopBaseline(coords),
-                    valueFormatter = valueFormatter,
+                    valueFormatter = layerFormatter,
                 )
                 renderers += markLayer
                 hitTestable += markLayer
@@ -1488,7 +1635,7 @@ internal fun buildCartesianGeometry(
                     seriesId = layer.seriesId,
                     seriesName = layer.seriesName,
                     targetLabel = layer.targetLabel,
-                    valueFormatter = valueFormatter,
+                    valueFormatter = layerFormatter,
                 )
                 renderers += bulletLayer
                 hitTestable += bulletLayer
@@ -1544,7 +1691,7 @@ internal fun buildCartesianGeometry(
                     seriesName = layer.seriesName,
                     items = layer.items,
                     barWidth = width,
-                    valueFormatter = valueFormatter,
+                    valueFormatter = layerFormatter,
                     domainLabel = formatDomain,
                     xValues = layer.xValues,
                 )
@@ -1552,6 +1699,13 @@ internal fun buildCartesianGeometry(
                 hitTestable += volumeLayer
                 summaries += volumeLayer.describe()
             }
+        }
+        // Everything this layer just added measures against this layer's axis.
+        for (index in renderersBefore until renderers.size) {
+            rendererAxes[renderers[index].id] = layer.valueAxisId
+        }
+        for (index in hitTestableBefore until hitTestable.size) {
+            rendererAxes[hitTestable[index].id] = layer.valueAxisId
         }
     }
 
@@ -1564,14 +1718,14 @@ internal fun buildCartesianGeometry(
         hitTestable += customLayer
     }
 
-    val aboveAnnotations = annotations.filter { it.annotation.order == AnnotationOrder.Above }
-    if (aboveAnnotations.isNotEmpty()) {
+    annotationsByAxis(AnnotationOrder.Above).forEach { (axisId, group) ->
         val annotationLayer = AnnotationLayer(
-            id = "annotations-above",
-            annotations = aboveAnnotations,
+            id = "annotations-above-${axisId.value}",
+            annotations = group,
             order = AnnotationOrder.Above,
             positionOfDomain = positionOfDomain,
-            valueFormatter = valueFormatter,
+            valueFormatter = formatterOf(axisId),
+            valueAxisId = axisId,
         )
         renderers += annotationLayer
         hitTestable += annotationLayer
@@ -1696,9 +1850,15 @@ internal fun buildCartesianGeometry(
         renderers = renderers,
         hitTestable = hitTestable,
         domainAxis = measuredDomainAxis.takeIf { domainAxisConfig.visible },
-        valueAxis = measuredValueAxis.takeIf { valueAxisConfig.visible },
-        secondaryValueAxis = measuredSecondaryAxis?.takeIf { secondaryValueAxisConfig.visible },
+        valueAxis = measuredValueAxes.firstOrNull { it.id == primaryAxis?.id } ?: measuredValueAxes.firstOrNull(),
+        valueAxes = measuredValueAxes,
         secondaryCoordinates = secondaryCoordinates,
+        axisCoordinates = axisCoordinates,
+        axisFormatters = preparedAxes.axes.associate { it.id to it.formatter },
+        axisSpecs = preparedAxes.axes.associate { it.id to it.spec },
+        axisLabelUnits = preparedAxes.axes.associate { it.id to it.labelUnit },
+        rendererAxes = rendererAxes,
+        axisDiagnostics = diagnostics.toList(),
         naturalPlotInsets = naturalInsets,
         legendSeries = legendSeries.distinctBy { it.seriesId },
         summaries = effectiveSummaries,
@@ -1715,6 +1875,9 @@ internal fun buildCartesianGeometry(
         fractionOfDomain = fractionOfDomainValue,
     )
 }
+
+/** Below this share of the chart's width, the axes have crowded out the plot. */
+private const val MIN_PLOT_SHARE: Float = 0.35f
 
 /** A legend row before its colour has been resolved from the theme. */
 internal data class LegendSeries(

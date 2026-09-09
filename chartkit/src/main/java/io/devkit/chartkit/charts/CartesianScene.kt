@@ -39,13 +39,20 @@ internal fun buildCartesianScene(
 ): ChartScene = buildChartScene(size.width, size.height, background) {
     val plot = geometry.coordinates.plotArea
 
+    // Each renderer described against its own axis' coordinates, exactly as it
+    // was drawn. Exporting them all against the primary axis' scale would put a
+    // threshold stated in °C at whatever height that number happens to be in
+    // millimetres — a picture that is wrong in a way nothing in it shows.
+    val axisContexts = geometry.axisCoordinates.mapValues { (_, coords) ->
+        context.withCoordinates(coords)
+    }
     geometry.renderers.forEach { renderer ->
-        if (!renderer.renderScene(this, context)) unexported(renderer.id)
+        val rendererContext = axisContexts[geometry.axisOf(renderer)] ?: context
+        if (!renderer.renderScene(this, rendererContext)) unexported(renderer.id)
     }
 
     geometry.domainAxis?.let { axis(it, plot, context.colors, density) }
-    geometry.valueAxis?.let { axis(it, plot, context.colors, density) }
-    geometry.secondaryValueAxis?.let { axis(it, plot, context.colors, density) }
+    geometry.valueAxes.forEach { axis(it, plot, context.colors, density) }
 }
 
 /**
@@ -63,11 +70,15 @@ private fun ChartSceneBuilder.axis(
 ) {
     if (!axis.config.visible) return
     val horizontal = axis.position.isHorizontal
+    // The edge this axis draws against: the plot's own for the innermost axis
+    // on a side, and further out by [MeasuredAxis.offset] for the next. An
+    // export that ignored the offset would stack two axes on one line.
+    val offset = axis.offset.takeIf { it.isFinite() && it > 0f } ?: 0f
     val edge = when (axis.position) {
-        AxisPosition.Bottom -> plot.bottom
-        AxisPosition.Top -> plot.top
-        AxisPosition.Start -> plot.left
-        AxisPosition.End -> plot.right
+        AxisPosition.Bottom -> plot.bottom + offset
+        AxisPosition.Top -> plot.top - offset
+        AxisPosition.Start -> plot.left - offset
+        AxisPosition.End -> plot.right + offset
     }
     // Which way the ticks and labels sit from the axis line.
     val outward = when (axis.position) {
@@ -75,7 +86,9 @@ private fun ChartSceneBuilder.axis(
         AxisPosition.Top, AxisPosition.Start -> -1f
     }
 
-    group("axis-${axis.position.name.lowercase()}") {
+    // Named by the axis rather than by its edge: two axes can share a side, and
+    // two groups with the same name would be indistinguishable in the output.
+    group("axis-${axis.id.value}") {
         if (axis.config.showLine) {
             add(
                 ChartSceneNode.Line(

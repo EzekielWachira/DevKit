@@ -1,6 +1,7 @@
 package io.devkit.chartkit.layout
 
 import io.devkit.chartkit.axis.AxisPosition
+import io.devkit.chartkit.axis.ChartAxisId
 import io.devkit.chartkit.geometry.ChartInsets
 import io.devkit.chartkit.geometry.ChartMath
 import io.devkit.chartkit.geometry.ChartRect
@@ -24,6 +25,16 @@ internal data class AxisMetrics(
     val tickLength: Float,
     val labelPadding: Float,
     val titleExtent: Float,
+    /** Which axis this is, when the chart has more than one per side. */
+    val id: ChartAxisId? = null,
+    /**
+     * An explicit distance from the plot edge, overriding the measured one.
+     *
+     * The advanced override from [io.devkit.chartkit.axis.ChartAxisSpec.offset].
+     * It moves the axis without changing what it reserves, so a caller who
+     * pushes one axis outward is responsible for the gap they leave.
+     */
+    val offsetOverride: Float? = null,
 ) {
     /** The total gutter this axis takes out of the chart's bounds. */
     val gutter: Float
@@ -57,8 +68,21 @@ internal data class AxisMetrics(
 internal data class ChartLayout(
     val bounds: ChartRect,
     val plotArea: ChartRect,
+    /**
+     * How far each axis sits outside the plot edge it is drawn against.
+     *
+     * Zero for the axis nearest the plot; for the next one out, the whole
+     * gutter the first reserved. Measured rather than configured, which is what
+     * the [AxisMetrics] doc is about: a chart with a `0..5` axis and a
+     * `0..1,250,000` axis on the same side needs two different offsets, and no
+     * constant is right for both.
+     */
+    val axisOffsets: Map<ChartAxisId, Float> = emptyMap(),
 ) {
     val isDrawable: Boolean get() = !plotArea.isEmpty
+
+    /** How far axis [id] sits outside its plot edge. */
+    fun offsetOf(id: ChartAxisId?): Float = id?.let { axisOffsets[it] } ?: 0f
 
     companion object {
         val Empty: ChartLayout = ChartLayout(ChartRect.Zero, ChartRect.Zero)
@@ -86,9 +110,18 @@ internal fun computeChartLayout(
     if (bounds.isEmpty) return ChartLayout(bounds, ChartRect.Zero)
 
     var insets = contentPadding
+    // Axes on one edge stack outward in declaration order: the first sits on
+    // the plot, and each later one starts where the previous one's gutter
+    // ended. Accumulating per side rather than globally is the whole of what
+    // "multiple axes per side" needs from the layout engine.
+    val consumed = HashMap<AxisPosition, Float>(4)
+    val offsets = LinkedHashMap<ChartAxisId, Float>(axes.size)
     for (axis in axes) {
         val gutter = axis.gutter
+        val already = consumed[axis.position] ?: 0f
+        axis.id?.let { offsets[it] = axis.offsetOverride ?: already }
         if (gutter <= 0f) continue
+        consumed[axis.position] = already + gutter
         insets += when (axis.position) {
             AxisPosition.Bottom -> ChartInsets(bottom = gutter)
             AxisPosition.Top -> ChartInsets(top = gutter)
@@ -112,6 +145,7 @@ internal fun computeChartLayout(
         // as empty rather than as a rectangle with a negative width, so layers
         // skip drawing instead of dividing by it.
         plotArea = if (plot.isEmpty) ChartRect.Zero else plot,
+        axisOffsets = offsets,
     )
 }
 

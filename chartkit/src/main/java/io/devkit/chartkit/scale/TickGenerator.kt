@@ -115,6 +115,38 @@ object TickGenerator {
     }
 
     /**
+     * The nice step [ticks] would use for this span and count.
+     *
+     * Published for multi-axis tick alignment, which needs to *choose* a step
+     * rather than accept the one a single domain implies: three axes only share
+     * screen rows when each covers its own data in the same number of nice
+     * intervals. See [io.devkit.chartkit.axis.AxisTickAlignment].
+     */
+    internal fun stepFor(span: Double, count: Int): Double = niceStep(span, count)
+
+    /**
+     * The next step up the 1-2-5-10 ladder.
+     *
+     * Alignment walks it when a step covers the data in fewer intervals than
+     * the shared count needs. Walking a ladder rather than scaling by a
+     * constant is what keeps the enlarged axis labelled in round numbers — the
+     * whole point of nice ticks, and the thing an aligned axis most easily
+     * loses.
+     */
+    internal fun nextStep(step: Double): Double {
+        if (!step.isFinite() || step < ChartMath.EPSILON) return step
+        val magnitude = 10.0.pow(floor(log10(step)))
+        if (!magnitude.isFinite() || magnitude < ChartMath.EPSILON) return step
+        val normalized = step / magnitude
+        return when {
+            normalized < 1.5 -> 2.0 * magnitude
+            normalized < 3.5 -> 5.0 * magnitude
+            normalized < 7.5 -> 10.0 * magnitude
+            else -> 20.0 * magnitude
+        }
+    }
+
+    /**
      * A step of 1, 2, 5 or 10 times a power of ten, closest to `span / count`.
      */
     private fun niceStep(span: Double, count: Int): Double {

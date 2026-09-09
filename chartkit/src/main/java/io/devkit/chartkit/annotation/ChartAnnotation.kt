@@ -140,6 +140,25 @@ sealed interface ChartAnnotation {
     val style: AnnotationStyle
     val extendsDomain: Boolean
 
+    /**
+     * Which value axis this annotation's value is stated in.
+     *
+     * `null` means the chart's primary axis, which is right for every
+     * single-axis chart and is why almost no annotation names one. On a chart
+     * with several value axes it is not optional information: a rule at `30`
+     * means 30°C on the temperature axis and 30mm on the rainfall one, and a
+     * chart that guessed would draw the line in the wrong place and look
+     * entirely plausible doing it.
+     *
+     * ```kotlin
+     * horizontalRule(value = 30.0, label = "Heat threshold", valueAxis = TemperatureAxis)
+     * ```
+     *
+     * Vertical and domain-range annotations ignore it: they are positioned on
+     * the shared domain axis, which is shared.
+     */
+    val valueAxis: io.devkit.chartkit.axis.ChartAxisId? get() = null
+
     /** A rule across the plot at a value — a target, a limit, an average. */
     @Immutable
     data class HorizontalRule(
@@ -149,6 +168,7 @@ sealed interface ChartAnnotation {
         override val order: AnnotationOrder = AnnotationOrder.Above,
         override val style: AnnotationStyle = AnnotationStyle.Rule,
         override val extendsDomain: Boolean = true,
+        override val valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
     ) : ChartAnnotation
 
     /** A rule down the plot at a domain position — a release, an incident. */
@@ -172,6 +192,7 @@ sealed interface ChartAnnotation {
         override val order: AnnotationOrder = AnnotationOrder.Behind,
         override val style: AnnotationStyle = AnnotationStyle.Region,
         override val extendsDomain: Boolean = true,
+        override val valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
     ) : ChartAnnotation
 
     /** A band between two domain positions — a campaign, an outage, a quarter. */
@@ -198,6 +219,7 @@ sealed interface ChartAnnotation {
         override val order: AnnotationOrder = AnnotationOrder.Behind,
         override val style: AnnotationStyle = AnnotationStyle.Region,
         override val extendsDomain: Boolean = true,
+        override val valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
     ) : ChartAnnotation
 
     /**
@@ -217,6 +239,7 @@ sealed interface ChartAnnotation {
         override val style: AnnotationStyle = AnnotationStyle.Marker,
         override val extendsDomain: Boolean = false,
         val shape: AnnotationMarkerShape = AnnotationMarkerShape.Circle,
+        override val valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
     ) : ChartAnnotation
 
     /**
@@ -250,6 +273,7 @@ sealed interface ChartAnnotation {
         override val order: AnnotationOrder = AnnotationOrder.Above,
         override val style: AnnotationStyle = AnnotationStyle.Marker,
         override val extendsDomain: Boolean = false,
+        override val valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
     ) : ChartAnnotation
 
     /**
@@ -271,6 +295,7 @@ sealed interface ChartAnnotation {
         override val order: AnnotationOrder = AnnotationOrder.Above,
         override val style: AnnotationStyle = AnnotationStyle.Solid,
         override val extendsDomain: Boolean = false,
+        override val valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
     ) : ChartAnnotation
 
     /**
@@ -291,6 +316,7 @@ sealed interface ChartAnnotation {
             labelPlacement = AnnotationLabelPlacement.Center,
         ),
         override val extendsDomain: Boolean = false,
+        override val valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
     ) : ChartAnnotation
 }
 
@@ -307,7 +333,9 @@ fun horizontalRule(
     order: AnnotationOrder = AnnotationOrder.Above,
     extendsDomain: Boolean = true,
     id: String = "h-rule-$value",
-): ChartAnnotation = ChartAnnotation.HorizontalRule(value, label, id, order, style, extendsDomain)
+    valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
+): ChartAnnotation =
+    ChartAnnotation.HorizontalRule(value, label, id, order, style, extendsDomain, valueAxis)
 
 /** A rule down the plot at domain position [at]. */
 fun verticalRule(
@@ -328,7 +356,9 @@ fun valueRange(
     order: AnnotationOrder = AnnotationOrder.Behind,
     extendsDomain: Boolean = true,
     id: String = "v-range-$from-$to",
-): ChartAnnotation = ChartAnnotation.ValueRange(from, to, label, id, order, style, extendsDomain)
+    valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
+): ChartAnnotation =
+    ChartAnnotation.ValueRange(from, to, label, id, order, style, extendsDomain, valueAxis)
 
 /** A band between two positions on the domain axis. */
 fun domainRange(
@@ -353,8 +383,9 @@ fun region(
     order: AnnotationOrder = AnnotationOrder.Behind,
     extendsDomain: Boolean = true,
     id: String = "region-$domainFrom-$domainTo-$valueFrom-$valueTo",
+    valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
 ): ChartAnnotation = ChartAnnotation.Region(
-    domainFrom, domainTo, valueFrom, valueTo, label, id, order, style, extendsDomain,
+    domainFrom, domainTo, valueFrom, valueTo, label, id, order, style, extendsDomain, valueAxis,
 )
 
 /**
@@ -375,8 +406,9 @@ fun callout(
     order: AnnotationOrder = AnnotationOrder.Above,
     extendsDomain: Boolean = false,
     id: String = "callout-$at",
+    valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
 ): ChartAnnotation = ChartAnnotation.Callout(
-    at, value, label, direction, connectorLength, shape, id, order, style, extendsDomain,
+    at, value, label, direction, connectorLength, shape, id, order, style, extendsDomain, valueAxis,
 )
 
 /** An arrow between two points on the plot. */
@@ -391,8 +423,10 @@ fun arrow(
     order: AnnotationOrder = AnnotationOrder.Above,
     extendsDomain: Boolean = false,
     id: String = "arrow-$fromAt-$toAt",
-): ChartAnnotation =
-    ChartAnnotation.Arrow(fromAt, fromValue, toAt, toValue, label, id, order, style, extendsDomain)
+    valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
+): ChartAnnotation = ChartAnnotation.Arrow(
+    fromAt, fromValue, toAt, toValue, label, id, order, style, extendsDomain, valueAxis,
+)
 
 /** A bare label placed at a point on the plot. */
 fun labelBox(
@@ -406,7 +440,9 @@ fun labelBox(
     order: AnnotationOrder = AnnotationOrder.Above,
     extendsDomain: Boolean = false,
     id: String = "label-$at-$value",
-): ChartAnnotation = ChartAnnotation.LabelBox(at, value, label, id, order, style, extendsDomain)
+    valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
+): ChartAnnotation =
+    ChartAnnotation.LabelBox(at, value, label, id, order, style, extendsDomain, valueAxis)
 
 /**
  * A shaded band between two values — a tolerance, an SLA, a safe range.
@@ -423,7 +459,9 @@ fun thresholdBand(
     order: AnnotationOrder = AnnotationOrder.Behind,
     extendsDomain: Boolean = true,
     id: String = "threshold-$from-$to",
-): ChartAnnotation = ChartAnnotation.ValueRange(from, to, label, id, order, style, extendsDomain)
+    valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
+): ChartAnnotation =
+    ChartAnnotation.ValueRange(from, to, label, id, order, style, extendsDomain, valueAxis)
 
 /** A point marked on the plot at domain position [at]. */
 fun eventMarker(
@@ -435,8 +473,9 @@ fun eventMarker(
     extendsDomain: Boolean = false,
     id: String = "event-$at",
     shape: AnnotationMarkerShape = AnnotationMarkerShape.Circle,
+    valueAxis: io.devkit.chartkit.axis.ChartAxisId? = null,
 ): ChartAnnotation =
-    ChartAnnotation.EventMarker(at, value, label, id, order, style, extendsDomain, shape)
+    ChartAnnotation.EventMarker(at, value, label, id, order, style, extendsDomain, shape, valueAxis)
 
 /**
  * The annotation this selection came from, or `null` for a data selection.

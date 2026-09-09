@@ -68,6 +68,15 @@ internal class ChartRenderContext(
      */
     val renderMode: io.devkit.chartkit.render.ChartRenderMode =
         io.devkit.chartkit.render.ChartRenderMode.Interactive,
+    /**
+     * What each value axis reads at the current selection.
+     *
+     * Empty unless the chart asked for per-axis crosshair readouts. Computed
+     * once per selection from the tooltip's own entries rather than by hit
+     * testing again inside the crosshair — a chip that said something different
+     * from the tooltip beside it would be worse than no chip.
+     */
+    val axisReadouts: List<AxisValueReadout> = emptyList(),
 ) {
     /** [dp] in pixels, at the current density. */
     fun px(dp: androidx.compose.ui.unit.Dp): Float = with(density) { dp.toPx() }
@@ -120,6 +129,24 @@ internal class ChartRenderContext(
         renderMode = io.devkit.chartkit.render.ChartRenderMode.Static,
     )
 
+    /** A copy carrying per-axis crosshair readouts. */
+    internal fun withReadouts(readouts: List<AxisValueReadout>): ChartRenderContext =
+        ChartRenderContext(
+            coordinates = coordinates,
+            colors = colors,
+            typography = typography,
+            dimensions = dimensions,
+            density = density,
+            textMeasurer = textMeasurer,
+            reveal = reveal,
+            selection = selection,
+            range = range,
+            viewport = viewport,
+            externalDomain = externalDomain,
+            renderMode = renderMode,
+            axisReadouts = readouts,
+        )
+
     /** A copy drawing against [other], for a layer bound to a second axis. */
     internal fun withCoordinates(other: CoordinateSystem): ChartRenderContext =
         ChartRenderContext(
@@ -135,8 +162,26 @@ internal class ChartRenderContext(
             viewport = viewport,
             externalDomain = externalDomain,
             renderMode = renderMode,
+            axisReadouts = axisReadouts,
         )
 }
+
+/**
+ * One value axis' reading at the selected position, ready to draw as a chip.
+ *
+ * @param at the pixel row (or column, on a horizontal chart) the value maps to
+ *   on **its own** axis — three axes over three quantities put their chips at
+ *   three different heights, which is the point.
+ * @param offset how far outside the plot that axis sits, so a chip lands beside
+ *   the second axis on a side rather than on top of the first.
+ */
+internal data class AxisValueReadout(
+    val axisId: io.devkit.chartkit.axis.ChartAxisId,
+    val position: io.devkit.chartkit.axis.AxisPosition,
+    val offset: Float,
+    val at: Float,
+    val text: String,
+)
 
 /**
  * One drawable stratum of a chart.
@@ -171,16 +216,18 @@ internal interface ChartLayerRenderer {
     val clipToPlot: Boolean get() = true
 
     /**
-     * Which value axis this layer is measured against.
+     * Which value axis this layer is measured against, by name.
      *
-     * Only meaningful on a Cartesian chart that declared a second one. The
-     * chart hands a layer bound to the secondary axis a render context built
-     * over the secondary scale, so the layer itself needs no knowledge of the
-     * arrangement — see [io.devkit.chartkit.axis.ValueAxisBinding] for why the
-     * binding is explicit rather than inferred.
+     * Only meaningful on a Cartesian chart that declared more than one. The
+     * chart hands each layer a render context built over the scale of the axis
+     * it named, so the layer itself needs no knowledge of the arrangement — it
+     * draws against the coordinates it is given, whether the chart has one
+     * value axis or four. See [io.devkit.chartkit.axis.ValueAxisBinding] for why
+     * the binding is explicit rather than inferred, and
+     * [io.devkit.chartkit.axis.ChartAxisId] for why it is a name.
      */
-    val valueAxis: io.devkit.chartkit.axis.ValueAxisBinding
-        get() = io.devkit.chartkit.axis.ValueAxisBinding.Primary
+    val valueAxisId: io.devkit.chartkit.axis.ChartAxisId
+        get() = io.devkit.chartkit.axis.ChartAxisId.DefaultY
 
     fun draw(scope: DrawScope, context: ChartRenderContext)
 

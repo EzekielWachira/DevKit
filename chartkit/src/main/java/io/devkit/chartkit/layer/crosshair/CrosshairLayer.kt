@@ -105,6 +105,7 @@ internal class CrosshairLayer(
                 )
             }
         }
+
     }
 
     /**
@@ -232,4 +233,80 @@ internal class CrosshairLayer(
         context: ChartRenderContext,
     ): Boolean = true
 
+}
+
+/**
+ * One readout chip per value axis, at that axis' own edge, offset and row.
+ *
+ * ```text
+ *  82 mm ┤                            ├ 14.2 °C
+ *        │            ╷               │
+ *        │            ╷               ├ 1,018 hPa
+ * ```
+ *
+ * Drawn by the chart **after** the axes rather than inside [CrosshairLayer],
+ * and the difference is visible: a chip sits in the gutter at the same row as
+ * one of that axis' own tick labels, and an axis drawn afterwards paints its
+ * label straight through the chip. The guides stay in the layer, where the
+ * phase order is right — a crosshair rule should not cover an axis line — and
+ * only the readouts move above it.
+ */
+internal fun DrawScope.drawAxisReadouts(
+    readouts: List<io.devkit.chartkit.layer.AxisValueReadout>,
+    plot: ChartRect,
+    context: ChartRenderContext,
+) {
+    if (readouts.isEmpty() || plot.isEmpty || context.reveal < 1f) return
+    val padding = context.px(context.dimensions.crosshairLabelPadding)
+    val radius = context.px(context.dimensions.tooltipCornerRadius) / 2f
+    val style = context.typography.crosshairLabel.copy(color = context.colors.crosshairLabelContent)
+
+    readouts.forEach { readout ->
+        if (readout.text.isEmpty() || !readout.at.isFinite()) return@forEach
+        val layout: TextLayoutResult = context.textMeasurer.measure(readout.text, style)
+        val boxWidth = layout.size.width + padding * 2f
+        val boxHeight = layout.size.height + padding * 2f
+        val offset = readout.offset.takeIf { it.isFinite() } ?: 0f
+
+        val left: Float
+        val top: Float
+        when (readout.position) {
+            io.devkit.chartkit.axis.AxisPosition.Start -> {
+                left = (plot.left - offset - boxWidth - padding).coerceAtLeast(0f)
+                top = (readout.at - boxHeight / 2f).coerceIn(
+                    plot.top,
+                    (plot.bottom - boxHeight).coerceAtLeast(plot.top),
+                )
+            }
+            io.devkit.chartkit.axis.AxisPosition.End -> {
+                left = plot.right + offset + padding
+                top = (readout.at - boxHeight / 2f).coerceIn(
+                    plot.top,
+                    (plot.bottom - boxHeight).coerceAtLeast(plot.top),
+                )
+            }
+            io.devkit.chartkit.axis.AxisPosition.Bottom -> {
+                left = (readout.at - boxWidth / 2f).coerceIn(
+                    plot.left,
+                    (plot.right - boxWidth).coerceAtLeast(plot.left),
+                )
+                top = plot.bottom + offset + padding
+            }
+            io.devkit.chartkit.axis.AxisPosition.Top -> {
+                left = (readout.at - boxWidth / 2f).coerceIn(
+                    plot.left,
+                    (plot.right - boxWidth).coerceAtLeast(plot.left),
+                )
+                top = (plot.top - offset - boxHeight - padding).coerceAtLeast(0f)
+            }
+        }
+
+        drawRoundRect(
+            color = context.colors.crosshairLabelContainer,
+            topLeft = Offset(left, top),
+            size = Size(boxWidth, boxHeight),
+            cornerRadius = CornerRadius(radius, radius),
+        )
+        drawText(layout, topLeft = Offset(left + padding, top + padding))
+    }
 }

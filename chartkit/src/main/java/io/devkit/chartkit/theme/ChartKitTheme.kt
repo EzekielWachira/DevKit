@@ -559,6 +559,17 @@ data class ChartDimensions(
     /** The height a chart falls back to when its caller constrains neither. */
     val defaultChartHeight: Dp = 200.dp,
 
+    /**
+     * The width one value axis and its share of the plot want before a chart
+     * starts compacting its axes.
+     *
+     * Not a gutter: it is the threshold [io.devkit.chartkit.axis.AxisDensity.Auto]
+     * compares the chart's width against, once per axis plus one for the plot.
+     * A three-axis chart therefore stays at full detail above about 448dp and
+     * thins its ticks below it, rather than overlapping its own labels.
+     */
+    val compactAxisWidth: Dp = 112.dp,
+
     // ---- polar ----------------------------------------------------------
 
     /**

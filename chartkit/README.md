@@ -38,7 +38,7 @@ the opposite of the point.
 ## Contents
 
 - [Install](#install) · [Requirements](#requirements) · [Run the sample](#run-the-sample)
-- Cartesian charts: [Line](#line-chart) · [Area](#area-chart) · [Bar](#bar-chart) · [Horizontal](#horizontal-bars) · [Grouped](#grouped-bars) · [Stacked](#stacked-bars) · [100% stacked](#100-stacked-bars) · [Multi-series](#multiple-series) · [Combined](#combined-charts)
+- Cartesian charts: [Line](#line-chart) · [Area](#area-chart) · [Bar](#bar-chart) · [Horizontal](#horizontal-bars) · [Grouped](#grouped-bars) · [Stacked](#stacked-bars) · [100% stacked](#100-stacked-bars) · [Multi-series](#multiple-series) · [Combined](#combined-charts) · [Multi-axis combos](#multi-axis-combo-charts)
 - Polar charts: [Pie](#pie-chart) · [Donut](#donut-chart) · [Radial bar](#radial-bar-chart) · [Radar](#radar-chart) · [Polar coordinates](#polar-coordinates)
 - Statistical: [Scatter](#scatter-chart) · [Bubble](#bubble-chart) · [Histogram](#histogram) · [Box plot](#box-plot) · [Violin](#violin-plot) · [Statistics API](#statistics-api)
 - Density: [Heatmap](#heatmap) · [Calendar heatmap](#calendar-heatmap) · [Colour scales](#colour-scales)
@@ -52,7 +52,7 @@ the opposite of the point.
 - Geographic: [Choropleth map](#choropleth-map)
 - Dashboards: [Coordination](#dashboard-coordination) · [Navigator](#overview-navigator)
 - [Annotations](#annotations)
-- Configuration: [Axes](#axes) · [Scales](#scales) · [Secondary axes](#secondary-value-axes) · [Grid](#grid-lines) · [Formatting](#formatting) · [Legends](#legends) · [Value labels](#value-labels)
+- Configuration: [Axes](#axes) · [Scales](#scales) · [Secondary axes](#secondary-value-axes) · [Multi-axis combos](#multi-axis-combo-charts) · [Grid](#grid-lines) · [Formatting](#formatting) · [Legends](#legends) · [Value labels](#value-labels)
 - Interaction: [Interaction modes](#interaction-modes) · [Selection](#selection) · [Scrubbing](#scrubbing) · [Crosshair](#crosshair) · [Zoom and pan](#zoom-and-pan) · [Range selection](#range-selection) · [Tooltips](#tooltips) · [State](#hoisted-state)
 - Extending: [Custom layers](#custom-layers)
 - Scale: [Large datasets](#large-datasets) · [Downsampling](#downsampling) · [Streaming](#streaming)
@@ -144,6 +144,7 @@ Open the drawer and pick a **ChartKit** destination:
 | Time and intervals | A point timeline, durations in lanes, and a Gantt chart with progress and milestones |
 | Relationships | A service graph, circular and force directed, draggable and zoomable, with its data table |
 | Geographic | A choropleth over the sample's own GeoJSON: quantile against continuous shading, both projections, labels, a legend, missing data, the join report and the data table |
+| Multi-axis combos | Six demos: the reference weather chart with three units, a business combo, a financial combo with volume on its own axis, legend toggling with axis auto-hide, zero alignment, and a shared crosshair with per-axis chips |
 | Set relationships | Thirteen Venn and Euler demos: two, three and four sets, proportional sizing, Venn against Euler, hand-placed icon groups, icons in labels, packed image content, four-level nesting, disjoint sets, explicit intersection colours, collection-driven sets and the accessibility tables |
 | Dashboard | Linked candlestick and volume charts with aligned plots, an overview navigator, and cross-filtering |
 | Advanced | A custom layer, log and linear axes side by side, a second value axis, static report mode, and PNG and SVG export |
@@ -346,6 +347,9 @@ CartesianChart(
 `bars`, `line` and `area` layers share **one** plot area, **one** pair of
 scales, **one** hit test and **one** animation clock. Layers cannot disagree
 about where a value sits, and a tap resolves across all of them.
+
+Layers measured in different units bind to their own value axes; see
+[multi-axis combo charts](#multi-axis-combo-charts).
 
 `CartesianChart` is marked `@ExperimentalChartKitApi` — the layer grammar is
 where a fuller visualisation DSL (annotations, secondary axes, custom marks)
@@ -2386,7 +2390,9 @@ thinning starts — better for long category names, harder to read, so not the
 default.
 
 Axis gutters come from the measured labels, so `1,250,000` gets the room it
-needs and `0..5` does not waste half the width.
+needs and `0..5` does not waste half the width. When several axes share a side,
+each one's offset is the total of the gutters inside it — measured, never a
+constant. See [multi-axis combo charts](#multi-axis-combo-charts).
 
 ## Scales
 
@@ -2521,6 +2527,439 @@ prefer two [linked charts](#linked-charts) when they do not.
 
 A layer bound to the second axis is **drawn and hit-tested** against it, so a tap
 on the conversion line resolves against percentages rather than against pounds.
+
+This is the two-axis shorthand. For three or more, for axes with units, for two
+axes on the same side, or for tick alignment, see
+[multi-axis combo charts](#multi-axis-combo-charts) — the same engine, named
+axes instead of `Primary` and `Secondary`.
+
+## Multi-axis combo charts
+
+Several series, several units, several value axes, one shared X domain — and no
+new chart type. `CartesianChart` gained an axis registry; every existing layer
+resolves its scale through it.
+
+```kotlin
+val Rainfall = ChartAxisId("rainfall")
+val Temperature = ChartAxisId("temperature")
+val Pressure = ChartAxisId("pressure")
+
+@OptIn(ExperimentalChartKitApi::class)
+CartesianChart(
+    modifier = Modifier.fillMaxWidth().height(300.dp),
+    legend = LegendPosition.Bottom,
+    crosshair = CrosshairConfig.Vertical,
+) {
+    yAxis(
+        id = Rainfall,
+        position = AxisPosition.Start,
+        title = "Rainfall",
+        unit = ChartUnit.Custom("mm", "millimetres"),
+        domain = DomainPolicy.IncludeZero(),
+        primary = true,
+    )
+    yAxis(
+        id = Temperature,
+        position = AxisPosition.End,
+        title = "Temperature",
+        unit = ChartUnit.Custom("°C", "degrees Celsius"),
+        domain = DomainPolicy.Auto(),
+    )
+    yAxis(
+        id = Pressure,
+        position = AxisPosition.End,
+        title = "Pressure",
+        unit = ChartUnit.Custom("hPa", "hectopascals"),
+        domain = DomainPolicy.Auto(),
+    )
+
+    bars(series = listOf(rainfall), category = { it.month }, value = { it.mm }, yAxis = Rainfall)
+    line(series = listOf(temperature), x = { it.month }, y = { it.celsius }, yAxis = Temperature)
+    line(series = listOf(pressure), x = { it.month }, y = { it.hPa }, yAxis = Pressure)
+}
+```
+
+Three units, three scales, three formatters, one plot area:
+
+```text
+     Rainfall                                    Temperature   Pressure
+ (mm) 100 ┤ ▄                          ▄  ▄ ├ 20 (°C)     ├ 1020 (hPa)
+       75 ┤ █  ▄        ╭─────╮        █  █ ├ 15          ├ 1016
+       50 ┤ █  █  ▄  ▄──╯     ╰──╮  ▄  █  █ ├ 10          ├ 1012
+       25 ┤ █  █  █  █           ╰─ █  █  █ ├  5          ├ 1008
+        0 ┼──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴──┴ 0            ├ 1004
+          Jan Feb Mar Apr May Jun Jul Aug Sep Oct Nov Dec
+```
+
+### Axis identity
+
+Layers name their axis; they do not index it.
+
+```kotlin
+val Temperature = ChartAxisId("temperature")   // not axisIndex = 1
+```
+
+`axisIndex = 1` means "the second axis I happened to declare". Insert an axis
+above it, reorder a `when`, put one behind a feature flag, and every layer below
+silently rebinds to a different quantity. Nothing fails; the chart just starts
+measuring revenue against the conversion scale. A name cannot drift, and a layer
+naming an axis that does not exist is a configuration error reported by name:
+
+```text
+Layer "line1" references Y axis "tempreature", but no Y axis with that id is
+registered. Registered Y axes: "rainfall", "temperature", "pressure".
+```
+
+Never a silent fallback to the primary axis. A conversion rate drawn against a
+revenue scale is not a degraded chart, it is a wrong one — and it still looks
+like a line.
+
+### The axis registry
+
+`AxisRegistry` holds every axis and validates the declaration at composition:
+
+| Mistake | What happens |
+| --- | --- |
+| Two axes with the same id | `ChartAxisException` — the later one would silently win |
+| A Y axis at `Bottom` on a vertical chart | `ChartAxisException` — its scale would run across the plot |
+| Two axes marked `primary` in one dimension | `ChartAxisException` — grid ownership would be arbitrary |
+| A layer bound to an unregistered axis | `ChartAxisException` naming the layer, the axis and what exists |
+| Stacked bars across two axes | `ChartAxisException` — one pile of segments in two units |
+| A series in `°C` on an axis in `USD` | An `AxisDiagnostic`, and the chart still draws |
+
+The last row is deliberately not an exception. A unit mismatch is often the
+caller discovering that two of their own series really are in different units,
+and a drawable chart with a diagnostic is more useful than a crash. Diagnostics
+arrive through `onAxisDiagnostics`.
+
+### Scale resolution
+
+```text
+layer  →  yAxis id  →  AxisRegistry  →  domain  →  LinearScale  →  pixels
+```
+
+Resolved **once**, before drawing: each layer is handed a `CartesianCoordinates`
+built over its own axis' scale, sharing the chart's plot area and domain axis.
+Draw loops hold a direct scale reference and never look an id up per point.
+
+That is also why no layer changed. A bar layer draws against the coordinates it
+is given; it has no idea whether the chart has one value axis or four.
+
+### Independent domains
+
+Each axis' interval comes from **its own** layers, never from the chart's:
+
+```text
+rainfall axis     ←  rainfall series only         0 … 100 mm
+temperature axis  ←  temperature series only      4 … 18 °C
+pressure axis     ←  pressure series only      1012 … 1019 hPa
+```
+
+All three map into the same `plotTop … plotBottom`. Several series can share one
+axis — actual, forecast and historical average all on `temperature` — and the
+axis takes the union of those and nothing else.
+
+Each axis takes its own `DomainPolicy`: `Auto`, `IncludeZero`, `Fixed`,
+`Bounded`. Bars want `IncludeZero`, because a bar length is only honest measured
+from zero; lines usually do not, because forcing zero onto 4–18 °C flattens the
+only variation worth seeing.
+
+### Multiple axes per side, and automatic offsets
+
+Two axes may share an edge. The layout engine measures each one's ticks, labels
+and title and stacks them outward in declaration order:
+
+```text
+                     ┌ plot ┐
+      Rainfall ──────┤      ├────── Temperature ── Pressure
+                     └──────┘         offset 0     offset 38
+```
+
+No caller specifies `offset = 48.dp`. A chart with a `0..5` axis and a
+`0..1,250,000` axis on the same side needs two different offsets, and no
+constant is right for both. `ChartAxisSpec.offset` exists as an advanced
+override and almost nothing should use it.
+
+The measurement order is what makes it work:
+
+```text
+available width → title and legend → start-side axes → end-side axes
+→ bottom and top axes → plot area → data layers
+```
+
+Plot bounds are never computed before the axes are measured.
+
+### Tick alignment
+
+```kotlin
+CartesianChart(tickAlignment = AxisTickAlignment.Aligned) { … }
+```
+
+Not the tick *values* — three axes in millimetres, degrees and hectopascals have
+no values in common. What aligns is the screen rows:
+
+```text
+Rainfall   Temperature   Pressure
+     250            40       1040   ← one row
+     200            30       1030
+     150            20       1020
+     100            10       1010
+      50             0       1000
+       0           -10        990   ← one row
+```
+
+Each axis still gets round numbers. Alignment chooses a **step** off the
+nice-number ladder and extends the domain outward to a multiple of it, rather
+than dividing the existing domain into equal parts — the first gives perfect
+rows and labels like `17.3`, the second gives readable labels and a little empty
+space at the top of the plot. ChartKit takes the second every time.
+
+`Independent` is the default, and it is the honest one: an aligned axis has been
+widened past its data to make the rows line up, and that trade is worth stating
+rather than making silently everywhere.
+
+A log axis opts out — its ticks are powers, and forcing them onto shared rows
+would relabel it in numbers that are not powers of anything.
+
+### Zero alignment
+
+```kotlin
+yAxis(id = ProfitAxis, alignZero = true, …)
+yAxis(id = MarginAxis, alignZero = true, …)
+```
+
+Both axes put the same number of intervals below zero, so the two baselines land
+on one row. Without it, a chart of profit change and margin change draws two
+zero lines at different heights and appears to disagree with itself.
+
+It can decline. An axis over `[999, 1001]` asked to share a zero row with one
+over `[-5, 5]` would have to span `[-1000, 1000]`, flattening its own data into a
+line. Past a 4× widening the axis keeps its own interval and an `AxisDiagnostic`
+says which axis and why — the only outcome that is neither a lie nor a crash.
+
+### Grid ownership
+
+```kotlin
+yAxis(id = Rainfall, grid = AxisGridMode.Primary, primary = true)   // draws the grid
+yAxis(id = Pressure, grid = AxisGridMode.Hidden)                    // does not
+```
+
+By default only the primary axis owns the horizontal grid. One grid per value
+axis produces three interleaved sets of lines at unrelated intervals — a moiré
+in which every line looks meaningful and only a third of them are for any one
+series.
+
+The corollary is worth stating: **with `Independent` ticks, the grid represents
+the primary axis' tick positions and nobody else's.** A line crossing a gridline
+tells you something about the primary axis and nothing about the others. Turn on
+`Aligned` when readers will use the grid to read a secondary axis.
+
+### Axis visibility
+
+```kotlin
+yAxis(id = Pressure, visibility = AxisVisibility.Auto)   // the default
+```
+
+An axis with no visible layer on it is measuring nothing, so `Auto` hides it —
+and the plot takes back the gutter. With `legendTogglesSeries = true`, hiding the
+only series on an axis removes the axis, recomputes the layout and rescales the
+remaining ones. The domains of the other axes are unaffected: they never
+included that series.
+
+### Series-to-axis colour
+
+```kotlin
+yAxis(id = Temperature, style = AxisStyleMode.MatchSeries)
+```
+
+Tints the axis' tick labels and title with its first series' colour. The axis
+*line* is never tinted: a coloured rule across the edge of a plot reads as data,
+and an axis is not data. `Neutral` is the default — three axes each painted in
+their series' colour turn the edges of the plot into a second legend competing
+with the first.
+
+### Units
+
+```kotlin
+ChartUnit.Percent                              // 45%      "45 percent"
+ChartUnit.Currency("GBP")                      // 82 GBP
+ChartUnit.Count                                // 1,240
+ChartUnit.Custom("°C", "degrees Celsius")      // 14.2 °C  "14.2 degrees Celsius"
+```
+
+There is no dimensional analysis here and no conversion. A unit labels the axis
+and the tooltip consistently, gives a screen reader something pronounceable, and
+lets ChartKit notice a series in `°C` bound to an axis in `USD`. A series states
+its own with `ChartSeries(…, unit = …)`; stating nothing makes no claim and is
+never reported.
+
+### Mixed layers
+
+Any combination the units justify. There is no `BarLineChart`,
+`BarLineAreaChart` or `ThreeAxisWeatherChart`, and adding one would have been the
+wrong answer to all of them:
+
+```kotlin
+bars(series = listOf(bookings), category = { it.month }, value = { it.count }, yAxis = BookingsAxis)
+line(series = listOf(revenue),  x = { it.month }, y = { it.gbp },  yAxis = RevenueAxis)
+line(series = listOf(rate),     x = { it.month }, y = { it.pct },  yAxis = ConversionAxis)
+```
+
+Candles, volume, scatter, area, waterfall, dumbbell, lollipop, bullet and custom
+layers all take `yAxis` too:
+
+```kotlin
+volume(data = prices, x = { it.at }, volume = { it.volume }, yAxis = VolumeAxis)
+candles(data = prices, x = { it.at }, open = { it.open }, high = { it.high },
+        low = { it.low }, close = { it.close }, yAxis = PriceAxis)
+line(series = listOf(movingAverage), x = { it.at }, y = { it.value }, yAxis = PriceAxis)
+```
+
+A candle's open, high, low and close all resolve through the one price axis; the
+moving average shares it because it *is* a price.
+
+Stacking is the one restriction. Stacked bars share a baseline and a scale, so
+two stacked bar layers on different axes are refused rather than drawn — they
+would occupy the same category bands and read as one pile of segments measured in
+two units.
+
+### Crosshair and tooltip
+
+One vertical guide represents the shared X selection, never one per series. The
+tooltip carries a row per axis, each written by that axis' own formatter:
+
+```text
+March
+Rainfall       82 mm
+Temperature  14.2 °C
+Pressure    1018 hPa
+```
+
+Every entry knows where it came from:
+
+```kotlin
+tooltip = { data ->
+    Column {
+        Text(data.xLabel)
+        data.entries.forEach { entry ->
+            Text("${entry.seriesName} (${entry.axisTitle}): ${entry.text}")
+            // entry.axisId, entry.unit, entry.value, entry.item, entry.position
+        }
+    }
+}
+```
+
+Row order is deterministic — `ChartTooltipOrder.Declaration` (the default),
+`ByAxis(listOf(…))`, or `Custom(comparator)`. Rows never come back in map
+iteration order.
+
+Per-axis readout chips are opt-in:
+
+```kotlin
+crosshair = CrosshairConfig(enabled = true, axisValueLabels = true)
+```
+
+```text
+ 82 mm ┤                            ├ 14.2 °C
+       │            ╷               │
+       │            ╷               ├ 1,018 hPa
+```
+
+Off by default: on a three-axis chart they duplicate a tooltip that already lists
+the same three numbers. Turn them on for a chart with no tooltip, where the chips
+*are* the readout.
+
+A series with no value at the selected x is reported as missing rather than
+interpolated.
+
+### Annotations on a secondary axis
+
+```kotlin
+annotations = listOf(
+    horizontalRule(value = 30.0, label = "Heat threshold", valueAxis = TemperatureAxis),
+)
+```
+
+Unqualified annotations go to the primary axis, which is right for every
+single-axis chart. On a multi-axis chart it is not optional information: a rule
+at `30` means 30 °C on the temperature axis and 30 mm on the rainfall one, and a
+chart that guessed would draw the line in the wrong place and look entirely
+plausible doing it. Each annotation also widens the axis it names — and only
+that one.
+
+Vertical rules and domain ranges need no axis: they sit on the shared X domain.
+
+### Zoom and pan
+
+The shared X viewport is the single source of truth, so every layer moves
+together and no two series can drift apart. `ChartViewportState` is unchanged;
+multi-axis charts zoom in X exactly as single-axis ones do.
+
+### Small screens
+
+```kotlin
+CartesianChart(axisDensity = AxisDensity.Auto)   // Full, Compact, Auto
+```
+
+Three axes are readable on a tablet and ruinous on a phone in portrait. `Auto`
+compacts below roughly `112.dp` per axis plus one for the plot: fewer ticks,
+abbreviated numbers. It never removes an axis and never overlaps text — the
+reader loses resolution rather than a quantity. When even compaction leaves the
+plot under about a third of the width, an `AxisDiagnostic` says so rather than
+rendering something illegible.
+
+### Accessibility
+
+The summary names the measures before any of the numbers:
+
+```text
+3 measures. Rainfall: millimetres. Temperature: degrees Celsius.
+Pressure: hectopascals. Rainfall: 12 data points. …
+```
+
+A selection is announced across every axis, each value in its own unit:
+
+```text
+March. Rainfall: 82 millimetres. Temperature: 14.2 degrees Celsius.
+Pressure: 1018 hectopascals.
+```
+
+Titles and spelled-out units, never internal ids — `pressure-axis-2` would be
+read out loud. `mm` is spelled `millimetres` for the same reason.
+
+The data table adds a unit column, because `82`, `14.2` and `1018` under one
+"Value" heading are three quantities presented as if they were comparable:
+
+```kotlin
+comboDataTable(
+    ComboMeasure("Rainfall", listOf(rainSeries), { it.month }, { it.mm },
+        unit = ChartUnit.Custom("mm", "millimetres")),
+    ComboMeasure("Temperature", listOf(tempSeries), { it.month }, { it.celsius },
+        unit = ChartUnit.Custom("°C", "degrees Celsius")),
+    xColumn = "Month",
+)
+```
+
+### Existing charts are untouched
+
+`LineChart`, `BarChart`, `AreaChart`, `ScatterChart` and `CandlestickChart` take
+no axis ids and need none. Internally they go through the same registry, with
+`ChartAxisId.DefaultX` and `ChartAxisId.DefaultY` created for them — one code
+path, not a simple one and a general one that drift. The older
+`secondaryValueAxis` / `ValueAxisBinding.Secondary` API still works and resolves
+to `ChartAxisId.SecondaryY`.
+
+### Use two axes sparingly
+
+Two independent scales in one plot let the author choose where the lines cross,
+which is a claim about the data that the data did not make. ChartKit does not cap
+the count — a legitimate three-axis chart is easy to think of, and a hard limit
+would be an engine restriction standing in for editorial judgement — but **two or
+three is the practical maximum** for something a reader can read.
+
+When you do use them: label every axis, state every unit, keep the number small,
+and turn on `Aligned` ticks when readers will compare against the grid. When the
+quantities are not really related, prefer two [linked charts](#linked-charts).
 
 ## Grid lines
 
@@ -3545,6 +3984,27 @@ selected. A semantics tree containing every edge of a three-hundred-node graph i
 not access, it is noise; [`graphDataTable()`](#data-tables) is how a reader gets
 at the connections.
 
+### Multi-axis charts
+
+A chart measuring three quantities is not describable as "3 series": a reader
+needs to know that one of them is in millimetres and another in degrees before
+any of the numbers mean anything. So the summary names the measures first, and a
+selection is announced across every axis in that axis' own unit:
+
+```text
+3 measures. Rainfall: millimetres. Temperature: degrees Celsius.
+Pressure: hectopascals. Rainfall: 12 data points. …
+```
+
+```text
+March. Rainfall: 82 millimetres. Temperature: 14.2 degrees Celsius.
+Pressure: 1018 hectopascals.
+```
+
+Axis **titles** and spelled-out units, never ids — `pressure-axis-2` would be
+read out loud — and `millimetres` rather than `mm`, which a screen reader
+pronounces one letter at a time.
+
 ### Set diagrams
 
 Overlap is not describable in a sentence, so the tables are the diagram for a
@@ -3666,6 +4126,12 @@ hand against the model that produced it:
 | `geoDataTable` | region · value, with "no data" spelled out |
 | `setDataTable` | region · value · share of the union |
 | `setRelationshipTable` | set · relationship · set |
+| `comboDataTable` | x · measure · series · value · unit |
+
+`comboDataTable` is the multi-axis one, and the unit column is the point: `82`,
+`14.2` and `1018` under a single "Value" heading are three quantities presented
+as if they were comparable, which is exactly the misreading a second axis invites
+in the picture and which a table has no excuse for.
 
 The alternative — walking your objects and guessing at their fields — would need
 reflection, would break under R8, and would produce column names from property
@@ -3993,7 +4459,12 @@ Core
 ├── geometry     ChartRect/Offset/Insets · bar stacking · line interpolation
 │                PolarGeometry · RadialGeometry · ScatterIndex
 │                CalendarGeometry · OHLC normalisation
-├── layout       ChartLayoutEngine → Cartesian plot area (axis gutters)
+├── axis         ChartAxis · ChartAxisId · ChartAxisSpec · AxisRegistry
+│                ChartUnit · AxisTickAlignment · AxisAlignment · AxisDensity
+│                AxisPosition · AxisDimension · AxisVisibility · AxisGridMode
+│                MeasuredAxis · AxisDiagnostic
+├── layout       ChartLayoutEngine → Cartesian plot area (axis gutters, per-axis
+│                                    offsets when a side carries more than one)
 │                                  → polar plot area (largest centred square)
 ├── viewport     ChartViewport · ChartZoomLimits
 ├── stream       ChartWindow · ChartUpdatePolicy · ChartAggregation
@@ -4038,7 +4509,7 @@ Coordinates
 └── GeoCoordinates         projection + fitted extent + two-dimensional camera
 
 Layout engines
-├── Cartesian     axis gutters → plot rectangle
+├── Cartesian     axis gutters → plot rectangle, axes stacked per side
 ├── Polar         largest centred square → ring
 ├── Hierarchical  squarified treemap · sunburst rings
 ├── Flow          Sankey columns, node placement, band routing
@@ -4135,6 +4606,35 @@ Multiplatform without unpicking Android types from the maths. Quartiles, kernel
 density, LTTB, binning, visible-range lookup and OHLC normalisation are all in
 that set, which is why they are verified directly rather than by looking at a
 canvas.
+
+### One engine, N axes
+
+The Cartesian engine used to resolve a layer's scale by asking whether it was on
+the primary or the secondary axis — a two-valued enum, checked with an `if`, in
+three places. That is exactly as far as that design goes: there is no third
+branch of that `if` that means "pressure".
+
+`AxisRegistry` replaces the `if` with a lookup. Layers name an axis; the chart
+resolves the name to a scale **once**, before drawing, and hands each layer a
+`CartesianCoordinates` built over its own axis, sharing the plot area and the
+domain axis:
+
+```text
+CartesianChart
+├── AxisRegistry
+│   ├── X: default-x
+│   └── Y: rainfall (primary, grid) · temperature · pressure
+├── Layers      Bars → rainfall · Line → temperature · Line → pressure
+├── Shared      plot area · viewport · interaction · overlay · animation clock
+└── Per axis    domain · scale · ticks · formatter · unit · coordinates
+```
+
+Nothing in the layer model knows how many axes exist, which is why bars, lines,
+areas, scatters, candles, volume, boxes, violins, waterfalls, connectors,
+bullets, intervals and custom layers all gained multi-axis support without being
+touched. There is no `MultiAxisLineRenderer`, no `MultiAxisCoordinates` and no
+combo chart type — multi-axis is a Cartesian *coordinate* concern, and it stayed
+one.
 
 ### Room to grow
 
@@ -4335,7 +4835,17 @@ adopted for something it cannot do.
 - Zoom and pan on polar charts. Pie, donut, radial bar, radar, sunburst and gauge
   take tap selection and tooltips only; a viewport over an angle is a different
   interaction, not a reuse of this one
-- Y-axis zoom. The Cartesian viewport narrows the domain axis only
+- Y-axis zoom. The Cartesian viewport narrows the domain axis only — which is
+  also the right default for a multi-axis chart, where the axes share nothing but
+  their X. `AxisRegistry` is where a per-axis Y viewport would go
+- Multiple **X** axes. The registry models the dimension and would take a second
+  one, but nothing builds a top axis yet: combo charts share one X domain, which
+  is what makes them comparable at all
+- Scrollable axes. When three axes will not fit, ChartKit compacts them and
+  reports a diagnostic rather than putting them in a scroller — an axis you have
+  to scroll to is an axis you cannot read the plot against
+- Automatic axis assignment. A layer that does not name an axis is on the primary
+  one, and ChartKit will not infer one from a series' magnitudes
 - Fling/inertial panning — a drag pans directly and stops when it stops
 - Technical indicators beyond simple and exponential moving averages
 - Automatic dependency routing on a Gantt chart. Dependencies are modelled and
@@ -4500,6 +5010,10 @@ adopted for something it cannot do.
 - UpSet plots, over the `SetDefinition` / `SetIntersection` / `SetAnalyzer`
   model that already exists — a different layout, not a different model
 - Path-based set shapes, for Euler systems circles and ellipses cannot represent
+- A top X axis, and independent X domains, over the `AxisDimension` the registry
+  already models
+- Per-axis Y zoom — `None`, `PrimaryAxis`, `AllAxes`, `SpecificAxis` — once
+  there is a gesture that means it
 - Stabilising the `CartesianChart` layer DSL and the custom-layer API, and
   dropping the experimental marker
 - Benchmark coverage, if the repository grows benchmarking infrastructure
@@ -4508,8 +5022,8 @@ adopted for something it cannot do.
 ## Testing
 
 ```bash
-./gradlew :chartkit:testDebugUnitTest          # 889 JVM tests
-./gradlew :chartkit:connectedDebugAndroidTest  # 169 Compose UI tests
+./gradlew :chartkit:testDebugUnitTest          # 949 JVM tests
+./gradlew :chartkit:connectedDebugAndroidTest  # 198 Compose UI tests
 ```
 
 | Suite | Covers |
@@ -4553,6 +5067,15 @@ adopted for something it cannot do.
 | `ViewportTest` | Zoom in and out, focal-point preservation, limits, pan clamping, reset, domain and category conversion |
 | `NormalizationTest` | Axis inference, missing values, ordering, visibility, palette slots, duplicate ids |
 | `LayoutAndAxisTest` | Gutters, titles, overhang, squeezed plots, label thinning |
+| `AxisRegistryTest` | Registration in both dimensions, lookup, duplicate ids, a missing axis naming the layer and what exists, no silent fallback to the primary, dimension mismatches, illegal edges on both orientations, two primaries, primary by declaration and by declaration order, stacking order per side, blank ids, the legacy binding's mapping |
+| `AxisDomainTest` | Three domains mapping into one plot extent, and one value landing on a different row per axis |
+| `AxisAlignmentTest` | Shared tick counts, ticks on identical screen rows, round values after alignment, still covering the data, zero on one row, zero as a real tick, declining rather than flattening an axis and saying which and why, exact interval fitting, independent ticks untouched, the nice-number ladder |
+| `MultiAxisLayoutTest` | Stacking outward by the previous gutter, non-overlap, opposite sides both at the plot edge, the plot shrinking per axis, hidden axes taking no gutter, the explicit offset override, wider labels reserving wider gutters, unnamed axes |
+| `ChartUnitTest` | Symbols and spoken forms, percent's spacing, counts adding nothing, unstated units never mismatching, two stated units that differ |
+| `AxisDensityTest` | Full and Compact overriding, one axis never cramped, three axes on a phone against a tablet |
+| `AxisGridOwnershipTest` | Primary-only by default, a secondary axis opting in, the primary opting out |
+| `AxisVisibilityTest` | Auto hiding an axis with nothing on it, Visible keeping one, Hidden winning, a config-hidden axis staying hidden |
+| `TooltipOrderTest` | Declaration order, by-axis grouping, unlisted axes sorting last, a custom comparator, an entry's own text |
 | `FormatterTest` | Locale behaviour, compaction, percent, currency, dates, time zones |
 | `AccessibilityAndPaletteTest` | Summary content, absence of statistical claims, palette separation, HSL round-trip |
 | `AdvancedAccessibilityTest` | Per-mark phrasing, large-series range fallback, absence of interpretation |
@@ -4585,6 +5108,7 @@ adopted for something it cannot do.
 | `ChartLinkedInteractionTest` | Shared viewport, shared crosshair, independent value scales, opt-in isolation |
 | `ChartSemanticsAndThemeTest` | Announcements, custom summaries, theme precedence, light and dark |
 | `ChartSetDiagramTest` | Two, three and four sets drawing; empty, coincident and tangent geometry; nested Euler; selection of exclusive, pairwise and triple regions; clearing outside; empty theoretical regions; static mode; the tooltip; custom set labels, region labels, region content and icon groups; reported clearance; colour modes leaving the data alone; explicit intersection colours; focus dimming; the generic API and custom arrangements; collection-driven counting; the data table; the animated reveal |
+| `ChartMultiAxisTest` | Three axes drawn at three offsets, each labelled in its own unit and its own values; every series inside one plot area and none of them flattened; the plot shrinking as axes are added; compaction thinning ticks without dropping an axis; aligned ticks on identical rows; grid ownership; an axis hiding when its last series is hidden and giving back its gutter; legend toggling; a shared tooltip with a row per axis in its own unit and its own screen position; by-axis row ordering; selection resolving through the right axis; panning; an annotation drawn on its own axis' scale; an unregistered axis and cross-axis stacking failing; a unit mismatch reported and drawn; single-axis and legacy-secondary-axis charts unchanged; announcements naming axes and units and never ids |
 | `ChartGeoTest` | A choropleth drawing under both projections, empty geometry, labels, the colour legend and its "no data" swatch, join reporting including a key mismatch, selection by region, unmeasured regions, clearing outside the geography, static mode taking no input, camera zoom/pan/reset, immediate tap selection, the tooltip, the data table |
 
 ## Licence

@@ -89,6 +89,7 @@ import io.devkit.fillkit.scenarioPack
 import io.devkit.chartdemo.ChartExploreScreen
 import io.devkit.chartdemo.ChartAccessibilityScreen
 import io.devkit.chartdemo.ChartAdvancedScreen
+import io.devkit.chartdemo.ChartComboScreen
 import io.devkit.chartdemo.ChartComparisonScreen
 import io.devkit.chartdemo.ChartDashboardScreen
 import io.devkit.chartdemo.ChartFlowScreen
@@ -568,6 +569,12 @@ private enum class SampleScreen(
         SampleKit.ChartKit,
         "Venn and Euler diagrams, icons, logos and colour modes",
     ),
+    ChartCombo(
+        "Multi-axis combos",
+        "M",
+        SampleKit.ChartKit,
+        "Several units, several Y axes, one shared X",
+    ),
     ChartAdvanced(
         "Advanced",
         "X",
@@ -714,6 +721,7 @@ private fun FillKitSampleApp() {
                 SampleScreen.ChartDashboard -> ChartDashboardScreen(Modifier.padding(padding))
                 SampleScreen.ChartGeographic -> ChartGeographicScreen(Modifier.padding(padding))
                 SampleScreen.ChartSets -> ChartSetScreen(Modifier.padding(padding))
+                SampleScreen.ChartCombo -> ChartComboScreen(Modifier.padding(padding))
                 SampleScreen.ChartAdvanced -> ChartAdvancedScreen(Modifier.padding(padding))
             }
         }

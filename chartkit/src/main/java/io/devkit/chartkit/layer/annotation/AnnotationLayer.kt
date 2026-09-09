@@ -68,6 +68,17 @@ internal class AnnotationLayer(
     private val order: AnnotationOrder,
     private val positionOfDomain: (ChartX) -> Float?,
     private val valueFormatter: io.devkit.chartkit.formatter.ChartValueFormatter,
+    /**
+     * The value axis these annotations are stated in.
+     *
+     * One layer per axis, so each is handed the coordinates of the scale its
+     * values mean something on: a rule at `30` on the temperature axis lands at
+     * 30°C, not at 30 of whatever the primary axis measures. Grouping by axis
+     * outside the layer is what keeps `positionOfValue` inside it a single
+     * unqualified call.
+     */
+    override val valueAxisId: io.devkit.chartkit.axis.ChartAxisId =
+        io.devkit.chartkit.axis.ChartAxisId.DefaultY,
 ) : ChartLayerRenderer {
 
     override val seriesIds: List<String> get() = emptyList()

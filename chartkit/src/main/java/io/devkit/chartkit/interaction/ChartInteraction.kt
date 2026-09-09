@@ -191,6 +191,21 @@ data class CrosshairConfig(
     val vertical: Boolean = true,
     val horizontal: Boolean = false,
     val showAxisLabels: Boolean = true,
+    /**
+     * Whether every value axis gets its own readout chip at the selection.
+     *
+     * Off by default, and deliberately: on a three-axis chart it puts three
+     * chips in the gutters on top of a tooltip that already lists the same
+     * three numbers, which is more ink than reading. Turn it on for a chart
+     * with no tooltip, where the chips *are* the readout.
+     *
+     * ```text
+     *  82 mm ┤                            ├ 14.2 °C
+     *        │            ╷               │
+     *        │            ╷               ├ 1,018 hPa
+     * ```
+     */
+    val axisValueLabels: Boolean = false,
 ) {
     companion object {
 
