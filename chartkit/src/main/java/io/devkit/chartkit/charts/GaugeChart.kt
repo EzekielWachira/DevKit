@@ -57,6 +57,29 @@ sealed interface GaugeShape {
         override val sweepAngle: Float get() = PolarGeometry.FULL_CIRCLE
     }
 
+    companion object {
+
+        /**
+         * The arc between two angles.
+         *
+         * The form a speedometer is usually stated in — `-90°` to `90°` for a
+         * half dial opening upward — rather than as a start and a sweep. Equal
+         * angles read as a full turn, because a gauge of zero width is never
+         * what anybody meant.
+         */
+        fun between(
+            startAngle: Float,
+            endAngle: Float,
+            direction: PolarDirection = PolarDirection.Clockwise,
+        ): GaugeShape {
+            val travelled = PolarGeometry.angleFrom(startAngle, endAngle, direction)
+            return Custom(
+                startAngle = startAngle,
+                sweepAngle = if (travelled <= 0f) PolarGeometry.FULL_CIRCLE else travelled,
+            )
+        }
+    }
+
     /** Any other arc. */
     data class Custom(
         override val startAngle: Float,

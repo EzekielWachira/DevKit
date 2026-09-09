@@ -45,7 +45,7 @@ the opposite of the point.
 - Financial: [Candlestick](#candlestick-chart) · [OHLC](#ohlc-chart) · [Volume](#volume-chart) · [Linked charts](#linked-charts)
 - Hierarchy: [Treemap](#treemap) · [Sunburst](#sunburst) · [State and breadcrumbs](#hierarchy-state-and-breadcrumbs)
 - Flow: [Sankey](#sankey-diagram) · [Funnel](#funnel-chart)
-- Comparison: [Waterfall](#waterfall-chart) · [Dumbbell and lollipop](#dumbbell-and-lollipop) · [Bullet](#bullet-graph) · [Gauge](#gauge-chart)
+- Comparison: [Waterfall](#waterfall-chart) · [Dumbbell and lollipop](#dumbbell-and-lollipop) · [Bullet](#bullet-graph) · [Gauge](#gauge-chart) · [Dial gauges](#dial-gauges)
 - Time: [Timeline, range and Gantt](#timeline-range-and-gantt-charts)
 - Relationships: [Network graph](#network-graph)
 - Sets: [Venn and Euler diagrams](#set-relationship-diagrams)
@@ -144,6 +144,7 @@ Open the drawer and pick a **ChartKit** destination:
 | Time and intervals | A point timeline, durations in lanes, and a Gantt chart with progress and milestones |
 | Relationships | A service graph, circular and force directed, draggable and zoomable, with its data table |
 | Geographic | A choropleth over the sample's own GeoJSON: quantile against continuous shading, both projections, labels, a legend, missing data, the join report and the data table |
+| Gauges | Ten demos: the reference speedometer, a semicircle stated as two angles, a full-circle compass, a three-quarter dial, four bands over a range crossing zero, three needles with a legend, an adjustable dial, a compact KPI pair, a deterministic realtime feed, and a custom counterweighted needle |
 | Multi-axis combos | Six demos: the reference weather chart with three units, a business combo, a financial combo with volume on its own axis, legend toggling with axis auto-hide, zero alignment, and a shared crosshair with per-axis chips |
 | Set relationships | Thirteen Venn and Euler demos: two, three and four sets, proportional sizing, Venn against Euler, hand-placed icon groups, icons in labels, packed image content, four-level nesting, disjoint sets, explicit intersection colours, collection-driven sets and the accessibility tables |
 | Dashboard | Linked candlestick and volume charts with aligned plots, an overview navigator, and cross-filtering |
@@ -1563,13 +1564,378 @@ GaugeChart(
 )
 ```
 
-`GaugeShape` covers `SemiCircle`, `ThreeQuarter`, `FullCircle` and `Custom`.
-`GaugeIndicator` is `Arc`, `Needle` or both.
+`GaugeShape` covers `SemiCircle`, `ThreeQuarter`, `FullCircle`, `Custom` and
+`between(start, end)`. `GaugeIndicator` is `Arc`, `Needle` or both.
+
+For a **scale** — tick marks, numbers, a proper needle and pivot — see
+[dial gauges](#dial-gauges) below. This one is the filled arc: fewer parts, and
+readable in a dashboard tile where a dial's numbers would not be.
 
 Built on the polar engine, not a second one. A value outside `[min, max]` is
 drawn at the end of the arc — there is nowhere else — but is **announced and
 reported as itself**: a gauge that renamed 130% as 100% would hide the reading
 most worth seeing.
+
+## Dial gauges
+
+A speedometer: an angular scale, tick marks, numbers, threshold bands, a needle
+and a pivot. The other half of the gauge family — [`GaugeChart`](#gauge-chart)
+above draws a value as a filled arc, and this draws an instrument.
+
+```kotlin
+DialGauge(
+    value = speed,
+    min = 0.0,
+    max = 200.0,
+    shape = GaugeShape.between(startAngle = -90f, endAngle = 90f),
+    label = "Speed",
+    unit = "km/h",
+    bands = listOf(
+        GaugeBand(0.0, 120.0, "Normal"),
+        GaugeBand(120.0, 160.0, "Caution"),
+        GaugeBand(160.0, 200.0, "Over limit"),
+    ),
+    ticks = GaugeTickConfig(interval = 20.0, minorCount = 4),
+    valuePosition = GaugeValuePosition.BelowCenter,
+    valueContent = { animated -> Text("${animated.roundToInt()} km/h") },
+    modifier = Modifier.size(320.dp),
+)
+```
+
+```text
+        60    80   100  120
+     40 ╲  ╲   │   ╱  ╱ 140
+   20 ─  ╲  ╲  │  ╱  ╱  ─ 160
+  0 ──     ╲   │   ╱     ── 180
+              ╲│╱
+               ●        82 km/h
+```
+
+The simplest useful call is two numbers:
+
+```kotlin
+DialGauge(value = 72.0, min = 0.0, max = 100.0)
+```
+
+### Not a second polar engine
+
+Built on the same `PolarChartCore` as the pie, donut, radial bar and sunburst.
+The coordinate system, the animation clock, the theme, the legend, the tooltip,
+the selection state and the accessibility layer are shared. What a dial adds is
+`GaugeScale` — the map from a number to an angle — and the marks that read
+against it.
+
+```text
+value  →  normalise against [min, max]  →  0..1  →  startAngle..endAngle
+```
+
+Everything the dial draws is one of those two directions, and both live in one
+place. Ticks, bands, needles, markers and hit testing all ask the same object,
+so none of them can disagree at the ends of the arc.
+
+### Angles
+
+Zero is at twelve o'clock and angles increase clockwise, as everywhere else in
+ChartKit. A gauge is stated either way round:
+
+```kotlin
+shape = GaugeShape.between(-90f, 90f)      // semicircle, opening upward
+shape = GaugeShape.between(-135f, 135f)    // three-quarter dial
+shape = GaugeShape.SemiCircle              // the same as the first
+shape = GaugeShape.ThreeQuarter
+shape = GaugeShape.FullCircle
+shape = GaugeShape.Custom(startAngle = 30f, sweepAngle = 300f)
+direction = PolarDirection.CounterClockwise
+```
+
+A partial sweep is not centred in the square its full circle would need — that
+wastes half the space and leaves the pivot floating in the middle of a card. The
+**arc's own box** is fitted instead, so a semicircle in a wide, short card is
+sized by the width and pivots at the bottom, where a speedometer's does.
+
+```text
+  centred in the circle's box        fitted to the arc's box
+   ╭───────────────────╮             ╭───────────────────────╮
+   │    ╱────────╲     │             │  ╱─────────────────╲  │
+   │   │    ●     │    │             │ │         ●         │ │
+   │    ╲________╱     │             ╰───────────────────────╯
+   ╰───────────────────╯
+```
+
+### Range
+
+Any finite interval, not just a zero-based one:
+
+```kotlin
+DialGauge(value = 14.2, min = -20.0, max = 40.0, unit = "°C")    // crosses zero
+DialGauge(value = 1013.0, min = 900.0, max = 1100.0, unit = "hPa")
+```
+
+`min == max`, a backwards range, `NaN` and infinities are refused at
+construction with a `GaugeException` saying what to do instead — every one of
+them would otherwise produce a `NaN` angle and a dial with no marks on it.
+
+### Ticks and labels
+
+Generated in the **value** domain, through the same nice-number generator every
+Cartesian axis uses — a tick every fifteen degrees is a decoration, and a tick
+every twenty km/h is a scale.
+
+```kotlin
+ticks = GaugeTickConfig(
+    interval = 20.0,      // or null to derive round numbers
+    count = 6,            // approximate, when no interval is given
+    minorCount = 4,       // subdivisions per major interval
+    minorInterval = null, // or an explicit minor spacing
+    includeEnd = true,    // a dial whose last mark is 180 of 200 reads as broken
+    placement = GaugeTickPlacement.Inside,   // Inside · Outside · Cross
+)
+labelFormatter = ChartNumberFormatters.integer(locale)
+```
+
+The count is derived from the arc's drawn length when neither is given, so the
+same gauge at two sizes gets two sensible scales.
+
+**Labels thin; ticks do not.** A dial with more marks than numbers is a normal
+dial — every wristwatch is one — and a dial with overlapping numbers is
+unreadable. When there is no room, ChartKit drops labels at a uniform stride and
+keeps every tick, so the reader still sees the granularity and can count between
+the numbers that remain.
+
+### Units
+
+```kotlin
+unit = "km/h"
+```
+
+Written after the value and spelled out for a screen reader. Never appended to
+the tick labels, which would repeat it a dozen times around the arc.
+
+### Bands
+
+```kotlin
+bands = listOf(
+    GaugeBand(0.0, 120.0, "Normal"),
+    GaugeBand(120.0, 160.0, "Caution"),
+    GaugeBand(160.0, 200.0, "Over limit"),
+)
+bandStyles = mapOf(
+    2 to GaugeBandStyle(thickness = 0.5f, position = 0.8f, rounded = true, alpha = 0.9f),
+)
+```
+
+**Band colours are visual style, not meaning.** The default is a monochrome ramp
+of increasing emphasis, not a traffic light — ChartKit does not know whether
+high is good. On a battery gauge the last band is the desirable one and on a
+temperature gauge it is the alarming one, and a library that painted the third
+band red would be asserting a meaning it cannot have.
+
+Supply your own colours where you have a real severity to show, and **label the
+bands as well**: colour alone is not available to every reader, and it is the
+label — never the colour — that reaches a screen reader.
+
+Bands that do not fit are handled by policy rather than drawn wrong:
+
+| Case | `Clamp` (default) | `Skip` | `Reject` |
+| --- | --- | --- | --- |
+| Reaches past `max` | trimmed, flagged | dropped | `GaugeException` |
+| Entirely outside | dropped | dropped | `GaugeException` |
+| Zero width | dropped | dropped | dropped |
+| Backwards (`from > to`) | read as the interval it names | | |
+
+Overlapping bands are allowed by default and drawn in declaration order, with
+the **first** match answering "which band is this value in" — so the status does
+not depend on draw order even though the picture does.
+`GaugeBandOverlap.Reject` refuses them outright.
+
+### The current band
+
+```kotlin
+onReadingChanged = { reading ->
+    status = reading.bandLabel      // "Caution", or null
+    outOfRange = reading.isOutOfRange
+}
+```
+
+Published so an application does not repeat the threshold lookup the gauge
+already did. A status chip beside a dial that computed its own bands is one
+refactor away from disagreeing with the arc it sits next to.
+
+### Needle, pivot and pane
+
+```kotlin
+needle = GaugeNeedleStyle(
+    shape = GaugeNeedleShape.Needle,  // Line · Triangle · Needle · Arrow
+    length = 0.86f,                   // fraction of the radius, never pixels
+    tail = 0.12f,                     // the counterweight stub behind the pivot
+    baseWidth = 4.dp,
+    tipWidth = 1.5.dp,
+)
+pivot = GaugePivotStyle(radius = 0.06f)
+pane = GaugePane.Themed               // the dial's face; None by default
+showTrack = true
+```
+
+Lengths are fractions of the radius, not pixels: a needle specified at `0.85`
+stays right at every size and one specified at `120.dp` is right at one.
+
+A partial sweep gets a **wedge** face, not a disc — a semicircular dial on a
+circular face is not a semicircular dial.
+
+### Markers
+
+For the quantities a dial refers to but does not read:
+
+```kotlin
+markers = listOf(
+    GaugeMarker(value = 112.0, label = "Limit", shape = GaugeMarkerShape.Triangle),
+    GaugeMarker(value = 160.0, label = "Redline", shape = GaugeMarkerShape.Line, position = 0.98f),
+)
+```
+
+Lighter than a needle by design: a second needle says "another reading", and a
+marker says "a line on the dial".
+
+### Animation
+
+The needle travels; it does not jump. Each needle animates independently through
+the chart's own animation configuration, and `valueContent` receives the
+**animated** value, so the number and the needle arrive together — a label
+reading 80 beside a needle already at 140 is worse than no label.
+
+```kotlin
+var speed by remember { mutableStateOf(80.0) }
+DialGauge(value = speed, min = 0.0, max = 200.0, animation = ChartAnimation.Default)
+speed = 140.0   // the needle sweeps; no imperative update call exists
+```
+
+A value that changes again mid-flight **retargets** rather than restarting, so
+`80 → 120 → 160` in quick succession is one continuous sweep rather than a
+stutter back to 80 each time. That is what makes the dial usable on a live feed.
+
+Needles are matched by `GaugeValue.id`, never by list position: inserting a
+target needle above the current one would otherwise animate the current needle
+to the target's value and back, which looks exactly like a data error.
+
+### Overflow
+
+```kotlin
+overflow = GaugeOverflow.Clamp          // the needle stops at the end. The default.
+overflow = GaugeOverflow.AllowOverflow  // it swings past — a tachometer's redline
+overflow = GaugeOverflow.Reject         // an out-of-range reading is a bug
+```
+
+Under `Clamp` the needle is pinned, and the **announcement, the tooltip and
+`onReadingChanged` still report the real number**. A gauge that renamed 250 km/h
+as 200 would be hiding exactly the reading its owner most needs.
+
+### Multiple needles
+
+```kotlin
+DialGauge(
+    series = listOf(
+        GaugeValue("current", speed, "Current speed"),
+        GaugeValue("target", 130.0, "Target", style = GaugeNeedleStyle.Target),
+        GaugeValue("average", 96.0, "Average", style = GaugeNeedleStyle.Thin),
+    ),
+    min = 0.0,
+    max = 200.0,
+    unit = "km/h",
+    legend = LegendPosition.Bottom,
+)
+```
+
+The first needle is the dial's primary reading — the one an interactive gauge
+adjusts and the one a bare selection reports. The legend is off for a single
+needle: a key for one needle is furniture repeating what the dial already says.
+
+### Display or control
+
+```kotlin
+interaction = GaugeInteraction.None   // a display. The default.
+interaction = GaugeInteraction.Tap    // a tap on the arc reads a value out of it
+interaction = GaugeInteraction.Drag   // drag round the dial to set it
+onValueChange = { speed = it }
+step = 5.0
+```
+
+A speedometer is not a knob, so a dial is a display until told otherwise. The
+gauge never owns the value: `onValueChange` is required for either interactive
+mode to do anything.
+
+A tap off the arc — below a dial that opens upward, say — is **not a reading**
+and reports nothing. Wrapping it to the nearest end is how a naive `atan2` gauge
+sets itself to maximum when a finger strays.
+
+### Interactive gauges and accessibility
+
+An adjustable dial publishes `ProgressBarRangeInfo` and a set-progress action,
+so a screen reader gets **increase and decrease** in `step` increments, and
+responds to the arrow keys:
+
+```text
+← ↓   decrease      → ↑   increase      Home  minimum      End  maximum
+```
+
+A gauge that could only be dragged would be a control that a keyboard user, a
+switch user and anyone without a touchscreen cannot operate.
+
+### Accessibility
+
+```text
+Speed. Current speed: 82 km/h. Range: 0 to 200 km/h. Current range: Normal.
+```
+
+The band is named **only because the caller named it**. ChartKit never invents
+a severity: a gauge announcing "Danger" because a band was red would be
+inferring meaning out of a colour, which is exactly what a screen-reader user
+cannot check. An unlabelled band contributes nothing to the announcement.
+
+```kotlin
+DialGauge(
+    value = 82.0, min = 0.0, max = 200.0,
+    label = "Speed",                        // announced first
+    unit = "kilometres per hour",           // spelled out, not "km/h"
+    bands = listOf(GaugeBand(0.0, 120.0, "Normal")),  // the caller's own words
+)
+```
+
+### Small dials
+
+```kotlin
+detail = GaugeDetail.Auto      // Full · Compact · Auto
+```
+
+Below about `78.dp` of radius, `Auto` drops the minor ticks and thins the
+numbers. Every band, needle and marker is still drawn: **detail is reduced,
+never data**. Under about 150dp a dial is the wrong instrument anyway — reach
+for [`GaugeChart`](#gauge-chart)'s filled arc, which stays readable in a
+dashboard tile.
+
+### Live values
+
+```kotlin
+val load by viewModel.cpu.collectAsStateWithLifecycle()
+DialGauge(value = load, min = 0.0, max = 100.0, unit = "%")
+```
+
+Nothing gauge-specific: it is ordinary Compose state, and ChartKit's streaming
+helpers apply as they do to any other chart. The face, the bands, the ticks and
+the numbers are computed once and reused, so a value change costs a needle and a
+number rather than a whole dial.
+
+### Choosing between the two
+
+| | `GaugeChart` | `DialGauge` |
+| --- | --- | --- |
+| Shows | a filled arc | an instrument |
+| Scale | none | ticks and numbers |
+| Readable at | any size | about 150dp and up |
+| For | KPI tiles, progress, battery | speedometers, dashboards, adjustable dials |
+
+They share `GaugeBand`, `GaugeShape` and the polar geometry; their rendering
+stays separate, because an arc gauge with tick marks is neither one thing nor
+the other.
 
 ## Timeline, range and Gantt charts
 
@@ -4489,6 +4855,10 @@ Core
 │                SetRelationshipGraph · SetShape (circle · ellipse)
 │                VennLayoutEngine · EulerLayoutEngine · CircleOptimizer
 │                RegionGeometryIndex · SetHitTester
+├── gauge        GaugeScale (value ↔ angle) · GaugeTickPlan · GaugeBandResolution
+│                GaugeGeometry (needle and marker outlines · arc bounds · fit)
+│                GaugeValue · GaugeNeedleStyle · GaugePivotStyle · GaugeMarker
+│                GaugePane · GaugeDetail · GaugeInteraction · GaugeOverflow
 ├── timeline     TimelineModel · lane and row assignment · dependencies
 ├── transform    WaterfallTransform · FunnelTransform
 ├── scene        ChartScene · ChartSceneNode · ChartSceneBuilder
@@ -4510,7 +4880,9 @@ Coordinates
 
 Layout engines
 ├── Cartesian     axis gutters → plot rectangle, axes stacked per side
-├── Polar         largest centred square → ring
+├── Polar         largest centred square → ring; a partial sweep fits the
+│                arc's own box instead, so a semicircle is not centred in the
+│                square its full circle would need
 ├── Hierarchical  squarified treemap · sunburst rings
 ├── Flow          Sankey columns, node placement, band routing
 ├── Graph         circular · force-directed
@@ -4525,7 +4897,7 @@ Layers
 │               value labels · crosshair · range selection
 │               annotations (behind and above) · custom
 ├── Polar       slice (pie + donut) · radial bar · radar web · radar
-│               sunburst · gauge · custom
+│               sunburst · gauge arc · gauge dial · custom
 ├── Planar      treemap · Sankey · funnel · graph · set diagram
 └── Geographic  choropleth
 
@@ -4565,7 +4937,9 @@ is** a pie with an inner radius. **A radar chart is** a polar chart + a web laye
 + a polygon layer.
 
 **A sunburst is** the treemap's hierarchy laid out on the polar engine. **A gauge
-is** an arc on the same polar coordinates as the pie. **A lollipop is** a
+is** an arc on the same polar coordinates as the pie, and **a dial gauge is**
+that arc plus a scale in the angular domain — ticks, numbers and a needle, all
+derived from one `GaugeScale`. **A lollipop is** a
 dumbbell whose first value is the baseline. **A timeline is** a range chart with
 no end accessor, and **a Gantt chart is** one with a progress overlay. **A
 logarithmic axis is** the ordinary linear scale over a transformed domain, which
@@ -4834,7 +5208,15 @@ adopted for something it cannot do.
   window *does* have draggable edges
 - Zoom and pan on polar charts. Pie, donut, radial bar, radar, sunburst and gauge
   take tap selection and tooltips only; a viewport over an angle is a different
-  interaction, not a reuse of this one
+  interaction, not a reuse of this one. An adjustable `DialGauge` is the one
+  polar chart that reads a *value* out of a pointer, and it does so through its
+  own scale rather than through a viewport
+- Curved tick labels on a dial. Numbers are drawn upright and placed radially,
+  which is what a car's speedometer does; text following the arc needs
+  per-glyph placement and is illegible below about 200dp anyway
+- Gauge band tooltips. A band is a background, and tapping one on a dial that is
+  also adjustable would mean two things at once. The band a value falls in is
+  published through `onReadingChanged` instead
 - Y-axis zoom. The Cartesian viewport narrows the domain axis only — which is
   also the right default for a multi-axis chart, where the axes share nothing but
   their X. `AxisRegistry` is where a per-axis Y viewport would go
@@ -5007,6 +5389,8 @@ adopted for something it cannot do.
 - Proportional-symbol overlays on a choropleth, from the `Point` geometry that
   is already parsed
 - A pole-of-inaccessibility label point, for concave regions
+- Curved dial labels, and a linear (thermometer) gauge over the same
+  `GaugeScale`, which is a renderer rather than a model
 - UpSet plots, over the `SetDefinition` / `SetIntersection` / `SetAnalyzer`
   model that already exists — a different layout, not a different model
 - Path-based set shapes, for Euler systems circles and ellipses cannot represent
@@ -5022,8 +5406,8 @@ adopted for something it cannot do.
 ## Testing
 
 ```bash
-./gradlew :chartkit:testDebugUnitTest          # 949 JVM tests
-./gradlew :chartkit:connectedDebugAndroidTest  # 198 Compose UI tests
+./gradlew :chartkit:testDebugUnitTest          # 1,025 JVM tests
+./gradlew :chartkit:connectedDebugAndroidTest  # 229 Compose UI tests
 ```
 
 | Suite | Covers |
@@ -5036,6 +5420,10 @@ adopted for something it cannot do.
 | `LineGeometryTest` | Segmentation, monotone overshoot, binary search, ordering |
 | `PolarGeometryTest` | Angle convention, wrap-around, slice normalisation, invalid values, gaps, hit testing, donut holes |
 | `RadialGeometryTest` | Value-to-sweep mapping, custom ranges, out-of-range policy, concentric track lookup |
+| `GaugeScaleTest` | Ends at the sweep's ends, midpoints, round trips, negative and offset domains, three-quarter and full sweeps, counter-clockwise, angle pairs, clamping without rewriting the value, overflow, reject, non-finite readings, every invalid domain and sweep, an angle off the arc reading as nothing, tolerance at the ends, snapping |
+| `GaugeGeometryTest` | Arc extents for full, half, three-quarter and compass-crossing sweeps, excluding the centre, fitting a semicircle to a wide box and a full circle to the same one, the label reserve, empty boxes; needle direction, length, tail, tip shape and finiteness for every shape; marker outlines |
+| `GaugeTickTest` | Explicit intervals, round automatic ticks, ends always marked, `includeEnd` off, subdivisions never duplicating a major, explicit minor intervals, tiny/huge/negative/offset ranges, a full circle not double-marking one angle, labels thinning while ticks stay, uniform label stride, hard caps, density growing with the dial, subdivisions too fine to draw |
+| `GaugeBandTest` | Bands as arcs, tiling without gaps, trimming and flagging, dropping and reporting, zero width, backwards bounds, every overflow policy, overlap allowed and rejected, touching bands, the status lookup, palette slots surviving a dropped band, invalid styles |
 | `RadarGeometryTest` | Spoke placement, start angles, vertex radii, angle round-trips |
 | `HierarchyTest` | Normalisation, depth, paths, parents, aggregation, value conflicts, negative values, duplicate keys, forests, self-references, longer cycles, equal-but-distinct siblings, depth truncation |
 | `TreemapLayoutTest` | Bounds conservation, area sums, per-tile proportionality, non-overlap, single item, zero values, aspect ratios against slicing, nesting containment |
@@ -5104,6 +5492,7 @@ adopted for something it cannot do.
 | `ChartPlatformRenderingTest` | Treemap, sunburst, breadcrumbs, Sankey (including a cyclic one), funnel, waterfall, dumbbell, lollipop, bullet, gauge, timeline, range, Gantt, network graph in both layouts, custom layers, second axes, log and symmetric-log axes, the advanced annotations, static mode and scene production |
 | `ChartInteractionTest` | Tap, scrub, tooltips, hoisted state, legend toggling |
 | `ChartPolarTest` | Pie and donut selection by angle, donut holes, centre content, radial track selection, invalid values, polar semantics |
+| `ChartGaugeDialTest` | A dial from one value; every shape; every feature at once; a non-finite reading; three sizes and a very wide box; the needle travelling rather than jumping, retargeting mid-flight without going backwards, and settling at once when animation is off; a display ignoring taps; a tap reading a value off the arc; a tap off the sweep reporting nothing; a drag moving the value; step snapping; the current band and an out-of-range reading reported as itself; several needles drawn and legended, one needle not legended, needles animating independently; label, value, unit, range and caller-supplied band names announced; an unlabelled band adding no meaning; range info, the set-progress action and a screen reader adjusting the dial; a display publishing none of it; the arc gauge unchanged and sharing the band model; the readout clear of the pivot |
 | `ChartViewportInteractionTest` | Pinch zoom, pan, clamping, reset, crosshair, shared tooltips, range selection in both directions |
 | `ChartLinkedInteractionTest` | Shared viewport, shared crosshair, independent value scales, opt-in isolation |
 | `ChartSemanticsAndThemeTest` | Announcements, custom summaries, theme precedence, light and dark |

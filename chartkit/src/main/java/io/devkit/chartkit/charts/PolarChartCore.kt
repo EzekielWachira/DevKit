@@ -1,6 +1,7 @@
 package io.devkit.chartkit.charts
 
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -121,6 +122,30 @@ internal fun PolarChartCore(
         io.devkit.chartkit.render.ChartStaticOptions.Default,
     onDoubleTap: ((AnyChartSelection?) -> Unit)? = null,
     ringThickness: Float? = null,
+    /**
+     * Whether the ring is sized and placed by the arc it actually draws.
+     *
+     * Off for a pie or a donut, which occupy the whole circle and belong in the
+     * middle of their square. On for a gauge, whose sweep may use half of it:
+     * a semicircular dial centred in the square its full circle would need
+     * wastes the entire bottom half, and the fix is to fit the *arc's* box
+     * rather than the circle's. See
+     * [io.devkit.chartkit.gauge.GaugeGeometry.fit].
+     */
+    fitToSweep: Boolean = false,
+    /**
+     * Called with the chart angle a pointer is at, for a chart that reads a
+     * value out of the dial rather than selecting a mark on it.
+     *
+     * `null` leaves the ordinary tap-to-select behaviour alone, which is what
+     * every polar chart but an adjustable gauge wants.
+     */
+    onAngleAt: ((Float) -> Unit)? = null,
+    /** Whether a drag continues to report angles, or only the initial press. */
+    dragAngles: Boolean = false,
+    /** Extra semantics for an adjustable gauge — range info and its actions. */
+    semantics: (androidx.compose.ui.semantics.SemanticsPropertyReceiver.() -> Unit)? = null,
+    plotModifier: Modifier = Modifier,
 ) {
     val theme = ChartKitTheme.current
     val density = LocalDensity.current
@@ -182,6 +207,11 @@ internal fun PolarChartCore(
                         staticOptions = staticOptions,
                         onDoubleTap = onDoubleTap,
                         ringThickness = ringThickness,
+                        fitToSweep = fitToSweep,
+                        onAngleAt = onAngleAt,
+                        dragAngles = dragAngles,
+                        semantics = semantics,
+                        plotModifier = plotModifier,
                         density = density,
                         textMeasurer = textMeasurer,
                     )
@@ -220,6 +250,11 @@ private fun PolarPlot(
     staticOptions: io.devkit.chartkit.render.ChartStaticOptions,
     onDoubleTap: ((AnyChartSelection?) -> Unit)?,
     ringThickness: Float?,
+    fitToSweep: Boolean,
+    onAngleAt: ((Float) -> Unit)?,
+    dragAngles: Boolean,
+    semantics: (androidx.compose.ui.semantics.SemanticsPropertyReceiver.() -> Unit)?,
+    plotModifier: Modifier,
     density: androidx.compose.ui.unit.Density,
     textMeasurer: androidx.compose.ui.text.TextMeasurer,
 ) {
@@ -230,7 +265,7 @@ private fun PolarPlot(
     // same caching rule the Cartesian engine follows, for the same reason.
     val coordinates = remember(
         size, innerRadiusRatio, startAngle, sweepAngle, direction, theme, density, radiusInset,
-        ringThickness,
+        ringThickness, fitToSweep,
     ) {
         val bounds = ChartRect.fromSize(size.width.toFloat(), size.height.toFloat())
         val padding = with(density) { theme.dimensions.polarPadding.toPx() }
@@ -248,11 +283,28 @@ private fun PolarPlot(
         // Floored at a fraction of the available radius: a pathologically long
         // metric name should cost its own label, not the whole chart.
         val available = PolarGeometry.radiusWithin(plot)
-        val outer = (available - radiusInset.coerceAtLeast(0f))
+        val squareOuter = (available - radiusInset.coerceAtLeast(0f))
             .coerceAtLeast(available * MIN_RADIUS_FRACTION)
+
+        // A chart whose arc is not the whole circle can use the space its
+        // missing part would have taken. The arc's own box is fitted to the
+        // plot, which both grows the radius and moves the centre — a
+        // semicircular dial ends up wide and bottom-pivoted rather than small
+        // and floating above a gap.
+        val fit = if (fitToSweep) {
+            io.devkit.chartkit.gauge.GaugeGeometry.fit(
+                bounds = plot,
+                startAngle = startAngle,
+                sweepAngle = sweepAngle,
+                reserve = radiusInset.coerceAtLeast(0f),
+            )
+        } else {
+            null
+        }
+        val outer = fit?.radius?.takeIf { it > 0f } ?: squareOuter
         PolarCoordinates(
             plotArea = plot,
-            center = ChartOffset(plot.centerX, plot.centerY),
+            center = fit?.center ?: ChartOffset(plot.centerX, plot.centerY),
             // An absolute ring width where a chart stated one — a gauge's arc
             // is a stroke of a given thickness, not a fraction of whatever
             // radius the layout produced — and otherwise the ratio, which is
@@ -340,6 +392,44 @@ private fun PolarPlot(
                 // No pointer input at all in a static render. Not "gestures
                 // that do nothing": a modifier that consumed events would still
                 // stop a parent from scrolling.
+                // An adjustable dial reads a *value* out of the pointer's
+                // angle rather than selecting a mark, so it takes its own
+                // gesture path: a press reports immediately and a drag keeps
+                // reporting, which is what makes the needle follow a finger.
+                .then(
+                    if (renderMode.isStatic || onAngleAt == null) {
+                        Modifier
+                    } else {
+                        Modifier.pointerInput(coordinates, onAngleAt, dragAngles) {
+                            fun report(offset: androidx.compose.ui.geometry.Offset) {
+                                val point = ChartOffset(offset.x, offset.y)
+                                // A little past the arc still counts. A knob
+                                // whose ring is fifteen pixels wide and which
+                                // only responded inside it would be a control
+                                // most fingers miss; the angle is the same
+                                // whether the finger is on the track or just
+                                // outside it.
+                                if (coordinates.radiusOf(point) >
+                                    coordinates.outerRadius * ANGLE_TOUCH_MARGIN
+                                ) {
+                                    return
+                                }
+                                onAngleAt(coordinates.angleOf(point))
+                            }
+                            if (dragAngles) {
+                                detectDragGestures(
+                                    onDragStart = { report(it) },
+                                    // The change's own position, not the
+                                    // accumulated drag: a knob follows where
+                                    // the finger *is*, not how far it moved.
+                                    onDrag = { change, _ -> report(change.position) },
+                                )
+                            } else {
+                                detectTapGestures(onTap = { report(it) })
+                            }
+                        }
+                    },
+                )
                 .then(
                     if (renderMode.isStatic || (!tapSelects && onDoubleTap == null)) {
                         Modifier
@@ -378,7 +468,12 @@ private fun PolarPlot(
                 .clearAndSetSemantics {
                     contentDescription = listOfNotNull(summary, selectionText).joinToString(" ")
                     if (selectionText != null) liveRegion = LiveRegionMode.Polite
-                },
+                    // An adjustable chart adds its range and its actions here,
+                    // inside the same `clearAndSetSemantics` — set outside it,
+                    // they would be cleared by it.
+                    semantics?.invoke(this)
+                }
+                .then(plotModifier),
         ) {
             if (!coordinates.isDrawable) return@Canvas
             renderers.forEach { it.draw(this, renderContext) }
@@ -442,3 +537,6 @@ private const val INSCRIBED_SQUARE = 1.41421356f
 
 /** However much a chart reserves for labels, this much ring always remains. */
 private const val MIN_RADIUS_FRACTION = 0.45f
+
+/** How far past the outer radius a pointer still reads as being on the dial. */
+private const val ANGLE_TOUCH_MARGIN = 1.15f
