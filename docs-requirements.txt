@@ -1,0 +1,6 @@
+# The documentation site's toolchain, pinned so a build in CI is the build you
+# ran locally. Nothing here reaches the Android artifacts — it is used only by
+# `scripts/build_docs.py`, `mkdocs`, and the Pages workflow.
+mkdocs==1.6.1
+mkdocs-material==9.7.7
+mkdocs-literate-nav==0.6.3

@@ -2,6 +2,8 @@
 
 NetKit is debug-only tooling for simulating difficult network conditions inside a running Android application — offline, latency, timeouts and forced HTTP responses — without touching the backend, turning off the device's connectivity, running a mock server or rebuilding the app for every scenario.
 
+**📖 Browse this on the documentation site: [ezekielwachira.github.io/DevKit](https://ezekielwachira.github.io/DevKit/)** — same content, navigable, with search.
+
 NetKit is a **scenario toolkit, not a mock server**. Requests you have not configured keep going to your real backend:
 
 ```text

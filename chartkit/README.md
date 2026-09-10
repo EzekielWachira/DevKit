@@ -2,6 +2,8 @@
 
 Compose-native data visualisation for Android, on **one engine**.
 
+**📖 Browse this on the documentation site: [ezekielwachira.github.io/DevKit](https://ezekielwachira.github.io/DevKit/)** — same content, navigable, with search.
+
 Line, area, bar, scatter, bubble, histogram, box plot, violin, heatmap, calendar
 heatmap, candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet,
 timeline, range and Gantt on Cartesian coordinates; pie, donut, radial bar,

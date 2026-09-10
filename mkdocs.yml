@@ -1,0 +1,103 @@
+# The DevKit documentation site.
+#
+# `docs_dir` is generated, not written. `scripts/build_docs.py` assembles it
+# from the repository's own READMEs, so those stay canonical — GitHub renders
+# them, contributors edit them, and the site is a view of them rather than a
+# second copy that drifts.
+#
+#   python3 scripts/build_docs.py && mkdocs serve
+
+site_name: DevKit
+site_description: >-
+  Debug and QA tooling for Android — Compose-native charts, synthetic form data
+  and network failure simulation.
+site_url: https://ezekielwachira.github.io/DevKit/
+repo_url: https://github.com/EzekielWachira/DevKit
+repo_name: EzekielWachira/DevKit
+edit_uri: ""
+copyright: Apache License 2.0
+
+docs_dir: site-src
+site_dir: site
+
+theme:
+  name: material
+  icon:
+    logo: material/chart-box-outline
+    repo: fontawesome/brands/github
+  features:
+    - navigation.instant
+    - navigation.tracking
+    - navigation.sections
+    - navigation.top
+    - navigation.indexes
+    - toc.follow
+    - search.suggest
+    - search.highlight
+    - search.share
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+  palette:
+    # The site follows the reader's system setting, with an explicit override.
+    - media: "(prefers-color-scheme)"
+      toggle:
+        icon: material/brightness-auto
+        name: Follow system
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light
+  font:
+    text: Inter
+    code: JetBrains Mono
+
+plugins:
+  - search
+  # The navigation is generated alongside the pages, from the `## Contents`
+  # list each README already keeps for its own readers.
+  - literate-nav:
+      nav_file: SUMMARY.md
+
+markdown_extensions:
+  - abbr
+  - admonition
+  - attr_list
+  - def_list
+  - footnotes
+  - md_in_html
+  - tables
+  - pymdownx.details
+  - pymdownx.highlight:
+      anchor_linenums: true
+      line_spans: __span
+      pygments_lang_class: true
+  - pymdownx.inlinehilite
+  - pymdownx.snippets
+  - pymdownx.superfences
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  # GitHub's own anchor algorithm, so every `#anchor` already written into the
+  # READMEs resolves to the same heading here.
+  - toc:
+      permalink: true
+      slugify: !!python/object/apply:pymdownx.slugs.slugify {kwds: {case: lower}}
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/EzekielWachira/DevKit
+    - icon: fontawesome/brands/android
+      link: https://central.sonatype.com/namespace/io.github.ezekielwachira.devkit
