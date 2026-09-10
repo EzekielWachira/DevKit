@@ -25,6 +25,10 @@ from pathlib import Path
 
 ANCHOR_ID = re.compile(r'id="([^"]+)"')
 HREF = re.compile(r'href="([^"]+)"')
+#: `src` too. A raw-HTML `<video src>` is not rewritten by MkDocs the way a
+#: Markdown link is, so it is exactly the kind of path that goes wrong — and
+#: a browser reports a broken one as a media error rather than a 404.
+SRC = re.compile(r'src="([^"]+)"')
 ARTICLE = re.compile(r"<article[^>]*>(.*?)</article>", re.S)
 
 
@@ -58,15 +62,23 @@ def main() -> int:
         body = ARTICLE.search(html)
         scope = body.group(1) if body else html
 
-        for href in HREF.findall(scope):
+        for href in HREF.findall(scope) + SRC.findall(scope):
             if href.startswith(("http://", "https://", "mailto:", "data:")):
                 continue
             target, _, anchor = href.partition("#")
             checked += 1
 
-            page = key if target in ("", "./") else os.path.normpath(
-                os.path.join(key, target)
-            ).strip("/")
+            resolved = os.path.normpath(os.path.join(key, target)).strip("/")
+
+            # A file that is served as-is — an image, a video, a stylesheet —
+            # is checked for existence on disk. A page is checked for its
+            # anchors as well.
+            if Path(target).suffix and Path(target).suffix != ".html":
+                if not (site / resolved).exists():
+                    broken.append(f"{key}: {href} → no such file")
+                continue
+
+            page = key if target in ("", "./") else resolved
             if page not in pages:
                 broken.append(f'{key}: {href} → no such page "{page}"')
                 continue

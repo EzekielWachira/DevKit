@@ -101,3 +101,12 @@ Every page here is generated from the repository's own Markdown by
 contributors edit them, and this site is a navigable view of them rather than a
 second copy that drifts out of date. A cross-reference that cannot be resolved
 fails the build rather than shipping as a broken link.
+
+The charts are real. Each picture is rendered on a device by ChartKit itself
+and exported through its own [SVG writer](chartkit/export.md#export) where the
+layers support it, or captured as a bitmap where they do not — never drawn by
+hand or screenshotted from a design. The short clips are recordings of actual
+gestures on actual charts. ChartKit is an Android library rather than a
+Compose Multiplatform one, so a live chart cannot honestly be embedded in a web
+page: a JavaScript reimplementation would be a different chart wearing this
+one's name, and a recording of the real thing is the truthful alternative.

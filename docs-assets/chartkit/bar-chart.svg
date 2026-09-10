@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="910" viewBox="0 0 1400 910">
+  <title>bar chart</title>
+  <g id="grid">
+    <line x1="171" y1="812" x2="1361.5" y2="812" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="171" y1="639.66" x2="1361.5" y2="639.66" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="171" y1="467.33" x2="1361.5" y2="467.33" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="171" y1="294.99" x2="1361.5" y2="294.99" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="171" y1="122.66" x2="1361.5" y2="122.66" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+  </g>
+  <g id="bars-0">
+    <rect x="190.84" y="398.39" width="158.73" height="413.61" rx="14" fill="#5125c5" fill-opacity="1"/>
+    <rect x="389.26" y="269.14" width="158.73" height="542.86" rx="14" fill="#5125c5" fill-opacity="1"/>
+    <rect x="587.68" y="326.01" width="158.73" height="485.99" rx="14" fill="#5125c5" fill-opacity="1"/>
+    <rect x="786.09" y="126.1" width="158.73" height="685.9" rx="14" fill="#5125c5" fill-opacity="1"/>
+    <rect x="984.51" y="52" width="158.73" height="760" rx="14" fill="#5125c5" fill-opacity="1"/>
+    <rect x="1182.93" y="95.08" width="158.73" height="716.92" rx="14" fill="#5125c5" fill-opacity="1"/>
+  </g>
+  <g id="axis-default-x">
+    <line x1="171" y1="812" x2="1361.5" y2="812" stroke="#cac4d0" stroke-opacity="1" stroke-width="1"/>
+    <text x="270.21" y="887.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Jan</text>
+    <text x="468.63" y="887.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Feb</text>
+    <text x="667.04" y="887.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Mar</text>
+    <text x="865.46" y="887.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Apr</text>
+    <text x="1063.88" y="887.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">May</text>
+    <text x="1262.29" y="887.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Jun</text>
+  </g>
+  <g id="axis-default-y">
+    <line x1="171" y1="14" x2="171" y2="812" stroke="#cac4d0" stroke-opacity="1" stroke-width="1"/>
+    <text x="136.35" y="825" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">0</text>
+    <text x="136.35" y="652.66" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">10,000</text>
+    <text x="136.35" y="480.33" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">20,000</text>
+    <text x="136.35" y="307.99" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">30,000</text>
+    <text x="136.35" y="135.66" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">40,000</text>
+  </g>
+</svg>

@@ -428,3 +428,32 @@ source — which compiles against APIs that have not shipped. That combination
 turned this check into a false pass once: it succeeded locally and failed in CI,
 where a clean `~/.m2` resolved the real previous version from Central. CI is
 right and the laptop is wrong in that disagreement, so make the laptop match.
+
+
+## Documentation assets
+
+The pictures and clips on the documentation site are rendered by ChartKit
+itself, on a device, and committed to `docs-assets/`. Regenerate them when the
+charts change:
+
+```bash
+./scripts/capture-docs-assets.sh   # a still of every documented chart
+./scripts/record-docs-clips.sh     # short recordings of the interactive ones
+```
+
+Both need an attached emulator or device. They are **not** run in CI: the docs
+workflow builds Markdown in seconds and adding an Android emulator to it would
+turn that into minutes on every prose change.
+
+### A recording films the display, not the app
+
+`screenrecord` captures whatever is on screen, which for the first version of
+this meant a clip of the 3D scatter chart that also contained a FillKit
+checkout screen left behind by an earlier test — a payment form, in the
+documentation, under a heading about charts.
+
+`record-docs-clips.sh` now force-stops the app, goes to the home screen, and
+starts recording only once the test's own activity is in front, stopping the
+moment the test ends. It also refuses to keep a recording whose test did not
+pass. **Watch a regenerated clip before committing it** — that is the check
+this cannot automate.
