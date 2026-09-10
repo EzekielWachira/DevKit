@@ -113,7 +113,7 @@ not ask for. Pick whichever of the four models fits.
 ```kotlin
 dependencies {
     // A runtime library — ships in release
-    implementation("io.github.ezekielwachira.devkit:chartkit:0.1.0")
+    implementation("io.github.ezekielwachira.devkit:chartkit:0.2.0")
 
     // A debug tool — never reaches release
     debugImplementation("io.github.ezekielwachira.devkit:netkit:0.1.0")
@@ -128,7 +128,7 @@ The same holds in reverse — verified on every build by `consumer-test`.
 ```kotlin
 dependencies {
     // Charts, in production code
-    implementation("io.github.ezekielwachira.devkit:chartkit:0.1.0")
+    implementation("io.github.ezekielwachira.devkit:chartkit:0.2.0")
 
     // FillKit's release-safe half — production code annotates fields with it
     implementation("io.github.ezekielwachira.devkit:fillkit-api:0.1.0")
@@ -145,7 +145,7 @@ dependencies {
 
 ```kotlin
 dependencies {
-    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.2.0"))
+    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.3.0"))
 
     implementation("io.github.ezekielwachira.devkit:chartkit")
     implementation("io.github.ezekielwachira.devkit:fillkit-api")
@@ -165,11 +165,11 @@ configurations too, because they extend `implementation`. A second
 dependencies {
     // Every release-safe DevKit library: core + chartkit + fillkit-api.
     // Contains no developer tooling.
-    implementation("io.github.ezekielwachira.devkit:devkit:0.2.0")
+    implementation("io.github.ezekielwachira.devkit:devkit:0.3.0")
 
     // Every DevKit developer and QA tool: the FillKit panel (with its engine
     // and API) and NetKit. Not fillkit-testing — that stays androidTest-only.
-    debugImplementation("io.github.ezekielwachira.devkit:devkit-debug:0.2.0")
+    debugImplementation("io.github.ezekielwachira.devkit:devkit-debug:0.3.0")
 }
 ```
 
@@ -183,15 +183,15 @@ debug panel to production.
 | Artifact | Ships in | Version | Contents |
 | --- | --- | --- | --- |
 | `core` | release + debug | `0.1.0` | Ecosystem version metadata and the runtime/debug/test classification. Arrives transitively; you rarely add it yourself |
-| `chartkit` | release + debug | `0.1.0` | Compose visualisation engine and chart composables, Cartesian and polar — see [chartkit/README.md](chartkit/README.md) |
+| `chartkit` | release + debug | `0.2.0` | Compose visualisation engine and chart composables, Cartesian and polar — see [chartkit/README.md](chartkit/README.md) |
 | `fillkit-api` | release + debug | `0.1.0` | Models, DSLs, the Compose modifier, semantics keys, reproduction specs, and a no-op release runtime |
 | `fillkit-engine` | debug | `0.1.0` | Locale registries, persona and value generation, deterministic random streams |
 | `fillkit-debug` | debug | `0.1.0` | Developer panel, QA scenario launcher, deep links, local persistence |
 | `fillkit-testing` | `androidTestImplementation` only | `0.1.0` | Compose finders, assertions, `FillKitTestDriver` |
 | `netkit` | debug | `0.1.0` | Network scenario toolkit — see [netkit/README.md](netkit/README.md) |
-| `devkit` | release + debug | `0.2.0` | Umbrella: `core` + `chartkit` + `fillkit-api` |
-| `devkit-debug` | debug | `0.2.0` | Umbrella: `fillkit-debug` + `netkit` |
-| `devkit-bom` | — | `0.2.0` | Version alignment for all of the above |
+| `devkit` | release + debug | `0.3.0` | Umbrella: `core` + `chartkit` + `fillkit-api` |
+| `devkit-debug` | debug | `0.3.0` | Umbrella: `fillkit-debug` + `netkit` |
+| `devkit-bom` | — | `0.3.0` | Version alignment for all of the above |
 
 `fillkit-testing` exposes Compose test rules and JUnit types;
 `implementation("…:fillkit-testing")` is not a supported configuration, and it is
@@ -203,33 +203,37 @@ chose, and is only worth naming directly if you use its public API
 
 ### Version compatibility
 
-DevKit BOM **`0.2.0`** pins this tested set:
+DevKit BOM **`0.3.0`** pins this tested set:
 
 ```text
 Artifact          Version
 -------------------------
 core              0.1.0
-chartkit          0.1.0
+chartkit          0.2.0
 fillkit-api       0.1.0
 fillkit-engine    0.1.0
 fillkit-debug     0.1.0
 fillkit-testing   0.1.0
 netkit            0.1.0
-devkit            0.2.0
-devkit-debug      0.2.0
+devkit            0.3.0
+devkit-debug      0.3.0
 ```
 
 The columns have already diverged, which is the point of naming them
 separately. Every kit starts its published line at `0.1.0` and moves
-independently from there — a future NetKit release does not oblige FillKit to
-follow. The BOM and umbrella version names a compatible *combination* rather
-than the maturity of any one kit, and it moved to `0.2.0` because that
-combination changed: ChartKit joined the release-safe umbrella and the BOM.
-Every individual kit is unchanged at `0.1.0`.
+independently from there — a NetKit release does not oblige FillKit to follow.
+The BOM and umbrella version names a compatible *combination* rather than the
+maturity of any one kit, and it has now moved twice for two different reasons:
 
-Consumers on BOM `0.1.0` are unaffected and keep resolving what they always
-did; `chartkit` is simply not among the versions it constrains, because it did
-not exist when that set was published.
+- **`0.2.0`** — ChartKit joined the release-safe umbrella and the BOM. The set
+  changed while every individual kit stayed at `0.1.0`.
+- **`0.3.0`** — ChartKit moved to `0.2.0`. The set changed because a member of
+  it did, and the BOM has to name the new version to be worth using.
+
+Consumers on an older BOM are unaffected and keep resolving what they always
+did. BOM `0.1.0` does not constrain `chartkit` at all, because it did not exist
+when that set was published; BOM `0.2.0` pins `chartkit 0.1.0` and will go on
+doing so, since a released version is immutable on Central.
 See [docs/PUBLISHING.md](docs/PUBLISHING.md).
 
 ### Building from source
