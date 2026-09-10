@@ -33,10 +33,28 @@ import io.devkit.chartkit.charts.BoxPlot
 import io.devkit.chartkit.charts.BubbleChart
 import io.devkit.chartkit.charts.BulletChart
 import io.devkit.chartkit.charts.CalendarHeatmap
+import io.devkit.chartkit.axis.AxisPosition
+import io.devkit.chartkit.axis.AxisStyleMode
+import io.devkit.chartkit.axis.ChartAxisId
+import io.devkit.chartkit.scale.DomainPolicy
 import io.devkit.chartkit.charts.CandlestickChart
+import io.devkit.chartkit.charts.CartesianChart
+import io.devkit.chartkit.charts.ExperimentalChartKitApi
 import io.devkit.chartkit.charts.ChoroplethMap
 import io.devkit.chartkit.charts.ColumnChart3D
 import io.devkit.chartkit.charts.DonutChart
+import io.devkit.chartkit.charts.DialGauge
+import io.devkit.chartkit.charts.DumbbellChart
+import io.devkit.chartkit.charts.OhlcChart
+import io.devkit.chartkit.charts.PieChart3D
+import io.devkit.chartkit.charts.RangeChart
+import io.devkit.chartkit.charts.VennDiagram
+import io.devkit.chartkit.components.legend.LegendPosition
+import io.devkit.chartkit.annotation.horizontalRule
+import io.devkit.chartkit.annotation.verticalRule
+import io.devkit.chartkit.geometry.BarGrouping
+import io.devkit.chartkit.set.SetDefinition
+import io.devkit.chartkit.set.SetIntersection
 import io.devkit.chartkit.charts.FunnelChart
 import io.devkit.chartkit.charts.GaugeChart
 import io.devkit.chartkit.charts.Heatmap
@@ -107,6 +125,7 @@ import java.io.File
  * Run it through `scripts/capture-docs-assets.sh`, which pulls the output into
  * `docs-assets/`.
  */
+@OptIn(ExperimentalChartKitApi::class)
 class DocsAssetCaptureTest {
 
     @get:Rule
@@ -127,6 +146,7 @@ class DocsAssetCaptureTest {
     )
 
     private val demo = ChartDemoData
+
 
     private val shots: List<Shot> = listOf(
         Shot("line-chart") { scene, m ->
@@ -237,7 +257,7 @@ class DocsAssetCaptureTest {
                 x = { it.age }, y = { it.income }, z = { it.satisfaction }, modifier = m,
             )
         },
-        Shot("choropleth-map") { _, m ->
+        Shot("geographic-maps") { _, m ->
             ChoroplethMap(
                 geometry = worldGeometry(),
                 data = WorldDemoData.statistics(worldGeometry()),
@@ -249,9 +269,139 @@ class DocsAssetCaptureTest {
                 modifier = m,
             )
         },
-        Shot("world-map") { _, m ->
-            WorldMap(geometry = worldGeometry(), modifier = m)
+    )
+
+    /** The rest of the catalogue, kept separate only to stay under Kotlin's
+     *  limit on how large a single expression may be. */
+    private val moreShots: List<Shot> = listOf(
+        Shot("grouped-bars") { scene, m ->
+            BarChart(
+                series = cohorts(), category = { it.quarter }, value = { it.customers },
+                grouping = BarGrouping.Grouped, sceneState = scene, modifier = m,
+            )
         },
+        Shot("stacked-bars") { scene, m ->
+            BarChart(
+                series = cohorts(), category = { it.quarter }, value = { it.customers },
+                grouping = BarGrouping.Stacked, sceneState = scene, modifier = m,
+            )
+        },
+        Shot("100-stacked-bars") { scene, m ->
+            BarChart(
+                series = cohorts(), category = { it.quarter }, value = { it.customers },
+                grouping = BarGrouping.StackedPercent, sceneState = scene, modifier = m,
+            )
+        },
+        Shot("ohlc-chart") { _, m ->
+            OhlcChart(
+                demo.prices, x = { it.timeMillis }, open = { it.open }, high = { it.high },
+                low = { it.low }, close = { it.close }, modifier = m,
+            )
+        },
+        Shot("dumbbell-and-lollipop") { _, m ->
+            DumbbellChart(
+                demo.teamChanges, category = { it.team },
+                start = { it.before }, end = { it.after },
+                startLabel = "Before", endLabel = "After", modifier = m,
+            )
+        },
+        Shot("dial-gauges") { _, m ->
+            DialGauge(value = 128.0, min = 0.0, max = 200.0, label = "Speed", unit = "km/h", modifier = m)
+        },
+        Shot("timeline-range-and-gantt-charts") { _, m ->
+            RangeChart(
+                demo.roadmap, start = { it.startMillis }, end = { it.endMillis },
+                lane = { it.stream }, label = { it.name }, modifier = m,
+            )
+        },
+        Shot("set-relationship-diagrams") { _, m ->
+            VennDiagram(
+                sets = listOf(
+                    SetDefinition(id = "android", label = "Android", value = 200.0),
+                    SetDefinition(id = "ios", label = "iOS", value = 160.0),
+                    SetDefinition(id = "web", label = "Web", value = 120.0),
+                ),
+                intersections = listOf(
+                    SetIntersection(sets = setOf("android", "ios"), value = 70.0),
+                    SetIntersection(sets = setOf("android", "web"), value = 45.0),
+                    SetIntersection(sets = setOf("ios", "web"), value = 30.0),
+                    SetIntersection(sets = setOf("android", "ios", "web"), value = 18.0),
+                ),
+                modifier = m,
+            )
+        },
+        Shot("3d-pie-and-donut") { _, m ->
+            PieChart3D(
+                demo.expenseBreakdown, value = { it.amount }, label = { it.category },
+                modifier = m,
+            )
+        },
+        Shot("annotations") { scene, m ->
+            LineChart(
+                demo.revenue, x = { it.month }, y = { it.amount },
+                annotations = listOf(
+                    horizontalRule(value = 38_000.0, label = "Target"),
+                    verticalRule(at = "Mar", label = "v2.0"),
+                ),
+                sceneState = scene, modifier = m,
+            )
+        },
+        Shot("value-labels") { scene, m ->
+            BarChart(
+                demo.revenue, category = { it.month }, value = { it.amount },
+                valueLabels = true, sceneState = scene, modifier = m,
+            )
+        },
+        Shot("combined-charts") { _, m ->
+            CartesianChart(modifier = m, legend = LegendPosition.Bottom) {
+                bars(
+                    series = listOf(ChartSeries("actual", "Actual", demo.revenue)),
+                    category = { it.month }, value = { it.amount },
+                )
+                line(
+                    series = listOf(ChartSeries("target", "Target", demo.forecast)),
+                    x = { it.month }, y = { it.amount },
+                )
+            }
+        },
+        Shot("multi-axis-combo-charts") { _, m ->
+            val revenueAxis = ChartAxisId("revenue")
+            val marginAxis = ChartAxisId("margin")
+            CartesianChart(modifier = m, legend = LegendPosition.Bottom) {
+                yAxis(
+                    id = revenueAxis, position = AxisPosition.Start, title = "Revenue",
+                    domain = DomainPolicy.IncludeZero(), primary = true,
+                )
+                yAxis(
+                    id = marginAxis, position = AxisPosition.End, title = "Margin",
+                    domain = DomainPolicy.Auto(), style = AxisStyleMode.MatchSeries,
+                )
+                bars(
+                    series = listOf(ChartSeries("revenue", "Revenue", demo.revenue)),
+                    category = { it.month }, value = { it.amount }, yAxis = revenueAxis,
+                )
+                line(
+                    series = listOf(ChartSeries("margin", "Margin", demo.netMargin)),
+                    x = { it.month }, y = { it.amount }, yAxis = marginAxis,
+                )
+            }
+        },
+        Shot("legends") { scene, m ->
+            LineChart(
+                series = listOf(
+                    ChartSeries("revenue", "Revenue", demo.revenue),
+                    ChartSeries("expenses", "Expenses", demo.expenses),
+                ),
+                x = { it.month }, y = { it.amount },
+                legend = LegendPosition.Bottom, sceneState = scene, modifier = m,
+            )
+        },
+    )
+
+    private fun cohorts() = listOf(
+        ChartSeries("new", "New", demo.newCustomers),
+        ChartSeries("returning", "Returning", demo.returningCustomers),
+        ChartSeries("churned", "Churned", demo.churnedCustomers),
     )
 
     private var cachedWorld: io.devkit.chartkit.geo.GeoFeatureCollection? = null
@@ -262,6 +412,9 @@ class DocsAssetCaptureTest {
         val text = context.assets.open(WorldDemoData.ASSET).readBytes().decodeToString()
         return io.devkit.chartkit.geo.TopoJson.parse(text, "countries").also { cachedWorld = it }
     }
+
+    /** Every shot, in one list. */
+    private val all: List<Shot> get() = shots + moreShots
 
     @Test
     fun captureEveryDocumentedChart() {
@@ -287,7 +440,7 @@ class DocsAssetCaptureTest {
                     ChartKitTheme(colors = materialDerivedChartColors(isDark = dark)) {
                         Surface {
                             Box(Modifier.size(WIDTH, HEIGHT)) {
-                                shots[index].content(scene, Modifier.fillMaxSize().chartCapture(capture))
+                                all[index].content(scene, Modifier.fillMaxSize().chartCapture(capture))
                             }
                         }
                     }
@@ -298,7 +451,7 @@ class DocsAssetCaptureTest {
         var vector = 0
         var raster = 0
 
-        shots.indices.forEach { shotIndex ->
+        all.indices.forEach { shotIndex ->
             listOf(false, true).forEach { isDark ->
                 index = shotIndex
                 dark = isDark
@@ -307,9 +460,9 @@ class DocsAssetCaptureTest {
                 rule.mainClock.advanceTimeBy(600)
                 rule.waitForIdle()
 
-                val (scene, capture) = live ?: error("nothing composed for ${shots[shotIndex].slug}")
+                val (scene, capture) = live ?: error("nothing composed for ${all[shotIndex].slug}")
                 val suffix = if (isDark) "-dark" else ""
-                val slug = shots[shotIndex].slug
+                val slug = all[shotIndex].slug
 
                 val current = scene.scene
                 if (current != null && current.isComplete) {
@@ -341,8 +494,8 @@ class DocsAssetCaptureTest {
         written.sortedBy { it.name }.forEach { println("  ${it.name}  ${it.length()} bytes") }
         assertTrue("nothing was written", written.isNotEmpty())
         assertTrue(
-            "expected two files per chart, got ${written.size} for ${shots.size} charts",
-            written.size == shots.size * 2,
+            "expected two files per chart, got ${written.size} for ${all.size} charts",
+            written.size == all.size * 2,
         )
     }
 

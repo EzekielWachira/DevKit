@@ -527,6 +527,24 @@ def build() -> int:
     # pages are simply unstyled. That shipped once — `extra_css` was added to
     # `mkdocs.yml` and then lost to a `git reset` because only the stylesheet
     # itself had been staged. Nothing downstream noticed.
+    # A picture named after no page is a picture nobody sees. Two were captured
+    # for `###` subsections — `world-map`, `choropleth-map` — which are not
+    # pages, so they were copied into the site, served, and shown nowhere. The
+    # capture ran, the build passed, and the pages they were meant for stayed
+    # blank.
+    known = {p.stem for book in BOOKS for p in (out / book.id).glob("*.md")}
+    orphans = sorted(
+        {p.stem.removesuffix("-dark") for p in (ASSETS / "chartkit").glob("*")}
+        - known
+    ) if (ASSETS / "chartkit").is_dir() else []
+    if orphans:
+        print(
+            "error: captured pictures with no page to appear on: "
+            + ", ".join(orphans),
+            file=sys.stderr,
+        )
+        return 1
+
     config = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
     for sheet in sorted((ROOT / "docs-src").glob("stylesheets/*.css")):
         reference = f"stylesheets/{sheet.name}"

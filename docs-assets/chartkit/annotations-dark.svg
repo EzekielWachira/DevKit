@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="910" viewBox="0 0 1400 910">
+  <title>annotations</title>
+  <g id="grid">
+    <line x1="171" y1="739.64" x2="1361.5" y2="739.64" stroke="#49454f" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="171" y1="559.17" x2="1361.5" y2="559.17" stroke="#49454f" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="171" y1="378.71" x2="1361.5" y2="378.71" stroke="#49454f" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="171" y1="198.25" x2="1361.5" y2="198.25" stroke="#49454f" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="171" y1="17.79" x2="1361.5" y2="17.79" stroke="#49454f" stroke-opacity="0.5" stroke-width="3.5"/>
+  </g>
+  <g id="line-0">
+    <path d="M270.21 775.73 L468.63 505.04 L667.04 624.14 L865.46 205.47 L1063.88 50.27 L1262.29 140.5" fill="none" stroke="#9272de" stroke-opacity="1" stroke-width="7"/>
+    <circle cx="270.21" cy="775.73" r="10.5" fill="#9272de" fill-opacity="1"/>
+    <circle cx="468.63" cy="505.04" r="10.5" fill="#9272de" fill-opacity="1"/>
+    <circle cx="667.04" cy="624.14" r="10.5" fill="#9272de" fill-opacity="1"/>
+    <circle cx="865.46" cy="205.47" r="10.5" fill="#9272de" fill-opacity="1"/>
+    <circle cx="1063.88" cy="50.27" r="10.5" fill="#9272de" fill-opacity="1"/>
+    <circle cx="1262.29" cy="140.5" r="10.5" fill="#9272de" fill-opacity="1"/>
+  </g>
+  <g id="annotations-above-default-y">
+    <line x1="171" y1="270.44" x2="1361.5" y2="270.44" stroke="#e6e0e9" stroke-opacity="0.55" stroke-width="3.5" stroke-dasharray="17.5 14"/>
+    <line x1="667.04" y1="14" x2="667.04" y2="812" stroke="#e6e0e9" stroke-opacity="0.55" stroke-width="3.5" stroke-dasharray="17.5 14"/>
+  </g>
+  <g id="axis-default-x">
+    <line x1="171" y1="812" x2="1361.5" y2="812" stroke="#49454f" stroke-opacity="1" stroke-width="1"/>
+    <text x="270.21" y="887.65" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Jan</text>
+    <text x="468.63" y="887.65" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Feb</text>
+    <text x="667.04" y="887.65" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Mar</text>
+    <text x="865.46" y="887.65" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Apr</text>
+    <text x="1063.88" y="887.65" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">May</text>
+    <text x="1262.29" y="887.65" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Jun</text>
+  </g>
+  <g id="axis-default-y">
+    <line x1="171" y1="14" x2="171" y2="812" stroke="#49454f" stroke-opacity="1" stroke-width="1"/>
+    <text x="136.35" y="752.64" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">25,000</text>
+    <text x="136.35" y="572.17" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">30,000</text>
+    <text x="136.35" y="391.71" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">35,000</text>
+    <text x="136.35" y="211.25" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">40,000</text>
+    <text x="136.35" y="30.79" fill="#cac4d0" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">45,000</text>
+  </g>
+</svg>

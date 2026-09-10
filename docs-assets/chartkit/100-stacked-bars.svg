@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="840" viewBox="0 0 1400 840">
+  <title>100 stacked bars</title>
+  <g id="grid">
+    <line x1="143" y1="742" x2="1374.5" y2="742" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="143" y1="395.33" x2="1374.5" y2="395.33" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="143" y1="48.67" x2="1374.5" y2="48.67" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+  </g>
+  <g id="bars-0">
+    <rect x="173.79" y="492.71" width="246.3" height="249.29" fill="#5125c5" fill-opacity="1"/>
+    <rect x="481.66" y="476.33" width="246.3" height="265.67" fill="#5125c5" fill-opacity="1"/>
+    <rect x="789.54" y="540.83" width="246.3" height="201.17" fill="#5125c5" fill-opacity="1"/>
+    <rect x="1097.41" y="464.67" width="246.3" height="277.33" fill="#5125c5" fill-opacity="1"/>
+    <rect x="173.79" y="118.78" width="246.3" height="373.93" fill="#99c525" fill-opacity="1"/>
+    <rect x="481.66" y="139.38" width="246.3" height="336.95" fill="#99c525" fill-opacity="1"/>
+    <rect x="789.54" y="102.55" width="246.3" height="438.27" fill="#99c525" fill-opacity="1"/>
+    <rect x="1097.41" y="137.41" width="246.3" height="327.25" fill="#99c525" fill-opacity="1"/>
+    <rect x="173.79" y="48.67" width="246.3" height="70.11" rx="14" fill="#c52549" fill-opacity="1"/>
+    <rect x="481.66" y="48.67" width="246.3" height="90.72" rx="14" fill="#c52549" fill-opacity="1"/>
+    <rect x="789.54" y="48.67" width="246.3" height="53.89" rx="14" fill="#c52549" fill-opacity="1"/>
+    <rect x="1097.41" y="48.67" width="246.3" height="88.75" rx="14" fill="#c52549" fill-opacity="1"/>
+  </g>
+  <g id="axis-default-x">
+    <line x1="143" y1="742" x2="1374.5" y2="742" stroke="#cac4d0" stroke-opacity="1" stroke-width="1"/>
+    <text x="296.94" y="817.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Q1</text>
+    <text x="604.81" y="817.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Q2</text>
+    <text x="912.69" y="817.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Q3</text>
+    <text x="1220.56" y="817.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Q4</text>
+  </g>
+  <g id="axis-default-y">
+    <line x1="143" y1="14" x2="143" y2="742" stroke="#cac4d0" stroke-opacity="1" stroke-width="1"/>
+    <text x="108.35" y="755" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">0%</text>
+    <text x="108.35" y="408.33" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">50%</text>
+    <text x="108.35" y="61.67" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">100%</text>
+  </g>
+</svg>
