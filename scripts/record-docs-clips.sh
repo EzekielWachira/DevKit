@@ -100,6 +100,14 @@ for clip in "${CLIPS[@]}"; do
     exit 1
   fi
 
+  # Focus is not the same as drawn. The activity is in front a beat before the
+  # chart has laid out and rendered, and starting here puts an empty phone in
+  # the first frame — which, on a looping clip, is what the reader sees at the
+  # start of every cycle. The test settles for longer than this before its first
+  # gesture, so the recording opens on a drawn, still chart and catches the whole
+  # gesture.
+  sleep 1.5
+
   # 480 wide at 1.5 Mbps. The clips are shown about 300px across, so anything
   # larger is bytes the reader downloads and never sees — and two schemes are
   # recorded, so the size is paid twice. The default is 20 Mbps at full

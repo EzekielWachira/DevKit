@@ -113,8 +113,15 @@ class DocsClipCaptureTest {
         android.util.Log.i("DocsClip", "scheme=${if (dark) "dark" else "light"}")
     }
 
-    /** Lets the recorder catch the settled chart before anything moves. */
-    private fun settle(millis: Long = 1_200) {
+    /**
+     * Lets the recorder catch the settled chart before anything moves.
+     *
+     * The default is long on purpose. The recording starts about a second and a
+     * half after this activity comes to the front, so a shorter opening settle
+     * would have the gesture already under way by the first frame — and a
+     * looping clip that begins mid-drag reads as a glitch.
+     */
+    private fun settle(millis: Long = 2_500) {
         rule.waitForIdle()
         Thread.sleep(millis)
     }
