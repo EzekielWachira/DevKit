@@ -11,6 +11,11 @@ on:
       - '**.md'
       - 'mkdocs.yml'
       - 'docs-src/**'
+      # The pictures and clips are part of the site, so changing one has to
+      # rebuild it. Leaving this out meant a commit that replaced every
+      # recording deployed nothing at all, silently: no workflow ran, so there
+      # was not even a skipped job to notice.
+      - 'docs-assets/**'
       - 'docs-requirements.txt'
       - 'scripts/build_docs.py'
       - 'scripts/check_docs_links.py'
@@ -20,6 +25,11 @@ on:
       - '**.md'
       - 'mkdocs.yml'
       - 'docs-src/**'
+      # The pictures and clips are part of the site, so changing one has to
+      # rebuild it. Leaving this out meant a commit that replaced every
+      # recording deployed nothing at all, silently: no workflow ran, so there
+      # was not even a skipped job to notice.
+      - 'docs-assets/**'
       - 'docs-requirements.txt'
       - 'scripts/build_docs.py'
       - 'scripts/check_docs_links.py'
