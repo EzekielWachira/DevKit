@@ -62,6 +62,8 @@ import io.devkit.chartkit.charts.Histogram
 import io.devkit.chartkit.charts.HorizontalBarChart
 import io.devkit.chartkit.charts.LineChart
 import io.devkit.chartkit.charts.NetworkGraph
+import io.devkit.chartkit.layer.graph.GraphLabels
+import io.devkit.chartkit.render.ChartRenderMode
 import io.devkit.chartkit.charts.PieChart
 import io.devkit.chartkit.charts.RadarChart
 import io.devkit.chartkit.charts.RadialBarChart
@@ -165,7 +167,21 @@ class DocsAssetCaptureTest {
             ScatterChart(demo.people, x = { it.heightCm }, y = { it.weightKg }, sceneState = scene, modifier = m)
         },
         Shot("bubble-chart") { _, m ->
-            BubbleChart(demo.people, x = { it.heightCm }, y = { it.weightKg }, size = { it.ageYears }, modifier = m)
+            // Twenty of the hundred and sixty, and a bounded size range.
+            //
+            // A bubble chart is read by comparing areas, which needs the areas
+            // to be separable: the whole sample at the default sizing drew a
+            // single overlapping mass in which no individual bubble — and so no
+            // value of the third variable — could be seen at all. A scatter can
+            // carry that many points; a bubble chart cannot, and a picture that
+            // pretends otherwise teaches the wrong thing about when to reach
+            // for one.
+            BubbleChart(
+                demo.people.filterIndexed { index, _ -> index % 8 == 0 },
+                x = { it.heightCm }, y = { it.weightKg }, size = { it.ageYears },
+                minBubbleSize = 5.dp, maxBubbleSize = 18.dp,
+                modifier = m,
+            )
         },
         Shot("histogram") { scene, m ->
             Histogram(demo.responseTimes, value = { value: Double -> value }, sceneState = scene, modifier = m)
@@ -186,7 +202,17 @@ class DocsAssetCaptureTest {
             RadialBarChart(demo.systemMetrics, value = { it.value }, label = { it.name }, maxValue = 100.0, modifier = m)
         },
         Shot("radar-chart") { _, m ->
-            RadarChart(demo.profileThisQuarter, metric = { it.aspect }, value = { it.score }, modifier = m)
+            // Scores out of a hundred, on one explicit range. The default
+            // per-axis normalisation gives each spoke its own domain, and a
+            // single series makes that domain one value wide — every point then
+            // sits on the outer ring and the chart is a regular hexagon no
+            // matter what the scores are.
+            RadarChart(
+                demo.profileThisQuarter,
+                metric = { it.aspect }, value = { it.score },
+                valueRange = 0.0..100.0,
+                modifier = m,
+            )
         },
         Shot("heatmap") { _, m ->
             Heatmap(demo.trafficGrid, x = { it.day }, y = { it.hour }, value = { it.requests }, modifier = m)
@@ -233,10 +259,19 @@ class DocsAssetCaptureTest {
             GaugeChart(value = 72.0, min = 0.0, max = 100.0, modifier = m)
         },
         Shot("network-graph") { _, m ->
+            // The force simulation runs on Dispatchers.Default, which neither
+            // `waitForIdle` nor the test frame clock waits for, so a capture
+            // taken here caught the layout before it had positions and wrote a
+            // blank image. `Static` is the library's own answer: it substitutes
+            // the circular layout, which is instant and reproducible — the
+            // whole requirement for an exported picture.
             NetworkGraph(
                 nodes = demo.services, edges = demo.serviceCalls,
                 nodeId = { it.name }, source = { it.from }, target = { it.to },
-                nodeWeight = { it.requests }, modifier = m,
+                nodeWeight = { it.requests },
+                renderMode = ChartRenderMode.Static,
+                labels = GraphLabels.All,
+                modifier = m,
             )
         },
         Shot("multiple-series") { scene, m ->
