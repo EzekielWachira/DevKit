@@ -52,11 +52,16 @@ fi
 
 echo
 echo "==> Collecting"
-rm -rf "$OUT"
+# Only the stills. `docs-assets/` also holds `clips/`, which this script does
+# not produce and must not remove — `rm -rf "$OUT"` here deleted every recording
+# on the way to writing the pictures, and the deletion was committed along with
+# them. A script that clears more than it writes will eventually clear something
+# nobody was watching.
+rm -rf "$OUT/chartkit"
 mkdir -p "$OUT"
 adb pull "$ON_DEVICE/." "$OUT" > /dev/null
 
-COUNT=$(find "$OUT" -type f \( -name '*.svg' -o -name '*.png' \) | wc -l | tr -d ' ')
+COUNT=$(find "$OUT/chartkit" -type f \( -name '*.svg' -o -name '*.png' \) | wc -l | tr -d ' ')
 if [ "$COUNT" -eq 0 ]; then
   echo "error: nothing was pulled from $ON_DEVICE" >&2
   exit 1
@@ -64,8 +69,8 @@ fi
 
 echo
 echo "==> $COUNT files in $OUT/"
-find "$OUT" -type f \( -name '*.svg' -o -name '*.png' \) | sort | while read -r f; do
+find "$OUT/chartkit" -type f \( -name '*.svg' -o -name '*.png' \) | sort | while read -r f; do
   printf '    %-52s %s\n' "${f#$OUT/}" "$(du -h "$f" | cut -f1)"
 done
 echo
-echo "Vector: $(find "$OUT" -name '*.svg' | wc -l | tr -d ' ')   Raster: $(find "$OUT" -name '*.png' | wc -l | tr -d ' ')"
+echo "Vector: $(find "$OUT/chartkit" -name '*.svg' | wc -l | tr -d ' ')   Raster: $(find "$OUT/chartkit" -name '*.png' | wc -l | tr -d ' ')"
