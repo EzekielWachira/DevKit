@@ -1,10 +1,13 @@
 package io.devkit.chartkit
 
+import io.devkit.chartkit.geo.AntimeridianProcessor
 import io.devkit.chartkit.geo.GeoJson
 import io.devkit.chartkit.geo.GeoProjection
 import io.devkit.chartkit.geo.GeoSpatialIndex
 import io.devkit.chartkit.geo.ProjectedGeometry
+import io.devkit.chartkit.geo.TopoJson
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -54,6 +57,132 @@ class GeoPerformanceTest {
             GeoJson.parse(fixture(columns, rows, verticesPerEdge)),
             GeoProjection.Equirectangular,
         )
+
+
+    // ---- measurements (§174) ---------------------------------------------
+    //
+    // Printed, never asserted, for the reason in the class comment. The numbers
+    // in the README come from running these; they are measurements of one
+    // machine, not a supported limit.
+
+    /** Median of [runs] timings of [block], in microseconds. */
+    private fun medianMicros(runs: Int = 5, warmups: Int = 3, block: () -> Any?): Double {
+        repeat(warmups) { block() }
+        val samples = (0 until runs).map {
+            val start = System.nanoTime()
+            block()
+            (System.nanoTime() - start) / 1_000.0
+        }
+        return samples.sorted()[samples.size / 2]
+    }
+
+    /** The same grid as [fixture], as a quantised TopoJSON with shared arcs. */
+    private fun topoFixture(columns: Int, rows: Int): String {
+        // One arc per region, closed. Enough to exercise delta decoding and the
+        // transform at scale; sharing every edge would make the fixture a study
+        // in itself rather than a measurement.
+        val arcs = buildList {
+            for (row in 0 until rows) {
+                for (column in 0 until columns) {
+                    val x = column * 10
+                    val y = row * 10
+                    add("[[$x,$y],[10,0],[0,10],[-10,0],[0,-10]]")
+                }
+            }
+        }
+        val geometries = (0 until columns * rows).map { index ->
+            """{ "type": "Polygon", "id": "$index", "arcs": [[$index]] }"""
+        }
+        return """
+            { "type": "Topology",
+              "transform": { "scale": [0.1, 0.1], "translate": [0, 0] },
+              "objects": { "regions": { "type": "GeometryCollection",
+                "geometries": [${geometries.joinToString(",")}] } },
+              "arcs": [${arcs.joinToString(",")}] }
+        """.trimIndent()
+    }
+
+    @Test
+    fun measureParsingProjectionAndHitTesting() {
+        println("=== geo pipeline, microseconds (median of 5, JVM) ===")
+
+        listOf(
+            Triple("200 regions, 4 vertices", 20 to 10, 1),
+            Triple("1,000 regions, 4 vertices", 40 to 25, 1),
+            Triple("200 regions, 200 vertices", 20 to 10, 197),
+        ).forEach { (name, grid, vertices) ->
+            val (columns, rows) = grid
+            val json = fixture(columns, rows, vertices)
+            val collection = GeoJson.parse(json)
+            val projected = ProjectedGeometry.of(collection, GeoProjection.Equirectangular)
+
+            val parse = medianMicros { GeoJson.parse(json) }
+            val project = medianMicros {
+                ProjectedGeometry.of(collection, GeoProjection.Equirectangular)
+            }
+            val index = medianMicros {
+                GeoSpatialIndex.build(projected.features, projected.bounds)
+            }
+            val hits = medianMicros {
+                var found = 0
+                var x = 0.5
+                while (x < columns) {
+                    val candidates = projected.index.candidates(x, 0.5)
+                    if (candidates.any { it.contains(x, 0.5) }) found++
+                    x += 1.0
+                }
+                found
+            }
+
+            println(
+                "$name  json=${"%.0f".format(parse)}  " +
+                    "project=${"%.0f".format(project)}  " +
+                    "index=${"%.0f".format(index)}  " +
+                    "hits(x$columns)=${"%.1f".format(hits)}  " +
+                    "vertices=${projected.vertexCount}",
+            )
+        }
+
+        listOf(200 to (20 to 10), 1_000 to (40 to 25)).forEach { (count, grid) ->
+            val topo = topoFixture(grid.first, grid.second)
+            val decoded = TopoJson.parse(topo, "regions")
+            val topoTime = medianMicros { TopoJson.parse(topo, "regions") }
+            println(
+                "$count regions  topojson=${"%.0f".format(topoTime)}  " +
+                    "bytes=${topo.length}  features=${decoded.features.size}",
+            )
+        }
+    }
+
+    @Test
+    fun measureTheAntimeridianScanOnGeometryThatDoesNotNeedIt() {
+        // The repair runs on every projection, so the case worth measuring is
+        // the one where there is nothing to repair: a boundary file of one
+        // country, which is most of them.
+        val collection = GeoJson.parse(fixture(40, 25, 197))
+        val vertices = collection.features.sumOf { it.geometry.coordinates().size }
+
+        val scan = medianMicros { AntimeridianProcessor.process(collection) }
+
+        println("=== antimeridian ===")
+        println("scan over $vertices vertices with nothing to repair: ${"%.0f".format(scan)} us")
+        // The property, asserted: an untouched collection comes back by
+        // identity, so the ordinary case allocates nothing at all.
+        assertSame(collection, AntimeridianProcessor.process(collection))
+    }
+
+    @Test
+    fun measureLabelAnchorsForAConcaveMap() {
+        val projected = project(20, 10, 20)
+
+        val anchors = medianMicros { projected.features.map { it.labelPoint } }
+
+        println("=== label anchors ===")
+        println("${projected.features.size} anchors: ${"%.0f".format(anchors)} us")
+        // Computed once and held, so a pan does not recompute them.
+        val first = projected.features.first().labelPoint
+        assertSame(first, projected.features.first().labelPoint)
+    }
 
     @Test
     fun fiftyRegionsScanRatherThanIndex() {

@@ -511,6 +511,20 @@ fun <T> geoDataTable(
     order: GeoTableOrder = GeoTableOrder.ByRegion,
     missingText: String = "No data",
     caption: String? = null,
+    /**
+     * What the numbers are in — "%", "per 100,000", "USD".
+     *
+     * Added as a column rather than appended to each cell, so a screen reader
+     * announces it once per row against a stable header instead of repeating it
+     * two hundred times.
+     */
+    unit: String? = null,
+    /** An optional grouping to name alongside each region — a province, a band. */
+    category: ((GeoFeature) -> String?)? = null,
+    categoryColumn: String = "Category",
+    regionColumn: String = "Region",
+    valueColumn: String = "Value",
+    unitColumn: String = "Unit",
 ): ChartDataTable {
     val byKey = HashMap<String, Double?>(data.size)
     data.forEach { item ->
@@ -522,24 +536,136 @@ fun <T> geoDataTable(
 
     val rows = geometry.features.map { feature ->
         val measured = featureKey(feature)?.let { byKey[it] }
-        featureLabel(feature) to measured
+        GeoTableRow(featureLabel(feature), measured, category?.invoke(feature))
     }
     val ordered = when (order) {
-        GeoTableOrder.ByRegion -> rows.sortedBy { it.first }
+        GeoTableOrder.ByRegion -> rows.sortedBy { it.label }
         // Unmeasured regions sort last: a reader asking for "the highest" wants
         // the highest measurement, not the regions with no measurement at all.
         GeoTableOrder.ByValueDescending ->
-            rows.sortedWith(compareByDescending(nullsLast()) { it.second })
+            rows.sortedWith(compareByDescending(nullsLast()) { it.value })
         GeoTableOrder.AsGiven -> rows
     }
 
     return ChartDataTable(
-        columns = listOf("Region", "Value"),
-        rows = ordered.map { (label, measured) ->
-            listOf(label, measured?.let(valueFormatter::format) ?: missingText)
+        columns = buildList {
+            add(regionColumn)
+            if (category != null) add(categoryColumn)
+            add(valueColumn)
+            if (unit != null) add(unitColumn)
+        },
+        rows = ordered.map { row ->
+            buildList {
+                add(row.label)
+                if (category != null) add(row.category.orEmpty())
+                add(row.value?.let(valueFormatter::format) ?: missingText)
+                // The unit is stated only where there is a number for it to
+                // qualify: "No data, per 100,000" is not a fact.
+                if (unit != null) add(if (row.value == null) "" else unit)
+            }
         },
         caption = caption,
     )
+}
+
+/** One row, before it is turned into strings. */
+private class GeoTableRow(val label: String, val value: Double?, val category: String?)
+
+/**
+ * Marks on a map as rows: place, value, and whether it was measured.
+ *
+ * The point-and-bubble counterpart of [geoDataTable], and for the same reason:
+ * a bubble encodes its number as an **area**, which a reader who cannot see the
+ * map has no access to at all.
+ *
+ * ```kotlin
+ * ChartWithDataTable(
+ *     table = geoPointDataTable(cities, label = { it.name }, value = { it.population }),
+ * ) {
+ *     GeoChart { map(world); bubbles(cities, ...) }
+ * }
+ * ```
+ *
+ * Coordinates are deliberately **not** a column. "1.29 south, 36.82 east" is not
+ * how anyone identifies Nairobi, and fifty rows of it read aloud is noise
+ * standing where the data should be.
+ */
+@Suppress("LongParameterList")
+fun <T> geoPointDataTable(
+    data: List<T>,
+    label: (T) -> String,
+    value: (T) -> Number?,
+    valueFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
+    order: GeoTableOrder = GeoTableOrder.ByRegion,
+    missingText: String = "No data",
+    caption: String? = null,
+    unit: String? = null,
+    placeColumn: String = "Place",
+    valueColumn: String = "Value",
+    unitColumn: String = "Unit",
+): ChartDataTable {
+    val rows = data.map { item ->
+        GeoTableRow(label(item), value(item)?.toDouble()?.takeIf { it.isFinite() }, null)
+    }
+    val ordered = when (order) {
+        GeoTableOrder.ByRegion -> rows.sortedBy { it.label }
+        GeoTableOrder.ByValueDescending ->
+            rows.sortedWith(compareByDescending(nullsLast()) { it.value })
+        GeoTableOrder.AsGiven -> rows
+    }
+    return ChartDataTable(
+        columns = buildList {
+            add(placeColumn)
+            add(valueColumn)
+            if (unit != null) add(unitColumn)
+        },
+        rows = ordered.map { row ->
+            buildList {
+                add(row.label)
+                add(row.value?.let(valueFormatter::format) ?: missingText)
+                if (unit != null) add(if (row.value == null) "" else unit)
+            }
+        },
+        caption = caption,
+    )
+}
+
+/**
+ * A factual opening sentence for a map.
+ *
+ * ```text
+ * World thematic map. 194 geographic regions. Metric: life expectancy.
+ * 12 regions have no data.
+ * ```
+ *
+ * Everything in it is counted rather than judged. There is no "concentrated in
+ * the north", no "mostly high" and no colour vocabulary — those are statistical
+ * or visual claims ChartKit has not been asked to compute, and a confidently
+ * wrong one is worse than none to a reader who cannot check it.
+ *
+ * @param title what the map is of, in the caller's own words and language.
+ * @param metric what the shading means. Omitted for an outline map, which
+ *   shades nothing.
+ * @param regionCount how many features are drawn.
+ * @param missingCount how many of them had no record. Stated only when it is
+ *   more than none — "0 regions have no data" is noise.
+ */
+fun geoAccessibilitySummary(
+    title: String,
+    regionCount: Int,
+    metric: String? = null,
+    missingCount: Int = 0,
+    markCount: Int = 0,
+    markLabel: String = "marks",
+): String = buildString {
+    append(title.trim().removeSuffix("."))
+    append(". ")
+    append("$regionCount geographic ${if (regionCount == 1) "region" else "regions"}.")
+    if (markCount > 0) append(" $markCount $markLabel.")
+    if (metric != null) append(" Metric: ${metric.trim().removeSuffix(".")}.")
+    if (missingCount > 0) {
+        append(" $missingCount ${if (missingCount == 1) "region has" else "regions have"} no data.")
+    }
 }
 
 /** How [geoDataTable] orders its rows. */

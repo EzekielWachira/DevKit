@@ -6,6 +6,7 @@ import io.devkit.chartkit.geo.ProjectedBounds
 import io.devkit.chartkit.geo.ProjectedPoint
 import io.devkit.chartkit.geometry.ChartRect
 import io.devkit.chartkit.state.ChartGeoViewportState
+import io.devkit.chartkit.state.GeoPanConstraint
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -146,5 +147,108 @@ class GeoViewportTest {
         camera.focusOn(io.devkit.chartkit.geo.GeoBounds(1.0, 1.0, 1.0, 1.0))
 
         assertFalse(camera.pendingFocus != null)
+    }
+
+    // ---- the absolute forms, and the constraint modes (§39, §46, §157) ----
+
+    @Test
+    fun zoomToLandsExactlyWhereZoomByWould() {
+        val absolute = camera()
+        val relative = camera()
+
+        absolute.zoomTo(3f)
+        relative.zoomBy(3f)
+
+        assertEquals(relative.zoom, absolute.zoom, 1e-6f)
+        assertEquals(relative.panX, absolute.panX, 1e-6f)
+        assertEquals(relative.panY, absolute.panY, 1e-6f)
+    }
+
+    @Test
+    fun zoomToKeepsItsFocusStill() {
+        val state = camera()
+
+        state.zoomTo(4f, focusX = 0.25f, focusY = 0.75f)
+
+        // Same anchoring as a pinch, because it is the same implementation: an
+        // absolute zoom that drifted would make a zoom slider feel broken next
+        // to a pinch that does not.
+        val expected = camera().apply { zoomBy(4f, focusX = 0.25f, focusY = 0.75f) }
+        assertEquals(expected.panX, state.panX, 1e-6f)
+        assertEquals(expected.panY, state.panY, 1e-6f)
+    }
+
+    @Test
+    fun anImpossibleZoomTargetIsIgnored() {
+        val state = camera()
+        state.zoomTo(3f)
+        val before = state.zoom
+
+        state.zoomTo(0f)
+        state.zoomTo(-2f)
+        state.zoomTo(Float.NaN)
+
+        assertEquals(before, state.zoom, 0f)
+    }
+
+    @Test
+    fun fitToGeometryIsTheFullyZoomedOutCamera() {
+        val state = camera()
+        state.zoomTo(5f)
+        state.panBy(0.3f, -0.2f)
+
+        state.fitToGeometry()
+
+        // Zoom 1 on a map *is* the fit: the coordinate system scales the
+        // projected extent to the plot before the camera is applied, so there
+        // is no second "fitted" state that could drift out of step.
+        assertTrue(state.isReset)
+        assertEquals(ChartGeoViewportState.MIN_ZOOM, state.zoom, 0f)
+    }
+
+    @Test
+    fun aSoftConstraintAllowsOvershootAndStrictDoesNot() {
+        val strict = ChartGeoViewportState(panConstraint = GeoPanConstraint.Strict)
+        val soft = ChartGeoViewportState(panConstraint = GeoPanConstraint.Soft)
+        listOf(strict, soft).forEach { it.zoomTo(2f) }
+
+        strict.panBy(10f, 0f)
+        soft.panBy(10f, 0f)
+
+        // At zoom 2 the strict edge is half a plot; soft adds a margin on top.
+        assertEquals(0.5f, strict.panX, 1e-6f)
+        assertTrue("soft should allow more than strict", soft.panX > strict.panX)
+        // But it is still bounded — the map cannot be dragged away entirely.
+        assertTrue(soft.panX.isFinite() && soft.panX < 1f)
+    }
+
+    @Test
+    fun anUnconstrainedCameraGoesWhereItIsTold() {
+        val free = ChartGeoViewportState(panConstraint = GeoPanConstraint.None)
+
+        free.panBy(10f, -7f)
+
+        // For a caller doing their own framing. Still refuses nonsense: a
+        // non-finite gesture is dropped rather than applied, so the camera
+        // keeps the position it had instead of being poisoned by one NaN.
+        assertEquals(10f, free.panX, 0f)
+        assertEquals(-7f, free.panY, 0f)
+        free.panBy(Float.NaN, 0f)
+        assertEquals(10f, free.panX, 0f)
+        assertEquals(-7f, free.panY, 0f)
+    }
+
+    @Test
+    fun aStrictCameraStillCannotPanAtFullExtent() {
+        listOf(GeoPanConstraint.Strict, GeoPanConstraint.Soft).forEach { constraint ->
+            val state = ChartGeoViewportState(panConstraint = constraint)
+            state.panBy(0.4f, 0.4f)
+            if (constraint == GeoPanConstraint.Strict) {
+                // Nothing to pan: the map already fits, and letting the reader
+                // drag it into a corner would be a bug rather than a feature.
+                assertEquals(0f, state.panX, 0f)
+                assertEquals(0f, state.panY, 0f)
+            }
+        }
     }
 }

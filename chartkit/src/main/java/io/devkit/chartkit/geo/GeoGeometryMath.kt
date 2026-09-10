@@ -2,6 +2,7 @@ package io.devkit.chartkit.geo
 
 import kotlin.math.abs
 import kotlin.math.max
+import kotlin.math.sqrt
 
 /**
  * Point-in-polygon, centroids and simplification, in projected space.
@@ -95,10 +96,8 @@ internal object GeoGeometryMath {
      *
      * For a crescent, a horseshoe or a strongly concave county, the area
      * centroid is not inside the shape. That is a property of the centroid, not
-     * a defect here. The fix is a pole of inaccessibility — the point furthest
-     * from any edge — which is a different, iterative algorithm;
-     * [labelPoint] is where it would go, and it is documented as a limitation
-     * until then.
+     * a defect here — and it is why [labelPoint] tests the centroid before
+     * using it and falls back to [interiorPoint] when it lands outside.
      */
     fun centroid(ring: List<ProjectedPoint>): ProjectedPoint? {
         if (ring.size < GeoRing.MIN_RING_POINTS) return null
@@ -136,7 +135,131 @@ internal object GeoGeometryMath {
      */
     fun labelPoint(polygons: List<ProjectedPolygon>): ProjectedPoint? {
         val largest = polygons.maxByOrNull { abs(signedDoubleArea(it.outer)) } ?: return null
-        return centroid(largest.outer)
+        val centroid = centroid(largest.outer)
+        // The centroid is right for the overwhelming majority of regions and
+        // costs one pass, so it is tried first and only replaced when it is
+        // demonstrably wrong — inside a hole, or outside a crescent altogether.
+        if (centroid != null && polygonContains(largest, centroid.x, centroid.y)) return centroid
+        return interiorPoint(largest) ?: centroid
+    }
+
+    /**
+     * A point inside the polygon, as far from its boundary as this can find.
+     *
+     * The pole of inaccessibility: for Norway it is inland rather than in a
+     * fjord, for a horseshoe-shaped county it is in one of the arms rather than
+     * in the gap, and for a doughnut it is in the ring rather than in the hole.
+     * That is the difference between a label that names a region and a label
+     * that appears to name its neighbour.
+     *
+     * ### How
+     *
+     * A coarse grid over the bounding box scored by [signedDistance], then a
+     * fixed number of halving refinements around the best cell. This is the
+     * shape of Mapbox's polylabel without its priority queue: the queue buys a
+     * guaranteed-optimal answer, and a label does not need the optimum — it
+     * needs a point comfortably inside, found in bounded time.
+     *
+     * Bounded work by construction: [GRID] × [GRID] samples plus
+     * [REFINEMENTS] × 8, whatever the vertex count. Computed once per feature,
+     * lazily, and never during a draw pass.
+     *
+     * `null` when no sample lands inside at all, which happens for a polygon
+     * thinner than the grid can resolve — a river drawn as an area, say. The
+     * caller falls back to the centroid.
+     */
+    fun interiorPoint(polygon: ProjectedPolygon): ProjectedPoint? {
+        val box = polygon.bounds
+        if (box.isEmpty) return null
+        val width = box.maxX - box.minX
+        val height = box.maxY - box.minY
+        if (width <= 0.0 || height <= 0.0) return null
+
+        var bestX = Double.NaN
+        var bestY = Double.NaN
+        var bestDistance = 0.0
+
+        for (row in 0 until GRID) {
+            for (column in 0 until GRID) {
+                val x = box.minX + width * (column + 0.5) / GRID
+                val y = box.minY + height * (row + 0.5) / GRID
+                val distance = signedDistance(polygon, x, y)
+                if (distance > bestDistance) {
+                    bestDistance = distance
+                    bestX = x
+                    bestY = y
+                }
+            }
+        }
+        if (bestX.isNaN()) return null
+
+        var step = maxOf(width, height) / GRID
+        repeat(REFINEMENTS) {
+            step /= 2.0
+            for (dy in -1..1) {
+                for (dx in -1..1) {
+                    if (dx == 0 && dy == 0) continue
+                    val x = bestX + dx * step
+                    val y = bestY + dy * step
+                    val distance = signedDistance(polygon, x, y)
+                    if (distance > bestDistance) {
+                        bestDistance = distance
+                        bestX = x
+                        bestY = y
+                    }
+                }
+            }
+        }
+        return ProjectedPoint(bestX, bestY)
+    }
+
+    /**
+     * Distance from the point to the polygon's boundary, positive inside.
+     *
+     * The sign comes from [polygonContains] — which already handles holes — and
+     * the magnitude from the nearest edge of any ring, holes included. A point
+     * near the rim of a hole is therefore *close* to the boundary even though
+     * it is inside the outer ring, which is what stops a label being placed on
+     * the edge of an enclave.
+     */
+    fun signedDistance(polygon: ProjectedPolygon, x: Double, y: Double): Double {
+        var nearest = Double.POSITIVE_INFINITY
+        val rings = ArrayList<List<ProjectedPoint>>(1 + polygon.holes.size)
+        rings += polygon.outer
+        rings += polygon.holes
+        rings.forEach { ring ->
+            for (index in ring.indices) {
+                val current = ring[index]
+                val next = ring[(index + 1) % ring.size]
+                val distance = squaredDistanceToSegment(ProjectedPoint(x, y), current, next)
+                if (distance < nearest) nearest = distance
+            }
+        }
+        if (!nearest.isFinite()) return 0.0
+        val magnitude = sqrt(nearest)
+        return if (polygonContains(polygon, x, y)) magnitude else -magnitude
+    }
+
+    /**
+     * The distance from a point to an **open** path, or infinity for an empty one.
+     *
+     * What selecting a route needs: a line has no interior, so the only
+     * meaningful question is how near the pointer came to it.
+     */
+    fun distanceToPath(points: List<ProjectedPoint>, x: Double, y: Double): Double {
+        if (points.isEmpty()) return Double.POSITIVE_INFINITY
+        if (points.size == 1) {
+            val dx = points[0].x - x
+            val dy = points[0].y - y
+            return sqrt(dx * dx + dy * dy)
+        }
+        val point = ProjectedPoint(x, y)
+        var nearest = Double.POSITIVE_INFINITY
+        for (index in 0 until points.size - 1) {
+            val distance = squaredDistanceToSegment(point, points[index], points[index + 1])
+            if (distance < nearest) nearest = distance
+        }
+        return sqrt(nearest)
     }
 
     /**
@@ -223,6 +346,12 @@ internal object GeoGeometryMath {
 
     /** Below this, two projected coordinates are the same point. */
     const val EPSILON: Double = 1e-12
+
+    /** Samples per axis in [interiorPoint]'s first pass. */
+    private const val GRID: Int = 12
+
+    /** Halving steps [interiorPoint] takes around its best sample. */
+    private const val REFINEMENTS: Int = 10
 }
 
 /** A polygon in projected space: an outer ring and its holes. */

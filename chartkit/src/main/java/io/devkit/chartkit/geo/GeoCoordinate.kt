@@ -166,7 +166,48 @@ data class ProjectedBounds(
         maxY = max(maxY, other.maxY),
     )
 
+    /**
+     * The same box, guaranteed to enclose some area.
+     *
+     * A degenerate axis is opened out symmetrically about its own centre. This
+     * is not a rounding convenience — it is the difference between fitting and
+     * not fitting for whole classes of real map:
+     *
+     * ```text
+     * one city                    → a box of zero width and zero height
+     * cities along one latitude   → a box of zero height
+     * a single boundary segment   → a box of zero width
+     * ```
+     *
+     * Without it, [io.devkit.chartkit.coordinate.GeoCoordinates] reports the
+     * extent empty and the chart shows "no geography" over data it was given.
+     * The opened extent has no natural size — there is no scale in the data to
+     * borrow one from — so it takes the non-degenerate axis where there is one
+     * and [FALLBACK_SPAN] where there is not, which puts the mark in the middle
+     * of the plot at a sane zoom.
+     */
+    fun nonDegenerate(): ProjectedBounds {
+        if (!minX.isFinite() || !minY.isFinite() || !maxX.isFinite() || !maxY.isFinite()) {
+            return this
+        }
+        if (width > 0.0 && height > 0.0) return this
+        val reference = maxOf(width, height).takeIf { it > 0.0 } ?: FALLBACK_SPAN
+        val padX = if (width > 0.0) 0.0 else reference / 2.0
+        val padY = if (height > 0.0) 0.0 else reference / 2.0
+        return ProjectedBounds(minX - padX, minY - padY, maxX + padX, maxY + padY)
+    }
+
     companion object {
+        /**
+         * The span given to a box with no extent at all, in projected units.
+         *
+         * One degree under an equirectangular projection, and of a comparable
+         * order under the others. Arbitrary by necessity: a map of exactly one
+         * point has no scale of its own, and any answer here is a choice rather
+         * than a measurement.
+         */
+        const val FALLBACK_SPAN: Double = 1.0
+
         fun of(points: Iterable<ProjectedPoint>): ProjectedBounds? {
             var minX = Double.POSITIVE_INFINITY
             var minY = Double.POSITIVE_INFINITY

@@ -375,6 +375,21 @@ data class ChartNavigatorColors(
  *   region rather than as a hole in the map.
  * @param label text drawn on a region.
  * @param labelHalo drawn behind a label so it survives a dark fill underneath.
+ * @param land a region on a map with no thematic data — a base map's fill.
+ *   Distinct from [missing], which says a record was *expected* and absent; an
+ *   outline map is not missing anything.
+ * @param background what is drawn behind the geography. The ocean, in other
+ *   words, though ChartKit does not know that: it is whatever is not a feature.
+ *   Off by default — a chart in a card should not paint its own card — and
+ *   turned on by the caller when the map needs to read as a map.
+ * @param route the default colour of a [io.devkit.chartkit.geo.GeoGeometry.LineString]
+ *   drawn as part of a feature collection.
+ * @param point the default fill of a feature's own marker.
+ * @param overlayPoint the default fill of a point or bubble layer's marks, which
+ *   sit *over* the map rather than being part of it — so this is a palette
+ *   colour, not a furniture one.
+ * @param overlayPointOutline drawn around those marks, so a cluster of them
+ *   still resolves into separate circles over a dark region.
  */
 @Immutable
 data class ChartGeoColors(
@@ -383,6 +398,12 @@ data class ChartGeoColors(
     val missingBorder: Color,
     val label: Color,
     val labelHalo: Color,
+    val land: Color,
+    val background: Color,
+    val route: Color,
+    val point: Color,
+    val overlayPoint: Color,
+    val overlayPointOutline: Color,
 )
 
 /**
@@ -583,10 +604,26 @@ data class ChartColors(
     ),
     val geo: ChartGeoColors = ChartGeoColors(
         border = gridLine,
-        missing = heatmap.missing,
+        // A neutral of its own, **not** `heatmap.missing`, which is a very
+        // pale tint meant for a single unshaded cell among many. On a map the
+        // no-data colour sits directly against the low end of the ramp — and a
+        // paler shade of the same hue reads as "lowest", which is the one thing
+        // it must never say. The dark theme has always followed this rule; the
+        // light one now does too.
+        missing = axisLine.copy(alpha = 0.35f),
         missingBorder = gridLine,
         label = axisLabel,
         labelHalo = tooltipContent,
+        // Its own weight, not a tint of `missing`. An outline map's land is the
+        // only thing on the map, so it has to be clearly visible; "no data" is
+        // fainter than this precisely because it sits *beside* shaded regions
+        // and must not compete with them.
+        land = gridLine.copy(alpha = 0.55f),
+        background = Color.Transparent,
+        route = palette.firstOrNull() ?: axisLine,
+        point = palette.firstOrNull() ?: axisLine,
+        overlayPoint = palette.firstOrNull() ?: axisLine,
+        overlayPointOutline = tooltipContent,
     ),
     val set: ChartSetColors = ChartSetColors(
         outline = axisLine,
@@ -991,6 +1028,36 @@ data class ChartDimensions(
     /** Space kept between the geography and the plot's edge. */
     val geoMapPadding: Dp = 12.dp,
 
+    /** A marker belonging to a feature whose geometry is a point. */
+    val geoFeatureMarkerRadius: Dp = 3.dp,
+
+    /** A line feature — a route, a river, a boundary drawn on its own. */
+    val geoRouteWidth: Dp = 1.5.dp,
+
+    /** The default radius of a point-layer mark, when no size encoding is given. */
+    val geoPointRadius: Dp = 5.dp,
+
+    /** The smallest bubble a size encoding may produce. Never zero: a bubble of
+     * radius zero is an absent bubble, and a reader cannot tell "smallest" from
+     * "missing". */
+    val geoMinBubbleRadius: Dp = 3.dp,
+
+    /**
+     * The largest bubble a size encoding may produce.
+     *
+     * Modest on purpose. A bubble map is read by comparing circles against each
+     * other and against the regions under them, and a largest bubble wide
+     * enough to cover a continent stops both — the map becomes a scatter plot
+     * with a decorative background. Raise it for a map of a handful of places.
+     */
+    val geoMaxBubbleRadius: Dp = 15.dp,
+
+    /** The outline around a point-layer mark. */
+    val geoPointOutlineWidth: Dp = 1.dp,
+
+    /** How near a tap must come to a point-layer mark or a route to select it. */
+    val geoSelectionSlop: Dp = 12.dp,
+
     /** The height of a continuous colour-scale legend's ramp bar. */
     val colorLegendBarHeight: Dp = 10.dp,
 
@@ -1262,15 +1329,31 @@ fun materialDerivedChartColors(
             // than a third colour drawn on top, which keeps a dense county map
             // from reading as a grid of outlines.
             border = scheme.surface,
-            // The scheme's own container role, not a tint of the ramp: a
-            // reader must be able to tell "no record" from "lowest value" at a
-            // glance, and a paler shade of the same hue reads as the latter.
-            missing = scheme.surfaceVariant,
+            // A neutral wash, dark enough to read as its own state.
+            //
+            // The rule is that "no record" and "lowest value" must be
+            // distinguishable at a glance. `surfaceVariant` states that
+            // intention but does not achieve it in a light scheme, where it is
+            // very nearly white and sits beside a ramp whose low end is a 12%
+            // tint — two almost-white swatches, one of which claims to mean
+            // something entirely different. Taking the *foreground* role at low
+            // alpha instead gives a grey that is plainly neither the background
+            // nor a step on the ramp, in both schemes.
+            missing = scheme.onSurfaceVariant.copy(alpha = if (isDark) 0.32f else 0.30f),
             missingBorder = scheme.outlineVariant,
             label = scheme.onSurface,
             // The surface itself behind the glyphs, so a label stays legible
             // over the darkest end of the ramp as well as the lightest.
             labelHalo = scheme.surface,
+            // Quieter than [missing], and deliberately so: an outline map's
+            // land is a backdrop that routes and bubbles are read against,
+            // whereas "no data" has to hold its own beside shaded regions.
+            land = scheme.surfaceVariant,
+            background = Color.Transparent,
+            route = palette.firstOrNull() ?: scheme.primary,
+            point = palette.firstOrNull() ?: scheme.primary,
+            overlayPoint = palette.firstOrNull() ?: scheme.primary,
+            overlayPointOutline = scheme.surface,
         ),
         navigator = ChartNavigatorColors(
             window = scheme.primary.copy(alpha = 0.12f),

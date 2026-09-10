@@ -52,6 +52,14 @@ data class ChartSelection<out T>(
     val geo: ChartSelectionDetails.Geo?
         get() = details as? ChartSelectionDetails.Geo
 
+    /** The geographic mark of this selection, or `null` for any other chart. */
+    val geoPoint: ChartSelectionDetails.GeoPoint?
+        get() = details as? ChartSelectionDetails.GeoPoint
+
+    /** The route of this selection, or `null` for any other chart. */
+    val geoRoute: ChartSelectionDetails.GeoRoute?
+        get() = details as? ChartSelectionDetails.GeoRoute
+
     /** The logical region of this selection, or `null` for any other chart. */
     val set: ChartSelectionDetails.Set?
         get() = details as? ChartSelectionDetails.Set
@@ -112,6 +120,47 @@ sealed interface ChartSelectionDetails {
         val properties: io.devkit.chartkit.geo.GeoProperties,
         val hasValue: Boolean,
         val bounds: io.devkit.chartkit.geo.GeoBounds?,
+    ) : ChartSelectionDetails
+
+    /**
+     * A mark on a map that is **not** one of its regions.
+     *
+     * A city on a world map, a store in a sales territory, a sensor in a
+     * catchment. Its identity is a position rather than a boundary, so it
+     * carries a coordinate where [Geo] carries a feature — and it has no
+     * properties bag, because the caller's own record is right there in
+     * [ChartSelection.item].
+     *
+     * @param coordinate where the mark is, in degrees. What a "copy
+     *   coordinates" action or a hand-off to a mapping app needs.
+     * @param label the mark's own name, as the chart's `label` lambda gave it.
+     * @param sizeValue the number behind the mark's radius, when a size
+     *   encoding is in use.
+     * @param colorValue the number behind the mark's colour, when a colour
+     *   encoding is in use. Both are absent when the encoding is not used, and
+     *   both may be absent on a mark whose record had no value for them —
+     *   which is not the same as zero.
+     */
+    data class GeoPoint(
+        val coordinate: io.devkit.chartkit.geo.GeoCoordinate,
+        val label: String,
+        val sizeValue: Double? = null,
+        val colorValue: Double? = null,
+    ) : ChartSelectionDetails
+
+    /**
+     * A route drawn on a map: a path rather than a place.
+     *
+     * @param label the route's own name.
+     * @param coordinates the path as supplied, before projection or any
+     *   antimeridian repair — so a caller reading it back gets what they gave.
+     * @param value the number behind the route's width or colour, when either
+     *   is encoded.
+     */
+    data class GeoRoute(
+        val label: String,
+        val coordinates: List<io.devkit.chartkit.geo.GeoCoordinate>,
+        val value: Double? = null,
     ) : ChartSelectionDetails
 
     /**
