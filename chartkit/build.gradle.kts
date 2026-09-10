@@ -82,7 +82,9 @@ devKitPublishing {
             "donut, radial bar, radar, " +
             "sunburst and gauge on polar ones, with extruded 3D pies and donuts on the " +
             "same scene; treemap, Sankey, funnel and network graphs " +
-            "on planar ones. Axes, logarithmic and symmetric-log scales, secondary value " +
+            "on planar ones; and world maps, choropleths, point, bubble and route maps " +
+            "on geographic ones, reading GeoJSON and TopoJSON with Equal Earth, Mercator " +
+            "and equirectangular projections. Axes, logarithmic and symmetric-log scales, secondary value " +
             "axes, legends, annotations, tooltips, crosshair, tap, scrub, pinch zoom, pan " +
             "and range selection, hierarchical drill-down, linked charts, cross-filtering, " +
             "an overview navigator, custom layers, viewport culling and downsampling for " +

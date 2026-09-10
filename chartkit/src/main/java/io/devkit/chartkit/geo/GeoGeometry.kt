@@ -63,6 +63,39 @@ class GeoRing(val points: List<GeoCoordinate>) {
 }
 
 /**
+ * An open path of coordinates: a route, a river, a boundary drawn on its own.
+ *
+ * Unlike [GeoRing] this does **not** close. That distinction is the whole
+ * difference between a shape and a line — a flight path from Nairobi to Lagos
+ * that closed itself would draw a return leg nobody flew — and it is why a line
+ * is a separate type rather than a ring with a flag.
+ *
+ * @param points at least two positions, or there is no line.
+ */
+class GeoLine(val points: List<GeoCoordinate>) {
+
+    val isValid: Boolean get() = points.size >= MIN_LINE_POINTS
+
+    val bounds: GeoBounds? by lazy(LazyThreadSafetyMode.NONE) { GeoBounds.of(points) }
+
+    companion object {
+        /** One position is a point, not a line. */
+        const val MIN_LINE_POINTS: Int = 2
+
+        /**
+         * A line from a GeoJSON position list, dropping unusable positions.
+         *
+         * The same `NaN` rule [GeoRing.of] applies, for the same reason: one
+         * non-finite position poisons the bounds and every path built from it.
+         * A closing duplicate is **kept** — a route that returns to its origin
+         * is a real route, and it is not a ring.
+         */
+        fun of(points: List<GeoCoordinate>): GeoLine =
+            GeoLine(points.filter { it.longitude.isFinite() && it.latitude.isFinite() })
+    }
+}
+
+/**
  * One polygon: an outer ring and any number of holes.
  *
  * ```text
@@ -90,12 +123,15 @@ class GeoPolygon(val outer: GeoRing, val holes: List<GeoRing> = emptyList()) {
 /**
  * A geographic shape.
  *
- * Four members, matching what a thematic map can actually draw: areas to shade,
- * and points to mark. GeoJSON's `LineString` and `MultiLineString` are absent
- * because a choropleth has nothing to do with them — a road network is a
- * different visualisation, and accepting the type here would mean pretending to
- * support something that silently renders as nothing. A file containing them is
- * reported through [GeoFeatureCollection.skipped] rather than half-drawn.
+ * The seven GeoJSON geometry types, in one closed hierarchy: areas to shade,
+ * lines to trace, points to mark, and a collection that holds a mixture.
+ *
+ * ### One model, whatever the source format was
+ *
+ * Both [GeoJson] and [TopoJson] normalise into exactly these types, which is
+ * what lets the projection, the fit, the layers, the hit test and the label
+ * placement stay unaware of which format the caller loaded. Adding a third
+ * format later means writing a decoder, not touching anything below it.
  */
 sealed interface GeoGeometry {
 
@@ -145,6 +181,41 @@ sealed interface GeoGeometry {
         override fun coordinates(): List<GeoCoordinate> =
             polygons.flatMap { polygon -> polygon.rings.flatMap { it.points } }
     }
+
+    /** One open path — a route, a river, a boundary drawn on its own. */
+    @JvmInline
+    value class LineString(val line: GeoLine) : GeoGeometry {
+        override val isDrawable: Boolean get() = line.isValid
+        override fun coordinates(): List<GeoCoordinate> = line.points
+    }
+
+    /**
+     * Several disconnected paths belonging to **one** feature.
+     *
+     * The line equivalent of [MultiPolygon], and just as much the normal case:
+     * a river with distributaries, a rail network, a coastline broken by
+     * estuaries, or any single line the antimeridian split in two.
+     */
+    @JvmInline
+    value class MultiLineString(val lines: List<GeoLine>) : GeoGeometry {
+        override val isDrawable: Boolean get() = lines.any { it.isValid }
+        override fun coordinates(): List<GeoCoordinate> = lines.flatMap { it.points }
+    }
+
+    /**
+     * A mixture: an area *and* the points or lines that belong with it.
+     *
+     * GeoJSON's `GeometryCollection`. Nesting is permitted by the format and
+     * discouraged by it; the accessors below flatten to any depth regardless,
+     * because a renderer that handled one level and silently dropped the next
+     * is worse than one that handles none.
+     */
+    @JvmInline
+    value class Collection(val geometries: List<GeoGeometry>) : GeoGeometry {
+        override val isDrawable: Boolean get() = geometries.any { it.isDrawable }
+        override fun coordinates(): List<GeoCoordinate> =
+            geometries.flatMap { it.coordinates() }
+    }
 }
 
 /**
@@ -157,12 +228,22 @@ sealed interface GeoGeometry {
 internal fun GeoGeometry.areaPolygons(): List<GeoPolygon> = when (this) {
     is GeoGeometry.Polygon -> listOf(polygon).filter { it.isValid }
     is GeoGeometry.MultiPolygon -> polygons.filter { it.isValid }
-    is GeoGeometry.Point, is GeoGeometry.MultiPoint -> emptyList()
+    is GeoGeometry.Collection -> geometries.flatMap { it.areaPolygons() }
+    else -> emptyList()
 }
 
-/** The positions of a point geometry, or empty for an area geometry. */
+/** The open paths of a line geometry, or empty when there are none. */
+internal fun GeoGeometry.lineStrings(): List<GeoLine> = when (this) {
+    is GeoGeometry.LineString -> listOf(line).filter { it.isValid }
+    is GeoGeometry.MultiLineString -> lines.filter { it.isValid }
+    is GeoGeometry.Collection -> geometries.flatMap { it.lineStrings() }
+    else -> emptyList()
+}
+
+/** The positions of a point geometry, or empty when there are none. */
 internal fun GeoGeometry.markerPoints(): List<GeoCoordinate> = when (this) {
     is GeoGeometry.Point -> listOf(coordinate).filter { it.isValid }
     is GeoGeometry.MultiPoint -> points.filter { it.isValid }
-    is GeoGeometry.Polygon, is GeoGeometry.MultiPolygon -> emptyList()
+    is GeoGeometry.Collection -> geometries.flatMap { it.markerPoints() }
+    else -> emptyList()
 }

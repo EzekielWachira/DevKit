@@ -1,9 +1,14 @@
 package io.devkit.chartkit.geo
 
 import kotlin.math.PI
+import kotlin.math.abs
+import kotlin.math.asin
 import kotlin.math.atan
+import kotlin.math.cos
 import kotlin.math.ln
+import kotlin.math.sin
 import kotlin.math.sinh
+import kotlin.math.sqrt
 import kotlin.math.tan
 
 /**
@@ -70,6 +75,25 @@ interface GeoProjection {
 
         /** Web Mercator, as used by every slippy map. */
         val Mercator: GeoProjection = MercatorProjection()
+
+        /**
+         * Equal Earth: equal-area, and the right default for a world map.
+         *
+         * See [EqualEarthProjection] for why a thematic global map wants an
+         * equal-area projection specifically.
+         */
+        val EqualEarth: GeoProjection = EqualEarthProjection()
+
+        /**
+         * The default for a **global** map: [EqualEarth].
+         *
+         * Separate from [Default] on purpose. A choropleth is usually of one
+         * country, where equirectangular is simpler and its distortion
+         * imperceptible; a world map is read by comparing the shaded areas of
+         * regions on opposite sides of the planet, and that comparison is only
+         * honest under an equal-area projection.
+         */
+        val World: GeoProjection get() = EqualEarth
     }
 }
 
@@ -199,6 +223,138 @@ class MercatorProjection : GeoProjection {
     }
 }
 
+
+/**
+ * Equal Earth.
+ *
+ * ```text
+ * θ = asin(√3/2 · sin φ)
+ * x = λ · cos θ / (√3/2 · (A₁ + 3A₂θ² + θ⁶(7A₃ + 9A₄θ²)))
+ * y = θ · (A₁ + A₂θ² + θ⁶(A₃ + A₄θ²))
+ * ```
+ *
+ * Šavrič, Patterson and Jenny (2018). Equal-area — every region is drawn at a
+ * size proportional to its true size — with a pleasant enough shape that it can
+ * be used for a general world map rather than only for a statistical one.
+ *
+ * ### Why a world choropleth needs an equal-area projection
+ *
+ * A thematic map asks the reader to compare **shaded areas**. Under Mercator,
+ * Greenland is drawn about fourteen times its true size relative to Africa, so
+ * a colour applied to Greenland shouts and the same colour applied to Nigeria
+ * whispers — the projection has silently reweighted the data. Equal Earth
+ * removes that entirely: the area a colour occupies is the area it represents.
+ *
+ * Its predecessor for this purpose is Robinson, which is *not* equal-area and
+ * merely looks reasonable, and Gall–Peters, which is equal-area and looks
+ * dreadful. Equal Earth was designed to be both.
+ *
+ * ### What it distorts
+ *
+ * Shape and angle, mildly, increasingly toward the poles and the map's edges.
+ * That is the unavoidable trade — no projection preserves both area and shape —
+ * and for a statistical map it is the right side of it. Use
+ * [MercatorProjection] when shape or basemap alignment matters more.
+ *
+ * ### The poles
+ *
+ * Ordinary points. `θ` is bounded by `asin(√3/2)` = 60°, so `y` is finite
+ * everywhere and no clamp is needed — unlike Mercator, which has no value at
+ * ±90° at all.
+ */
+class EqualEarthProjection : GeoProjection {
+
+    override val name: String get() = "Equal Earth"
+
+    override fun project(coordinate: GeoCoordinate): ProjectedPoint {
+        if (!coordinate.longitude.isFinite() || !coordinate.latitude.isFinite()) {
+            return NonFinite
+        }
+        val lambda = coordinate.longitude * PI / 180.0
+        val phi = (coordinate.latitude * PI / 180.0).coerceIn(-PI / 2.0, PI / 2.0)
+
+        val theta = asin(M * sin(phi))
+        val theta2 = theta * theta
+        val theta6 = theta2 * theta2 * theta2
+
+        val y = theta * (A1 + A2 * theta2 + theta6 * (A3 + A4 * theta2))
+        val denominator = M * (A1 + 3.0 * A2 * theta2 + theta6 * (7.0 * A3 + 9.0 * A4 * theta2))
+        if (denominator == 0.0) return NonFinite
+        val x = lambda * cos(theta) / denominator
+
+        if (!x.isFinite() || !y.isFinite()) return NonFinite
+        return ProjectedPoint(x, y)
+    }
+
+    /**
+     * The inverse, by Newton–Raphson on `θ`.
+     *
+     * `y(θ)` is a strictly increasing odd polynomial over the whole range `θ`
+     * can take, so the iteration converges from `θ = y` in a handful of steps
+     * and cannot land on the wrong root. The published inverse uses exactly this
+     * method; there is no closed form.
+     */
+    override fun invert(point: ProjectedPoint): GeoCoordinate? {
+        if (!point.isFinite) return null
+
+        var theta = point.y
+        var iterations = 0
+        while (iterations < MAX_INVERSE_ITERATIONS) {
+            val theta2 = theta * theta
+            val theta6 = theta2 * theta2 * theta2
+            val f = theta * (A1 + A2 * theta2 + theta6 * (A3 + A4 * theta2)) - point.y
+            val df = A1 + 3.0 * A2 * theta2 + theta6 * (7.0 * A3 + 9.0 * A4 * theta2)
+            if (df == 0.0) return null
+            val delta = f / df
+            theta -= delta
+            if (abs(delta) < INVERSE_TOLERANCE) break
+            iterations++
+        }
+
+        // Outside the projection's own outline. `null` rather than a clamped
+        // coordinate: "the reader tapped the ocean beyond the map" and "the
+        // reader tapped the edge of Antarctica" are different answers.
+        //
+        // The test is on **theta**, not on its sine. `y(theta)` keeps rising
+        // past the pole, so a point above the map converges to a perfectly real
+        // root — one whose sine happens to fall back inside `[-1, 1]` and would
+        // report a plausible, entirely wrong latitude. `theta` itself cannot
+        // exceed `asin(sqrt(3)/2)` for any coordinate on the globe.
+        if (abs(theta) > MAX_THETA + INVERSE_TOLERANCE) return null
+
+        val sinPhi = (sin(theta) / M).coerceIn(-1.0, 1.0)
+
+        val theta2 = theta * theta
+        val theta6 = theta2 * theta2 * theta2
+        val denominator = cos(theta)
+        if (denominator == 0.0) return null
+        val lambda = point.x * M *
+            (A1 + 3.0 * A2 * theta2 + theta6 * (7.0 * A3 + 9.0 * A4 * theta2)) / denominator
+
+        val latitude = asin(sinPhi) * 180.0 / PI
+        val longitude = lambda * 180.0 / PI
+        if (!latitude.isFinite() || !longitude.isFinite()) return null
+        return GeoCoordinate(longitude, latitude)
+    }
+
+    companion object {
+        /** The published polynomial coefficients. */
+        const val A1: Double = 1.340264
+        const val A2: Double = -0.081106
+        const val A3: Double = 0.000893
+        const val A4: Double = 0.003796
+
+        /** `√3/2`, the sine of the maximum parametric latitude. */
+        val M: Double = sqrt(3.0) / 2.0
+
+        /** `asin(√3/2)` = 60°: the parametric latitude of the poles. */
+        val MAX_THETA: Double = asin(M)
+
+        private const val MAX_INVERSE_ITERATIONS: Int = 12
+        private const val INVERSE_TOLERANCE: Double = 1e-11
+    }
+}
+
 /** What a projection returns for a coordinate it cannot place. */
 private val NonFinite = ProjectedPoint(Double.NaN, Double.NaN)
 
@@ -212,18 +368,38 @@ internal fun GeoProjection.projectRing(ring: GeoRing): List<ProjectedPoint> {
     return result
 }
 
-/** The projected bounding box of a whole collection, or `null` when empty. */
+/**
+ * The projected bounding box of a geographic box, or `null` when empty.
+ *
+ * ### Why the edges are sampled and not just the corners
+ *
+ * Corners are enough only for a projection whose `x` is monotonic in latitude,
+ * which Mercator and equirectangular happen to be and [EqualEarthProjection] is
+ * not: its meridians bow outward, so the widest point of a box spanning the
+ * equator is on the equator, not at a corner. Taking corners alone would return
+ * a box about 40% too narrow for a whole-world extent, and "focus on this
+ * region" would then zoom past it.
+ *
+ * Sampling the four edges finds it. That is correct for any projection which is
+ * monotonic *along* each edge — every projection here, and every sane one —
+ * without requiring each to declare which of its arguments it is monotonic in.
+ *
+ * Runs once per fit or focus request, never per frame, so the extra arithmetic
+ * is not on any hot path.
+ */
 internal fun GeoProjection.projectedBounds(bounds: GeoBounds): ProjectedBounds? {
-    // Corners are not enough in general — Mercator's y is non-linear in
-    // latitude — but it *is* monotonic in both arguments for both projections
-    // here, so the extremes of the box are the extremes of its corners. A
-    // projection that broke that would need to override this; it is internal
-    // precisely so it can be changed when one does.
-    val corners = listOf(
-        GeoCoordinate(bounds.minLongitude, bounds.minLatitude),
-        GeoCoordinate(bounds.maxLongitude, bounds.minLatitude),
-        GeoCoordinate(bounds.minLongitude, bounds.maxLatitude),
-        GeoCoordinate(bounds.maxLongitude, bounds.maxLatitude),
-    )
-    return ProjectedBounds.of(corners.map { project(it) })
+    val samples = ArrayList<ProjectedPoint>((EDGE_SAMPLES + 1) * 4)
+    for (step in 0..EDGE_SAMPLES) {
+        val t = step.toDouble() / EDGE_SAMPLES
+        val longitude = bounds.minLongitude + bounds.longitudeSpan * t
+        val latitude = bounds.minLatitude + bounds.latitudeSpan * t
+        samples += project(GeoCoordinate(longitude, bounds.minLatitude))
+        samples += project(GeoCoordinate(longitude, bounds.maxLatitude))
+        samples += project(GeoCoordinate(bounds.minLongitude, latitude))
+        samples += project(GeoCoordinate(bounds.maxLongitude, latitude))
+    }
+    return ProjectedBounds.of(samples)
 }
+
+/** Samples per box edge. Enough to catch a bowed meridian, cheap enough to ignore. */
+private const val EDGE_SAMPLES: Int = 16

@@ -14,6 +14,41 @@ import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.geo.GeoBounds
 
 /**
+ * How far the reader may drag the geography off the plot.
+ *
+ * A map is not a scrollable document: dragging it until it is off screen leaves
+ * the reader looking at nothing, with no indication of which way to drag back.
+ * So panning is bounded — and the only real question is how hard.
+ */
+enum class GeoPanConstraint {
+
+    /**
+     * The geography's edges may not come inside the plot. The default.
+     *
+     * Zoomed out there is nothing to pan at all, because the map already fits;
+     * zoomed in, the limit is exactly how far the enlarged map extends past the
+     * plot's edge. The reader can never see past the map.
+     */
+    Strict,
+
+    /**
+     * As [Strict], plus a margin of the plot's own size.
+     *
+     * Room to drag a coastal region away from the edge so a tooltip or a label
+     * near it has somewhere to go, without ever losing the map entirely.
+     */
+    Soft,
+
+    /**
+     * Unbounded.
+     *
+     * For a caller doing their own framing — an animated tour, a synchronised
+     * pair of maps — where ChartKit's idea of "too far" would fight theirs.
+     */
+    None,
+}
+
+/**
  * A map's camera: how far in, and where.
  *
  * ```kotlin
@@ -48,6 +83,7 @@ class ChartGeoViewportState internal constructor(
     initialPanX: Float = 0f,
     initialPanY: Float = 0f,
     maxZoom: Float = DEFAULT_MAX_ZOOM,
+    val panConstraint: GeoPanConstraint = GeoPanConstraint.Strict,
 ) {
 
     /** Magnification. `1` fits the whole geometry into the plot. */
@@ -120,11 +156,39 @@ class ChartGeoViewportState internal constructor(
         this.panY = clampPan(panY, this.zoom)
     }
 
+    /**
+     * Sets the zoom directly, keeping the geography under the focus in place.
+     *
+     * The absolute form of [zoomBy], for a caller driving the camera from a
+     * slider or a stepper rather than from a pinch. Expressed as a factor
+     * relative to the current zoom, so the anchoring is identical and there is
+     * one implementation of it.
+     */
+    fun zoomTo(zoom: Float, focusX: Float = 0.5f, focusY: Float = 0.5f) {
+        if (!zoom.isFinite() || zoom <= 0f) return
+        val target = zoom.coerceIn(MIN_ZOOM, maxZoom)
+        if (this.zoom <= 0f) return
+        zoomBy(target / this.zoom, focusX, focusY)
+    }
+
     /** Fits the whole map again. */
     fun reset() {
         zoom = MIN_ZOOM
         panX = 0f
         panY = 0f
+    }
+
+    /**
+     * Fits the whole geometry into the plot.
+     *
+     * The same thing as [reset], and named separately because it is the same
+     * thing for a reason worth stating: zoom `1` on a map **is** the fit, since
+     * [io.devkit.chartkit.coordinate.GeoCoordinates] scales the projected
+     * extent to the plot before the camera is applied. There is no separate
+     * "fitted" state that could drift out of step with the camera.
+     */
+    fun fitToGeometry() {
+        reset()
     }
 
     /**
@@ -192,7 +256,9 @@ class ChartGeoViewportState internal constructor(
      */
     private fun clampPan(value: Float, atZoom: Float): Float {
         if (!value.isFinite()) return 0f
-        val limit = ((atZoom - 1f) / 2f).coerceAtLeast(0f)
+        if (panConstraint == GeoPanConstraint.None) return value
+        val edge = ((atZoom - 1f) / 2f).coerceAtLeast(0f)
+        val limit = if (panConstraint == GeoPanConstraint.Soft) edge + SOFT_MARGIN else edge
         return value.coerceIn(-limit, limit)
     }
 
@@ -204,6 +270,9 @@ class ChartGeoViewportState internal constructor(
         const val DEFAULT_MAX_ZOOM: Float = 12f
 
         private const val ZOOM_EPSILON: Float = 1e-4f
+
+        /** How far past the strict edge [GeoPanConstraint.Soft] allows. */
+        private const val SOFT_MARGIN: Float = 0.25f
     }
 }
 
@@ -212,7 +281,10 @@ class ChartGeoViewportState internal constructor(
 fun rememberChartGeoViewportState(
     initialZoom: Float = ChartGeoViewportState.MIN_ZOOM,
     maxZoom: Float = ChartGeoViewportState.DEFAULT_MAX_ZOOM,
-): ChartGeoViewportState = remember { ChartGeoViewportState(initialZoom, maxZoom = maxZoom) }
+    panConstraint: GeoPanConstraint = GeoPanConstraint.Strict,
+): ChartGeoViewportState = remember(panConstraint) {
+    ChartGeoViewportState(initialZoom, maxZoom = maxZoom, panConstraint = panConstraint)
+}
 
 /**
  * A [ChartGeoViewportState] that survives configuration changes.
@@ -224,7 +296,9 @@ fun rememberChartGeoViewportState(
 fun rememberSaveableChartGeoViewportState(
     initialZoom: Float = ChartGeoViewportState.MIN_ZOOM,
     maxZoom: Float = ChartGeoViewportState.DEFAULT_MAX_ZOOM,
+    panConstraint: GeoPanConstraint = GeoPanConstraint.Strict,
 ): ChartGeoViewportState = rememberSaveable(
+    panConstraint,
     saver = listSaver(
         save = { listOf(it.zoom, it.panX, it.panY) },
         restore = { saved ->
@@ -233,9 +307,10 @@ fun rememberSaveableChartGeoViewportState(
                 initialPanX = saved[1],
                 initialPanY = saved[2],
                 maxZoom = maxZoom,
+                panConstraint = panConstraint,
             )
         },
     ),
 ) {
-    ChartGeoViewportState(initialZoom, maxZoom = maxZoom)
+    ChartGeoViewportState(initialZoom, maxZoom = maxZoom, panConstraint = panConstraint)
 }

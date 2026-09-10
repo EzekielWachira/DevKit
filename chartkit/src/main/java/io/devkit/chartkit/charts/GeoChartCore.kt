@@ -20,11 +20,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -48,6 +51,7 @@ import io.devkit.chartkit.geo.ProjectedBounds
 import io.devkit.chartkit.geo.projectedBounds
 import io.devkit.chartkit.geometry.ChartOffset
 import io.devkit.chartkit.geometry.ChartRect
+import io.devkit.chartkit.interaction.GeoInteraction
 import io.devkit.chartkit.interaction.HitTestMode
 import io.devkit.chartkit.layer.ChartLayerRenderer
 import io.devkit.chartkit.layer.ChartRenderContext
@@ -102,10 +106,9 @@ internal fun GeoChartCore(
     legendTitle: String?,
     missingLabel: String?,
     animation: ChartAnimation,
-    tapSelects: Boolean,
+    interaction: GeoInteraction,
     clearOnTapOutside: Boolean,
-    panEnabled: Boolean,
-    zoomEnabled: Boolean,
+    background: Color,
     state: ChartState<Any?>,
     valueFormatter: ChartValueFormatter,
     accessibility: ChartAccessibility,
@@ -161,10 +164,9 @@ internal fun GeoChartCore(
                         extent = extent,
                         viewportState = viewportState,
                         animation = animation,
-                        tapSelects = tapSelects,
+                        interaction = interaction,
                         clearOnTapOutside = clearOnTapOutside,
-                        panEnabled = panEnabled,
-                        zoomEnabled = zoomEnabled,
+                        background = background,
                         state = state,
                         valueFormatter = valueFormatter,
                         accessibility = accessibility,
@@ -195,10 +197,9 @@ private fun GeoPlot(
     extent: ProjectedBounds,
     viewportState: ChartGeoViewportState,
     animation: ChartAnimation,
-    tapSelects: Boolean,
+    interaction: GeoInteraction,
     clearOnTapOutside: Boolean,
-    panEnabled: Boolean,
-    zoomEnabled: Boolean,
+    background: Color,
     state: ChartState<Any?>,
     valueFormatter: ChartValueFormatter,
     accessibility: ChartAccessibility,
@@ -302,10 +303,32 @@ private fun GeoPlot(
         }
     }
 
+    // **Backwards**, so the layer drawn last is tested first. Layers are drawn
+    // bottom-up — base map, then choropleth, then routes, then marks — and a
+    // tap must select what the reader can actually see at that point. Testing
+    // forwards would let the base map under a bubble swallow every tap meant
+    // for the bubble.
     fun select(point: ChartOffset): AnyChartSelection? = renderers
+        .asReversed()
         .firstNotNullOfOrNull { it.hitTest(point, renderContext, HitTestMode.Contains) }
 
     val interactive = !renderMode.isStatic
+    val tapSelects = interaction.select
+    val panEnabled = interaction.pan
+    val zoomEnabled = interaction.zoom
+
+    fun applySelection(hit: AnyChartSelection?) {
+        when {
+            hit != null && hit != state.selection -> {
+                state.selection = hit
+                onSelectionChanged?.invoke(hit)
+            }
+            hit == null && clearOnTapOutside && state.selection != null -> {
+                state.clearSelection()
+                onSelectionChanged?.invoke(null)
+            }
+        }
+    }
 
     Box(
         Modifier
@@ -319,29 +342,36 @@ private fun GeoPlot(
                     if (!interactive || !tapSelects) {
                         Modifier
                     } else {
-                        Modifier.pointerInput(coordinates, renderers) {
+                        Modifier.pointerInput(coordinates, renderers, interaction.doubleTapZoom) {
                             detectTapGestures(
                                 onTap = { offset ->
-                                    val hit = select(ChartOffset(offset.x, offset.y))
-                                    when {
-                                        hit != null && hit != state.selection -> {
-                                            state.selection = hit
-                                            onSelectionChanged?.invoke(hit)
-                                        }
-                                        hit == null && clearOnTapOutside -> {
-                                            state.clearSelection()
-                                            onSelectionChanged?.invoke(null)
+                                    applySelection(select(ChartOffset(offset.x, offset.y)))
+                                },
+                                // Installed only when the caller asked for it.
+                                // `detectTapGestures` withholds `onTap` for the
+                                // whole double-tap window while a double-tap
+                                // handler exists, so this shortcut costs every
+                                // *single* tap roughly a third of a second —
+                                // which is why `GeoInteraction.doubleTapZoom`
+                                // defaults to off and this stays `null`.
+                                onDoubleTap = if (!interaction.doubleTapZoom || !zoomEnabled) {
+                                    null
+                                } else {
+                                    { offset ->
+                                        val width = size.width.toFloat()
+                                        val height = size.height.toFloat()
+                                        if (width > 0f && height > 0f) {
+                                            // About the tapped point, so the
+                                            // place the reader aimed at stays
+                                            // under their finger.
+                                            viewportState.zoomBy(
+                                                factor = DOUBLE_TAP_ZOOM,
+                                                focusX = offset.x / width,
+                                                focusY = offset.y / height,
+                                            )
                                         }
                                     }
                                 },
-                                // Deliberately no double-tap-to-reset.
-                                // `detectTapGestures` withholds `onTap` for the
-                                // whole double-tap window when a double-tap
-                                // handler exists, so supporting the shortcut
-                                // would delay *every* region selection by
-                                // roughly a third of a second. Reset is on the
-                                // `0` key, and `ChartGeoViewportState.reset()`
-                                // is one line for a button.
                             )
                         }
                     },
@@ -397,6 +427,37 @@ private fun GeoPlot(
                     },
                 )
                 .then(
+                    // Hover, where there is a pointer that can hover. A mouse
+                    // or a stylus moving over the map selects what is under it
+                    // through the *same* hit test a tap uses, so a desktop
+                    // reader and a touch reader are looking at the same
+                    // selection model rather than two that drifted apart.
+                    if (!interactive || !interaction.hover || !tapSelects) {
+                        Modifier
+                    } else {
+                        Modifier.pointerInput(coordinates, renderers) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    val event = awaitPointerEvent(PointerEventPass.Main)
+                                    when (event.type) {
+                                        PointerEventType.Move -> {
+                                            val position = event.changes.lastOrNull()?.position
+                                            if (position != null) {
+                                                applySelection(
+                                                    select(ChartOffset(position.x, position.y)),
+                                                )
+                                            }
+                                        }
+                                        PointerEventType.Exit ->
+                                            if (clearOnTapOutside) applySelection(null)
+                                        else -> Unit
+                                    }
+                                }
+                            }
+                        }
+                    },
+                )
+                .then(
                     if (!interactive || !(zoomEnabled || panEnabled)) {
                         Modifier
                     } else {
@@ -427,6 +488,11 @@ private fun GeoPlot(
                 },
         ) {
             if (!coordinates.isDrawable) return@Canvas
+            // Behind the geography and inside the plot: what a reader reads as
+            // the ocean, though ChartKit does not know that — it is simply
+            // whatever is not a feature. Transparent by default, because a
+            // chart sitting in a card should not paint over the card.
+            if (background.alpha > 0f) drawRect(background)
             renderers.forEach { it.draw(this, renderContext) }
         }
 
@@ -449,3 +515,6 @@ private const val KEY_PAN: Float = 0.1f
 
 /** How much one `+` or `-` press zooms. */
 private const val KEY_ZOOM: Float = 1.25f
+
+/** How much one double tap zooms, when the shortcut is turned on. */
+private const val DOUBLE_TAP_ZOOM: Float = 2f

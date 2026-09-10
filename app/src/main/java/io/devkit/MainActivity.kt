@@ -89,6 +89,7 @@ import io.devkit.fillkit.scenarioPack
 import io.devkit.chartdemo.ChartExploreScreen
 import io.devkit.chartdemo.RadialChart3DScreen
 import io.devkit.chartdemo.Scatter3DScreen
+import io.devkit.chartdemo.WorldMapScreen
 import io.devkit.chartdemo.ChartAccessibilityScreen
 import io.devkit.chartdemo.ChartAdvancedScreen
 import io.devkit.chartdemo.ChartComboScreen
@@ -567,6 +568,12 @@ private enum class SampleScreen(
         SampleKit.ChartKit,
         "A choropleth over the sample's own GeoJSON",
     ),
+    WorldMaps(
+        "World maps",
+        "W",
+        SampleKit.ChartKit,
+        "GeoJSON and TopoJSON, projections, points, bubbles, routes and layers",
+    ),
     ChartSets(
         "Set relationships",
         "V",
@@ -754,6 +761,7 @@ private fun FillKitSampleApp() {
                 SampleScreen.Chart3D -> Chart3DScreen(Modifier.padding(padding))
                 SampleScreen.RadialChart3D -> RadialChart3DScreen(Modifier.padding(padding))
                 SampleScreen.Scatter3D -> Scatter3DScreen(Modifier.padding(padding))
+                SampleScreen.WorldMaps -> WorldMapScreen(Modifier.padding(padding))
                 SampleScreen.ChartAdvanced -> ChartAdvancedScreen(Modifier.padding(padding))
             }
         }

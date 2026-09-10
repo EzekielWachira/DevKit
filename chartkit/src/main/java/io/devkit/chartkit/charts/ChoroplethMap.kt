@@ -4,6 +4,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import io.devkit.chartkit.accessibility.ChartAccessibility
 import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.components.legend.LegendPosition
@@ -14,9 +15,10 @@ import io.devkit.chartkit.geo.GeoFeatureCollection
 import io.devkit.chartkit.geo.GeoProjection
 import io.devkit.chartkit.geo.ProjectedGeometry
 import io.devkit.chartkit.geo.toBounds
-import io.devkit.chartkit.layer.geo.ChoroplethLayer
-import io.devkit.chartkit.layer.geo.FeatureStyle
+import io.devkit.chartkit.interaction.GeoInteraction
+import io.devkit.chartkit.layer.geo.GeoFeatureStyle
 import io.devkit.chartkit.layer.geo.GeoLabels
+import io.devkit.chartkit.layer.geo.MapLayer
 import io.devkit.chartkit.model.ChartSelection
 import io.devkit.chartkit.model.ChartTooltipData
 import io.devkit.chartkit.render.ChartRenderMode
@@ -167,6 +169,7 @@ fun <T> ChoroplethMap(
     panEnabled: Boolean = true,
     tapSelects: Boolean = true,
     clearOnTapOutside: Boolean = true,
+    background: Color = Color.Unspecified,
     valueFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
     animation: ChartAnimation = ChartAnimation.Default,
     accessibility: ChartAccessibility = ChartAccessibility.Auto,
@@ -210,13 +213,13 @@ fun <T> ChoroplethMap(
         scale ?: ColorScale.Quantile(values, listOf(heatmap.low, heatmap.high))
     }
 
-    val styles: Map<Int, FeatureStyle> = remember(projected, join, effectiveScale, featureLabel) {
+    val styles: Map<Int, GeoFeatureStyle> = remember(projected, join, effectiveScale, featureLabel) {
         buildMap {
             projected.features.forEach { feature ->
                 val row = join.rows.getOrNull(feature.index)
                 put(
                     feature.index,
-                    FeatureStyle(
+                    GeoFeatureStyle(
                         value = row?.value,
                         fill = effectiveScale.colorAt(row?.value),
                         label = featureLabel(feature.feature),
@@ -228,7 +231,13 @@ fun <T> ChoroplethMap(
         }
     }
 
-    val extent = remember(projected) { projected.bounds.toBounds() }
+    val extent = remember(projected) { projected.bounds.toBounds()?.nonDegenerate() }
+
+    // `Unspecified` means "the theme decides", which for a choropleth is
+    // nothing at all — a thematic map of counties has no ocean to paint, and a
+    // chart in a card should not paint over the card.
+    val geoColors = io.devkit.chartkit.theme.ChartKitTheme.colors.geo
+    val resolvedBackground = if (background == Color.Unspecified) geoColors.background else background
 
     // Published so a caller can focus a region by name without holding the
     // projection themselves.
@@ -239,7 +248,7 @@ fun <T> ChoroplethMap(
     GeoChartCore(
         layers = {
             listOf(
-                ChoroplethLayer(
+                MapLayer(
                     id = "choropleth",
                     geometry = projected,
                     styles = styles,
@@ -259,10 +268,17 @@ fun <T> ChoroplethMap(
         legendTitle = legendTitle,
         missingLabel = missingLabel,
         animation = animation,
-        tapSelects = tapSelects,
+        // The four long-standing booleans, gathered into the one value the
+        // engine now takes. They stay on `ChoroplethMap`'s own signature: this
+        // chart shipped with them, and a caller who wants the fuller
+        // configuration reaches for `GeoChart`.
+        interaction = GeoInteraction(
+            select = tapSelects,
+            zoom = zoomEnabled,
+            pan = panEnabled,
+        ),
         clearOnTapOutside = clearOnTapOutside,
-        panEnabled = panEnabled,
-        zoomEnabled = zoomEnabled,
+        background = resolvedBackground,
         state = state.asErased(),
         valueFormatter = valueFormatter,
         accessibility = accessibility,

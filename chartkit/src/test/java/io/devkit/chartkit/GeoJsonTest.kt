@@ -1,5 +1,6 @@
 package io.devkit.chartkit
 
+import io.devkit.chartkit.geo.GeoCoordinate
 import io.devkit.chartkit.geo.GeoGeometry
 import io.devkit.chartkit.geo.GeoJson
 import io.devkit.chartkit.geo.GeoJsonException
@@ -169,12 +170,16 @@ class GeoJsonTest {
 
     @Test
     fun anUnsupportedGeometryIsSkippedAndReported() {
+        // `Circle` is not a GeoJSON geometry. It stands in here for the whole
+        // class of things a file can claim to contain that RFC 7946 does not
+        // define — every type the format *does* define is now read, so an
+        // unsupported one has to be invented to test the reporting path.
         val text = """
             {
               "type": "FeatureCollection",
               "features": [
-                { "type": "Feature", "id": "line", "properties": {},
-                  "geometry": { "type": "LineString", "coordinates": [[0,0],[1,1]] } },
+                { "type": "Feature", "id": "blob", "properties": {},
+                  "geometry": { "type": "Circle", "coordinates": [[0,0],[1,1]] } },
                 { "type": "Feature", "id": "ok", "properties": {},
                   "geometry": { "type": "Polygon",
                     "coordinates": [[[0,0],[1,0],[1,1],[0,0]]] } }
@@ -184,13 +189,37 @@ class GeoJsonTest {
 
         val collection = GeoJson.parse(text)
 
-        // The usable feature survives. A file with one road in it is still a
-        // usable set of regions, and refusing the whole file would be a worse
-        // answer than drawing what it does contain and saying what it skipped.
+        // The usable feature survives. A file with one unreadable shape in it
+        // is still a usable set of regions, and refusing the whole file would
+        // be a worse answer than drawing what it does contain and saying what
+        // it skipped.
         assertEquals(1, collection.features.size)
         assertEquals("ok", collection.features.first().id)
         assertEquals(1, collection.skipped.size)
-        assertEquals("line", collection.skipped.first().identifier)
+        assertEquals("blob", collection.skipped.first().identifier)
+    }
+
+    @Test
+    fun aLineStringIsReadRatherThanSkipped() {
+        val text = """
+            { "type": "FeatureCollection", "features": [
+              { "type": "Feature", "id": "route", "properties": {},
+                "geometry": { "type": "LineString", "coordinates": [[0,0],[1,1],[2,3]] } }
+            ]}
+        """.trimIndent()
+
+        val collection = GeoJson.parse(text)
+
+        // Lines used to be reported as unsupported, because a choropleth cannot
+        // shade one. They are read now, because a route layer can draw one and
+        // the parser's job is to preserve what the file said — a file carrying
+        // both country outlines and shipping lanes should not have to be loaded
+        // twice.
+        assertTrue(collection.skipped.isEmpty())
+        val geometry = collection.features.single().geometry
+        assertTrue(geometry is GeoGeometry.LineString)
+        assertEquals(3, (geometry as GeoGeometry.LineString).line.points.size)
+        assertEquals(GeoCoordinate(2.0, 3.0), geometry.line.points.last())
     }
 
     @Test
@@ -198,7 +227,7 @@ class GeoJsonTest {
         val text = """
             { "type": "FeatureCollection", "features": [
               { "type": "Feature", "properties": {},
-                "geometry": { "type": "LineString", "coordinates": [[0,0],[1,1]] } }
+                "geometry": { "type": "Circle", "coordinates": [[0,0],[1,1]] } }
             ]}
         """.trimIndent()
 

@@ -57,13 +57,18 @@ class GeoJsonException(message: String) : IllegalArgumentException(message)
  *
  * ```text
  * FeatureCollection · Feature
- * Polygon · MultiPolygon · Point · MultiPoint
+ * Point · MultiPoint · LineString · MultiLineString
+ * Polygon · MultiPolygon · GeometryCollection
  * ```
  *
- * A bare geometry object is also accepted and read as a single unlabelled
- * feature. `LineString`, `MultiLineString` and `GeometryCollection` are
- * reported as skipped: a choropleth cannot shade a line, and silently rendering
- * nothing would look like a bug in the data.
+ * Every GeoJSON geometry type, in other words. A bare geometry object is also
+ * accepted and read as a single unlabelled feature.
+ *
+ * Which of them a given *layer* draws is a separate question: a choropleth
+ * shades areas and ignores lines, and a route layer does the reverse. That
+ * split is deliberate — the parser's job is to preserve what the file said, and
+ * a file carrying both country outlines and shipping lanes should not have to
+ * be loaded twice.
  *
  * ### Parse once, off the composition
  *
@@ -172,14 +177,34 @@ object GeoJson {
         into += GeoParseIssue(index, id, reason)
     }
 
-    /** One geometry object, or `null` when its type is not one a map can shade. */
+    /** One geometry object, or `null` when its type is not a GeoJSON geometry. */
     internal fun readGeometry(obj: JsonValue.Obj): GeoGeometry? {
+        val type = (obj["type"] as? JsonValue.Text)?.value
+
+        // A GeometryCollection has "geometries" where every other type has
+        // "coordinates", so it is answered before the coordinates are required.
+        if (type == "GeometryCollection") {
+            val members = obj["geometries"] as? JsonValue.Arr ?: return null
+            val parsed = members.values.mapNotNull { element ->
+                readGeometry(element as? JsonValue.Obj ?: return@mapNotNull null)
+            }
+            return if (parsed.isEmpty()) null else GeoGeometry.Collection(parsed)
+        }
+
         val coordinates = obj["coordinates"] as? JsonValue.Arr ?: return null
-        return when ((obj["type"] as? JsonValue.Text)?.value) {
+        return when (type) {
             "Point" -> readPosition(coordinates)?.let(GeoGeometry::Point)
 
             "MultiPoint" -> GeoGeometry.MultiPoint(
                 coordinates.values.mapNotNull { readPosition(it as? JsonValue.Arr ?: return@mapNotNull null) },
+            )
+
+            "LineString" -> readLine(coordinates)?.let(GeoGeometry::LineString)
+
+            "MultiLineString" -> GeoGeometry.MultiLineString(
+                coordinates.values.mapNotNull { element ->
+                    readLine(element as? JsonValue.Arr ?: return@mapNotNull null)
+                },
             )
 
             "Polygon" -> readPolygon(coordinates)?.let(GeoGeometry::Polygon)
@@ -192,6 +217,14 @@ object GeoJson {
 
             else -> null
         }
+    }
+
+    /** One open path. `null` when it has fewer than two usable positions. */
+    private fun readLine(array: JsonValue.Arr): GeoLine? {
+        val line = GeoLine.of(
+            array.values.mapNotNull { readPosition(it as? JsonValue.Arr ?: return@mapNotNull null) },
+        )
+        return line.takeIf { it.isValid }
     }
 
     /**

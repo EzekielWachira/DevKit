@@ -21,19 +21,32 @@ internal class ProjectedFeature(
     val feature: GeoFeature,
     val polygons: List<ProjectedPolygon>,
     val markers: List<ProjectedPoint>,
+    val lines: List<List<ProjectedPoint>> = emptyList(),
 ) {
     val bounds: ProjectedBox = ProjectedBox.union(
-        polygons.map { it.bounds } + listOf(ProjectedBox.of(markers)),
+        polygons.map { it.bounds } + lines.map { ProjectedBox.of(it) } +
+            listOf(ProjectedBox.of(markers)),
     )
 
-    /** Where a label for this feature belongs, or `null` when it has no area. */
+    /**
+     * Where a label for this feature belongs, or `null` when there is nowhere.
+     *
+     * Areas first, then a line's midpoint, then a marker. A feature with all
+     * three — a country, its coastline and its capital — is labelled on the
+     * country, which is what a reader expects.
+     */
     val labelPoint: ProjectedPoint? by lazy(LazyThreadSafetyMode.NONE) {
-        GeoGeometryMath.labelPoint(polygons) ?: markers.firstOrNull()
+        GeoGeometryMath.labelPoint(polygons)
+            ?: lines.firstOrNull { it.isNotEmpty() }?.let { it[it.size / 2] }
+            ?: markers.firstOrNull()
     }
 
-    val vertexCount: Int get() = polygons.sumOf { it.vertexCount } + markers.size
+    val vertexCount: Int
+        get() = polygons.sumOf { it.vertexCount } + lines.sumOf { it.size } + markers.size
 
-    val isDrawable: Boolean get() = polygons.any { it.isValid } || markers.isNotEmpty()
+    val isDrawable: Boolean
+        get() = polygons.any { it.isValid } || markers.isNotEmpty() ||
+            lines.any { it.size >= GeoLine.MIN_LINE_POINTS }
 
     /**
      * True when [x], [y] is inside any of the feature's polygons and outside
@@ -46,6 +59,33 @@ internal class ProjectedFeature(
     fun contains(x: Double, y: Double): Boolean {
         if (!bounds.contains(x, y)) return false
         return polygons.any { GeoGeometryMath.polygonContains(it, x, y) }
+    }
+
+    /**
+     * How far the nearest line or marker of this feature is from the point.
+     *
+     * A line has no interior, so "inside" is not a question that can be asked
+     * of a route — it is selected by being **near** the pointer instead, which
+     * is why this returns a distance and [contains] returns a verdict. The
+     * caller supplies the tolerance, because how near is near enough is a
+     * question about fingers and pixels, not about geometry.
+     *
+     * [Double.POSITIVE_INFINITY] when the feature has neither lines nor
+     * markers, so a caller can compare the result without a null check.
+     */
+    fun distanceToStrokes(x: Double, y: Double): Double {
+        var best = Double.POSITIVE_INFINITY
+        lines.forEach { line ->
+            val distance = GeoGeometryMath.distanceToPath(line, x, y)
+            if (distance < best) best = distance
+        }
+        markers.forEach { marker ->
+            val dx = marker.x - x
+            val dy = marker.y - y
+            val distance = kotlin.math.sqrt(dx * dx + dy * dy)
+            if (distance < best) best = distance
+        }
+        return best
     }
 }
 
@@ -97,7 +137,14 @@ internal class ProjectedGeometry(
         ): ProjectedGeometry {
             if (collection.features.isEmpty()) return Empty
 
-            val projected = collection.features.mapIndexedNotNull { index, feature ->
+            // Repaired **before** projection, because by the time a ring is
+            // projected the fact that two vertices were neighbours is gone, and
+            // with it any chance of telling a wrap from a journey. Features
+            // that do not cross ±180° come back by identity, so the ordinary
+            // case pays one subtraction per vertex and allocates nothing.
+            val safe = AntimeridianProcessor.process(collection)
+
+            val projected = safe.features.mapIndexedNotNull { index, feature ->
                 val polygons = feature.geometry.areaPolygons().mapNotNull { polygon ->
                     val outer = projection.projectRing(polygon.outer).simplifiedTo(simplification)
                     if (outer.size < GeoRing.MIN_RING_POINTS) {
@@ -111,14 +158,22 @@ internal class ProjectedGeometry(
                         )
                     }
                 }
+                val lines = feature.geometry.lineStrings().mapNotNull { line ->
+                    val points = line.points
+                        .map(projection::project)
+                        .filter { it.isFinite }
+                        .simplifiedTo(simplification)
+                    points.takeIf { it.size >= GeoLine.MIN_LINE_POINTS }
+                }
+
                 val markers = feature.geometry.markerPoints()
                     .map(projection::project)
                     .filter { it.isFinite }
 
-                if (polygons.isEmpty() && markers.isEmpty()) {
+                if (polygons.isEmpty() && lines.isEmpty() && markers.isEmpty()) {
                     null
                 } else {
-                    ProjectedFeature(index, feature, polygons, markers)
+                    ProjectedFeature(index, feature, polygons, markers, lines)
                 }
             }
 
