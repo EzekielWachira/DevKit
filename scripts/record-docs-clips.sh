@@ -42,6 +42,7 @@ echo "==> Installing the app and its instrumentation"
 mkdir -p "$OUT"
 
 for clip in "${CLIPS[@]}"; do
+ for scheme in light dark; do
   # Named explicitly rather than derived. A rule that turns `clipCamera3D` into
   # something readable has to know that "3D" is one word, and a rule that knows
   # that is longer than the list.
@@ -59,8 +60,9 @@ for clip in "${CLIPS[@]}"; do
       exit 1
       ;;
   esac
+  [ "$scheme" = "dark" ] && suffix="-dark" || suffix=""
   echo
-  echo "==> $name"
+  echo "==> $name$suffix"
 
   adb shell rm -f "$DEVICE_MP4" || true
 
@@ -78,7 +80,8 @@ for clip in "${CLIPS[@]}"; do
   sleep 1
 
   LOG=$(mktemp)
-  ( adb shell am instrument -w -e class "$CLASS#$clip" \
+  adb logcat -c || true
+  ( adb shell am instrument -w -e class "$CLASS#$clip" -e dark "$([ "$scheme" = dark ] && echo true || echo false)" \
       "$TEST_ID/androidx.test.runner.AndroidJUnitRunner" > "$LOG" 2>&1 ) &
   INSTRUMENTATION=$!
 
@@ -97,14 +100,28 @@ for clip in "${CLIPS[@]}"; do
     exit 1
   fi
 
-  # 720p-ish and 4 Mbps: small enough to serve on a documentation page, sharp
-  # enough to read an axis label. The default 20 Mbps at full resolution
-  # produces files far too large to put in a repository.
-  adb shell screenrecord --size 720x1560 --bit-rate 4000000 --time-limit 40 "$DEVICE_MP4" &
+  # 480 wide at 1.5 Mbps. The clips are shown about 300px across, so anything
+  # larger is bytes the reader downloads and never sees — and two schemes are
+  # recorded, so the size is paid twice. The default is 20 Mbps at full
+  # resolution, which produces files far too large to put in a repository.
+  adb shell screenrecord --size 480x1040 --bit-rate 1500000 --time-limit 40 "$DEVICE_MP4" &
   RECORDER=$!
 
   wait $INSTRUMENTATION || true
   tail -4 "$LOG"
+
+  # The test reports the scheme it actually rendered. Trusting the flag alone is
+  # how four correctly *named* dark clips came to contain light recordings: the
+  # argument never reached the test, everything passed, and the only symptom was
+  # a white phone playing in the middle of a dark page.
+  if ! adb logcat -d -s DocsClip:I 2>/dev/null | grep -q "scheme=$scheme"; then
+    echo "error: asked for $scheme but the test did not report rendering it" >&2
+    echo "       (a stale test APK on the device will do this)" >&2
+    adb shell pkill -INT -f screenrecord || true
+    rm -f "$LOG"
+    exit 1
+  fi
+
   if ! grep -q "^OK" "$LOG"; then
     echo "error: $clip did not pass; not keeping its recording" >&2
     adb shell pkill -INT -f screenrecord || true
@@ -117,11 +134,22 @@ for clip in "${CLIPS[@]}"; do
   # leaves an unplayable file.
   adb shell pkill -INT -f screenrecord || true
   wait $RECORDER 2>/dev/null || true
-  sleep 2
 
-  adb pull "$DEVICE_MP4" "$OUT/$name.mp4" > /dev/null
-  printf '    %-24s %s\n' "$name.mp4" "$(du -h "$OUT/$name.mp4" | cut -f1)"
+  # Then wait, properly. Started again too soon, `screenrecord` comes back with
+  # an encoder that produces a file of the right length and duration containing
+  # nothing at all — no error, no warning, just a blank phone. Recording eight
+  # clips back to back, the last pair came out empty every time and the same
+  # clip recorded on its own was fine. Five seconds is enough for the emulator
+  # to let go of the encoder.
+  sleep 5
+
+  adb pull "$DEVICE_MP4" "$OUT/$name$suffix.mp4" > /dev/null
+  printf '    %-40s %s\n' "$name$suffix.mp4" "$(du -h "$OUT/$name$suffix.mp4" | cut -f1)"
+ done
 done
 
 echo
 echo "==> $(find "$OUT" -name '*.mp4' | wc -l | tr -d ' ') clips in $OUT/"
+echo
+echo "Watch them before committing. A blank recording is a valid MP4 of the"
+echo "right length, and nothing else in this pipeline can tell the difference."
