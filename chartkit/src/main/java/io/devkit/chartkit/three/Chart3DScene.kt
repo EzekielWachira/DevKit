@@ -63,7 +63,7 @@ class Chart3DObject(
 /** What an object is for, which decides how it is coloured and whether it is selectable. */
 enum class Chart3DRole {
 
-    /** A data mark: a column segment today. */
+    /** A data mark: a column segment, a pie sector, a scatter point. */
     Data,
 
     /** A wall or floor of the plot frame. */
@@ -144,11 +144,38 @@ data class Chart3DLighting(
 class Chart3DScene(
     val objects: List<Chart3DObject>,
     val lighting: Chart3DLighting = Chart3DLighting.Default,
+    /**
+     * Point marks: observations drawn as glyphs rather than as surfaces.
+     *
+     * A second list rather than a second kind of [Chart3DObject], because the
+     * two are genuinely different downstream — a face is culled by its normal
+     * and clipped as a polygon, a mark has neither — and pretending otherwise
+     * would put an `if` inside the projection loop that runs once per face of
+     * every column chart in the library for the benefit of a chart type that
+     * has no faces. They rejoin at the only place it matters:
+     * [Chart3DProjectionResult.items], where they are sorted together.
+     */
+    val marks: List<Chart3DMark> = emptyList(),
 ) {
-    /** The box every object occupies, or `null` for an empty scene. */
+    /**
+     * The box the scene occupies, or `null` when it holds nothing.
+     *
+     * Marks contribute their **positions** and not their radii, because a
+     * radius is in screen pixels and the bounds are in world units. The
+     * consequence is that a fit measures the cloud rather than the drawn discs,
+     * so an outermost marker is half clipped by the plot edge unless the
+     * caller reserves room for it — which is exactly what
+     * [Chart3DReserve] is, and what the scatter layer passes.
+     */
     val bounds: Bounds3D? by lazy(LazyThreadSafetyMode.NONE) {
-        objects.map { it.geometry.bounds }.reduceOrNull { a, b -> a.union(b) }
+        val fromObjects = objects.map { it.geometry.bounds }.reduceOrNull { a, b -> a.union(b) }
+        val fromMarks = Bounds3D.of(marks.filter { !it.isDegenerate }.map { it.position })
+        when {
+            fromObjects == null -> fromMarks
+            fromMarks == null -> fromObjects
+            else -> fromObjects.union(fromMarks)
+        }
     }
 
-    val isEmpty: Boolean get() = objects.isEmpty()
+    val isEmpty: Boolean get() = objects.isEmpty() && marks.isEmpty()
 }

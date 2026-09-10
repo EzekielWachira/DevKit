@@ -52,6 +52,16 @@ value class ChartAxisId(val value: String) {
         val DefaultY: ChartAxisId = ChartAxisId("default-y")
 
         /**
+         * The depth axis of a true 3D Cartesian chart.
+         *
+         * Named like the other two rather than identified by position in a
+         * list, for exactly the reason in this file's own header: a scatter
+         * that found its Z scale by index would rebind to a different quantity
+         * the first time an axis was declared above it.
+         */
+        val DefaultZ: ChartAxisId = ChartAxisId("default-z")
+
+        /**
          * The second value axis, for charts declared through
          * `secondaryValueAxis` rather than through the axis DSL.
          *

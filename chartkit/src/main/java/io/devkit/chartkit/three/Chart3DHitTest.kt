@@ -39,6 +39,64 @@ object Chart3DHitTest {
     }
 
     /**
+     * The front-most data mark under ([x], [y]), or `null`.
+     *
+     * [marks] must be in the projector's back-to-front order, and the search
+     * runs backwards for exactly the reason [faceAt] does: the last one drawn
+     * is the one on top. That is what makes §67 hold — of two observations
+     * overlapping on screen, the one the reader can see wins the tap — without
+     * a second notion of depth, because the order was produced by the same
+     * camera-space `z` the renderer drew from.
+     *
+     * @param slop extra pixels of reach around each disc. A marker is six to
+     *   twelve pixels across and a fingertip is forty; requiring a pixel-exact
+     *   tap on one would make a touch scatter chart unusable, and the whole
+     *   cost of being generous is that a tap in the gap between two adjacent
+     *   points resolves to the nearer-to-the-reader of them rather than to
+     *   nothing.
+     */
+    fun markAt(
+        marks: List<ProjectedMark>,
+        x: Double,
+        y: Double,
+        slop: Double = 0.0,
+    ): ProjectedMark? {
+        for (index in marks.indices.reversed()) {
+            val mark = marks[index]
+            if (mark.key == null) continue
+            if (mark.contains(x, y, slop)) return mark
+        }
+        return null
+    }
+
+    /**
+     * The front-most data item under ([x], [y]) across faces **and** marks.
+     *
+     * What a chart holding both should ask. Searching one list and then the
+     * other would answer with whichever kind was searched first rather than
+     * with whichever is actually in front, and the mistake would only show
+     * where a marker and a surface overlap — which on a scatter chart with a
+     * frame is most of the plot.
+     */
+    fun itemAt(
+        items: List<Projected3D>,
+        x: Double,
+        y: Double,
+        slop: Double = 0.0,
+    ): Projected3D? {
+        for (index in items.indices.reversed()) {
+            val item = items[index]
+            if (item.key == null) continue
+            val hit = when (item) {
+                is ProjectedFace -> contains(item.points, x, y)
+                is ProjectedMark -> item.contains(x, y, slop)
+            }
+            if (hit) return item
+        }
+        return null
+    }
+
+    /**
      * True when ([x], [y]) is inside the convex polygon [points].
      *
      * A sign test on the cross product of each edge with the vector to the

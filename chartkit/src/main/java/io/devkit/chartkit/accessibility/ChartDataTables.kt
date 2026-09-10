@@ -177,6 +177,80 @@ fun <T> columns3DDataTable(
 }
 
 /**
+ * A true 3D scatter as rows: series, X, Y, Z.
+ *
+ * ### Three columns, because there are three measurements
+ *
+ * The whole claim of a 3D scatter is that x, y and z are equally real
+ * variables. A table that reported two of them, or that folded the third into a
+ * note, would contradict the picture it accompanies — and it is the table, not
+ * the picture, that a reader using a screen reader is actually working from.
+ *
+ * Nothing here mentions a camera, a projection, a marker or a depth order.
+ * Those are rendering choices: a table reporting them would change its contents
+ * every time somebody turned the chart, for data that had not moved.
+ *
+ * ```kotlin
+ * ChartDataTableView(
+ *     table = scatter3DDataTable(
+ *         series = listOf(ChartSeries("control", "Control", control)),
+ *         x = { it.age },
+ *         y = { it.income },
+ *         z = { it.score },
+ *         xColumn = "Age",
+ *         yColumn = "Income",
+ *         zColumn = "Satisfaction",
+ *     ),
+ * )
+ * ```
+ *
+ * @param size an optional fourth column, for a chart that encodes size.
+ * @param xFormatter, [yFormatter] and [zFormatter] each dimension's own
+ *   formatter, so the table rounds the way its axis does.
+ */
+@Suppress("LongParameterList")
+fun <T> scatter3DDataTable(
+    series: List<ChartSeries<T>>,
+    x: (T) -> Number?,
+    y: (T) -> Number?,
+    z: (T) -> Number?,
+    size: ((T) -> Number?)? = null,
+    xFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
+    yFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
+    zFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
+    sizeFormatter: ChartValueFormatter = ChartValueFormatter.Raw,
+    caption: String? = null,
+    seriesColumn: String = "Series",
+    xColumn: String = "X",
+    yColumn: String = "Y",
+    zColumn: String = "Z",
+    sizeColumn: String = "Size",
+): ChartDataTable {
+    val multiSeries = series.size > 1
+    val columns = buildList {
+        if (multiSeries) add(seriesColumn)
+        add(xColumn)
+        add(yColumn)
+        add(zColumn)
+        if (size != null) add(sizeColumn)
+    }
+    val rows = series.flatMap { source ->
+        source.data.map { item ->
+            buildList {
+                if (multiSeries) add(source.name.ifBlank { source.id })
+                add(x(item)?.toDouble()?.let(xFormatter::format) ?: "no value")
+                add(y(item)?.toDouble()?.let(yFormatter::format) ?: "no value")
+                add(z(item)?.toDouble()?.let(zFormatter::format) ?: "no value")
+                if (size != null) {
+                    add(size(item)?.toDouble()?.let(sizeFormatter::format) ?: "no value")
+                }
+            }
+        }
+    }
+    return ChartDataTable(columns = columns, rows = rows, caption = caption)
+}
+
+/**
  * A pie or donut as rows: category, value, share.
  *
  * ### Why the share is a column and not a footnote

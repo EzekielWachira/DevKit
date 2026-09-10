@@ -56,6 +56,10 @@ data class ChartSelection<out T>(
     val set: ChartSelectionDetails.Set?
         get() = details as? ChartSelectionDetails.Set
 
+    /** The X/Y/Z coordinates of this selection, or `null` for any other chart. */
+    val cartesian3D: ChartSelectionDetails.Cartesian3D?
+        get() = details as? ChartSelectionDetails.Cartesian3D
+
     /** The x value as a label, for tooltips and accessibility text. */
     val xLabel: String
         get() = when (val value = x) {
@@ -158,6 +162,47 @@ sealed interface ChartSelectionDetails {
         val label: String,
         val startAngle: Float,
         val sweepAngle: Float,
+    ) : ChartSelectionDetails
+
+    /**
+     * One observation in a true X/Y/Z Cartesian 3D chart.
+     *
+     * ### Three values, and no camera
+     *
+     * The three coordinates are the caller's own numbers, each formatted by its
+     * own axis. Nothing here says where the point ended up on screen, how deep
+     * it was, or which other points were in front of it: a camera position is
+     * presentation, and a selection that reported it would be handing an
+     * application a fact about ChartKit's drawing rather than about the data.
+     * [ChartSelection.position] already carries the one screen quantity a
+     * caller legitimately needs — where to anchor a tooltip.
+     *
+     * [ChartSelection.y] carries the same number as [y] here, so a chart-level
+     * tooltip that knows nothing about three dimensions still shows something
+     * true rather than nothing. The extra two are what make a 3D tooltip
+     * possible without a second selection type.
+     *
+     * @param xTitle, [yTitle] and [zTitle] the axis names, so a tooltip can
+     *   write `Age: 34` rather than `X: 34` without resolving the axes again.
+     * @param formattedX, [formattedY] and [formattedZ] each value through its
+     *   own axis formatter and unit — the same text the axis labels use, so a
+     *   tooltip cannot round differently from the ticks beside it.
+     * @param size the value the marker's size encodes, or `null` when size is
+     *   not encoding anything.
+     * @param colorValue the value the marker's colour encodes, or `null`.
+     */
+    data class Cartesian3D(
+        val x: Double,
+        val y: Double,
+        val z: Double,
+        val xTitle: String?,
+        val yTitle: String?,
+        val zTitle: String?,
+        val formattedX: String,
+        val formattedY: String,
+        val formattedZ: String,
+        val size: Double? = null,
+        val colorValue: Double? = null,
     ) : ChartSelectionDetails
 }
 

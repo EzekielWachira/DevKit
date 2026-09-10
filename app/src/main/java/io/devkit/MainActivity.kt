@@ -88,6 +88,7 @@ import io.devkit.fillkit.personaPack
 import io.devkit.fillkit.scenarioPack
 import io.devkit.chartdemo.ChartExploreScreen
 import io.devkit.chartdemo.RadialChart3DScreen
+import io.devkit.chartdemo.Scatter3DScreen
 import io.devkit.chartdemo.ChartAccessibilityScreen
 import io.devkit.chartdemo.ChartAdvancedScreen
 import io.devkit.chartdemo.ChartComboScreen
@@ -596,6 +597,12 @@ private enum class SampleScreen(
         SampleKit.ChartKit,
         "Extruded slices, exploded selection and centre content under a camera",
     ),
+    Scatter3D(
+        "3D scatter",
+        "S",
+        SampleKit.ChartKit,
+        "True X/Y/Z observations, draggable camera, sphere markers and guides",
+    ),
     ChartAdvanced(
         "Advanced",
         "X",
@@ -746,6 +753,7 @@ private fun FillKitSampleApp() {
                 SampleScreen.ChartCombo -> ChartComboScreen(Modifier.padding(padding))
                 SampleScreen.Chart3D -> Chart3DScreen(Modifier.padding(padding))
                 SampleScreen.RadialChart3D -> RadialChart3DScreen(Modifier.padding(padding))
+                SampleScreen.Scatter3D -> Scatter3DScreen(Modifier.padding(padding))
                 SampleScreen.ChartAdvanced -> ChartAdvancedScreen(Modifier.padding(padding))
             }
         }

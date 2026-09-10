@@ -53,6 +53,7 @@ import io.devkit.chartkit.three.Chart3DSideWall
 import io.devkit.chartkit.three.Column3DArrangement
 import io.devkit.chartkit.three.COLUMN_3D_AUTO_DEPTH
 import io.devkit.chartkit.three.Chart3DDepth
+import io.devkit.chartkit.three.Chart3DSceneDepth
 import io.devkit.chartkit.three.Vector3D
 import kotlinx.coroutines.launch
 import java.util.Locale
@@ -76,6 +77,7 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
     var rotationY by remember { mutableFloatStateOf(Chart3DCamera.DEFAULT_ROTATION_Y.toFloat()) }
     var distance by remember { mutableFloatStateOf(Chart3DCamera.DEFAULT_DISTANCE.toFloat()) }
     var depth by remember { mutableFloatStateOf(COLUMN_3D_AUTO_DEPTH.toFloat()) }
+    var sceneDepth by remember { mutableFloatStateOf(1f) }
     var selectionText by remember { mutableStateOf("") }
 
     val animation = if (animate) ChartAnimation.Default else ChartAnimation.None
@@ -85,6 +87,13 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
         Chart3DProjection.Perspective()
     }
     val whole = remember { ChartNumberFormatters.integer(Locale.UK) }
+    // One is the depth the content occupies, which is what Auto means — so the
+    // slider at its left-hand end is exactly the chart every other demo draws.
+    val sceneDepthPolicy = if (sceneDepth <= 1f) {
+        Chart3DSceneDepth.Auto
+    } else {
+        Chart3DSceneDepth.Relative(sceneDepth.toDouble())
+    }
 
     val camera = rememberChart3DCameraState(
         rotationX = rotationX.toDouble(),
@@ -300,6 +309,52 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
                 modifier = chartModifier,
             )
 
+            ThreeDDemo.ColorByPoint -> ColumnChart3D(
+                data = ThreeDDemoData.sales,
+                category = { it.month },
+                value = { it.total },
+                seriesName = "Sales",
+                // The palette walks the categories rather than the series. A
+                // single-series chart is where it earns its keep: twelve
+                // identical blue columns tell the reader nothing the axis has
+                // not already said.
+                colorByPoint = true,
+                valueAxis = ChartAxis(title = "Units"),
+                categoryAxis = ChartAxis(title = "Month"),
+                cameraState = camera,
+                projection = projection,
+                sceneDepth = sceneDepthPolicy,
+                depth = Chart3DDepth.Relative(depth.toDouble()),
+                animation = animation,
+                valueFormatter = whole,
+                onSelectionChanged = { selectionText = describe(it?.xLabel, it?.y, whole) },
+                modifier = chartModifier,
+            )
+
+            ThreeDDemo.SceneDepth -> ColumnChart3D(
+                series = harvest,
+                category = { it.fruit },
+                value = { it.count },
+                grouping = BarGrouping.Stacked,
+                stack = households,
+                arrangement = Column3DArrangement.Depth,
+                valueAxis = ChartAxis(title = "Picked"),
+                cameraState = camera,
+                projection = projection,
+                sceneDepth = sceneDepthPolicy,
+                depth = Chart3DDepth.Relative(depth.toDouble()),
+                frame = Chart3DFrame(
+                    floor = true,
+                    back = true,
+                    side = Chart3DSideWall.Auto,
+                    grid = Chart3DFrameGrid.Both,
+                ),
+                animation = animation,
+                valueFormatter = whole,
+                onSelectionChanged = { selectionText = describe(it?.xLabel, it?.y, whole) },
+                modifier = chartModifier,
+            )
+
             ThreeDDemo.Lighting -> ColumnChart3D(
                 series = harvest,
                 category = { it.fruit },
@@ -435,7 +490,8 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
         LabelledSlider("Pitch", rotationX, -5f..70f) { rotationX = it }
         LabelledSlider("Yaw", rotationY, -55f..55f) { rotationY = it }
         LabelledSlider("Distance", distance, 1.6f..8f) { distance = it }
-        LabelledSlider("Depth", depth, 0.2f..1.6f) { depth = it }
+        LabelledSlider("Column depth", depth, 0.2f..1.6f) { depth = it }
+        LabelledSlider("Scene depth", sceneDepth, 1f..4f) { sceneDepth = it }
 
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(
@@ -455,6 +511,7 @@ fun Chart3DScreen(modifier: Modifier = Modifier) {
                     rotationY = Chart3DCamera.DEFAULT_ROTATION_Y.toFloat()
                     distance = Chart3DCamera.DEFAULT_DISTANCE.toFloat()
                     depth = COLUMN_3D_AUTO_DEPTH.toFloat()
+                    sceneDepth = 1f
                     scope.launch { interactiveCamera.animateTo(Chart3DCamera.Presentation) }
                 },
                 modifier = Modifier.testTag("three-d-reset"),
@@ -563,6 +620,18 @@ internal enum class ThreeDDemo(val label: String, val description: String) {
         "Drag to turn the chart, pinch to move closer, and tap to select. Off by " +
             "default elsewhere: a chart at an angle nobody chose is a chart two " +
             "readers see differently.",
+    ),
+    ColorByPoint(
+        "Colour by point",
+        "One series, one palette colour per category. The legend, the tooltip and " +
+            "the announcement still say which series a column belongs to — colour " +
+            "by point changes the palette, never the identity.",
+    ),
+    SceneDepth(
+        "Scene depth",
+        "The room, not the columns. The scene-depth slider deepens the volume the " +
+            "chart stands in and leaves every box exactly as thick as it was; the " +
+            "column-depth slider does the opposite.",
     ),
     Lighting(
         "Custom lighting",

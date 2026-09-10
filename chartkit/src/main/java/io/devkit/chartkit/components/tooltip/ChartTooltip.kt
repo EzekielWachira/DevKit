@@ -123,4 +123,82 @@ fun <T> ChartTooltip(
     }
 }
 
+/**
+ * The tooltip for a true X/Y/Z chart: three axes, three values.
+ *
+ * ### Why the default tooltip is not enough here
+ *
+ * [ChartTooltip] shows an x label and a value, which is a complete description
+ * of a bar and two thirds of a description of a 3D observation. A reader who
+ * taps a point in a cloud is asking where it is, and "82" answers that only if
+ * they already know which of the three variables is being reported.
+ *
+ * Each number goes through **its own** axis formatter and unit, taken from the
+ * selection itself — so `Age: 34`, `Income: $82,000` and `Satisfaction: 76 %`
+ * read the same way the ticks beside them do, and a chart cannot round one
+ * value differently in the tooltip from on the axis.
+ *
+ * Falls back to [ChartTooltip] for a selection that is not three-dimensional,
+ * so a caller can pass this to any chart without checking first.
+ */
+@Composable
+fun <T> Chart3DTooltip(
+    data: ChartTooltipData<T>,
+    modifier: Modifier = Modifier,
+    showSeriesName: Boolean = data.isMultiSeries,
+) {
+    val detail = data.selection.cartesian3D
+    if (detail == null) {
+        ChartTooltip(data = data, modifier = modifier)
+        return
+    }
+    val colors = ChartKitTheme.colors
+    val typography = ChartKitTheme.typography
+    val dimensions = ChartKitTheme.dimensions
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(dimensions.tooltipCornerRadius))
+            .background(colors.tooltipContainer)
+            .padding(dimensions.tooltipPadding),
+        verticalArrangement = Arrangement.spacedBy(2.dp),
+    ) {
+        if (showSeriesName) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Spacer(
+                    Modifier
+                        .size(dimensions.legendIndicatorSize * 0.7f)
+                        .clip(CircleShape)
+                        .background(colors.seriesColor(data.selection.seriesIndex)),
+                )
+                Spacer(Modifier.width(dimensions.labelPadding))
+                Text(
+                    text = data.selection.seriesName.ifBlank { data.selection.seriesId },
+                    style = typography.tooltipTitle,
+                    color = colors.tooltipContent,
+                )
+            }
+        }
+        listOf(
+            (detail.xTitle ?: "X") to detail.formattedX,
+            (detail.yTitle ?: "Y") to detail.formattedY,
+            (detail.zTitle ?: "Z") to detail.formattedZ,
+        ).forEach { (label, value) ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = "$label:",
+                    style = typography.tooltipValue,
+                    color = colors.tooltipContent,
+                )
+                Spacer(Modifier.width(dimensions.labelPadding))
+                Text(
+                    text = value,
+                    style = typography.tooltipTitle,
+                    color = colors.tooltipContent,
+                )
+            }
+        }
+    }
+}
+
 private val PERCENT_FORMAT = java.text.DecimalFormat("0.#")

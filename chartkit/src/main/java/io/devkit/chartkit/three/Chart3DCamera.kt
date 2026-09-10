@@ -151,6 +151,26 @@ data class Chart3DCamera(
         /** Equal angles on both axes: the classic technical-drawing view. */
         val Isometric: Chart3DCamera = Chart3DCamera(rotationX = 30.0, rotationY = 30.0)
 
+        /**
+         * Looking down on the plot: the X/Z plane, read like a map.
+         *
+         * Not straight down. At exactly 90° the vertical axis collapses to a
+         * point and a 3D scatter loses one of its three variables entirely,
+         * with nothing on screen to say so; a few degrees short keeps the Y
+         * extent visible as a hint that it is being foreshortened rather than
+         * ignored.
+         */
+        val Top: Chart3DCamera = Chart3DCamera(rotationX = 78.0, rotationY = 0.0)
+
+        /**
+         * Looking along the X axis: the Y/Z plane, square on.
+         *
+         * The counterpart to [Front]. Between the two a reader can check a
+         * point's height against one axis at a time, which is the closest a 3D
+         * plot gets to the exactness of two 2D ones.
+         */
+        val Side: Chart3DCamera = Chart3DCamera(rotationX = 10.0, rotationY = 62.0)
+
         /** A wider turn and a nearer camera, for a slide rather than a dashboard. */
         val Presentation: Chart3DCamera =
             Chart3DCamera(rotationX = 22.0, rotationY = 32.0, distance = 2.4)
@@ -210,6 +230,27 @@ data class Chart3DCameraLimits(
             rotationX = 12.0..85.0,
             rotationY = -30.0..30.0,
             distance = 1.6..12.0,
+        )
+
+        /**
+         * Limits for a true 3D Cartesian plot, where turning it is the point.
+         *
+         * Freer than [Default] in both directions, because a scatter is
+         * explored rather than read: the whole reason to rotate a point cloud
+         * is to look along a different pair of axes, and a reader stopped at
+         * 60° of yaw cannot get behind the cloud to see what the near points
+         * were hiding. Still bounded, and both bounds are real. The floor at
+         * zero keeps the reader above the floor plane — from underneath, the
+         * frame that gives the points their reference is between the reader and
+         * the data. The yaw stops short of a quarter turn on each side so the
+         * X and Z axes never trade places on screen, which §116 asks for: a
+         * reader who has turned the chart should still be able to say which
+         * direction is which.
+         */
+        val Cartesian3D: Chart3DCameraLimits = Chart3DCameraLimits(
+            rotationX = 0.0..82.0,
+            rotationY = -85.0..85.0,
+            distance = 1.4..14.0,
         )
 
         /** Anything the maths can represent. For a caller who means it. */

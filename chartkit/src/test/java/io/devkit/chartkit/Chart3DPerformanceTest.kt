@@ -244,7 +244,172 @@ class Chart3DPerformanceTest {
         }
     }
 
+    // ---- 3D scatter --------------------------------------------------------
+
+    /**
+     * §189 and §191, as a property: a camera drag reuses every world point.
+     *
+     * The cloud is built once and handed to two projectors. Neither can reach
+     * back into it, and the assertion is on identity rather than on equality —
+     * a pipeline that recomputed the three scales per pointer frame would
+     * produce equal points and would be the thing this test exists to catch.
+     */
+    @Test
+    fun `a scatter camera move reuses every world point`() {
+        val (scene, marks) = scatterScene(points = 2_000)
+        val before = scene.marks
+        val a = projector(scene, Chart3DCamera(rotationX = 20.0, rotationY = 15.0))
+        val b = projector(scene, Chart3DCamera(rotationX = 45.0, rotationY = -35.0))
+        a.project(scene)
+        b.project(scene)
+        assertSame("the mark list must survive a reprojection", before, scene.marks)
+        marks.forEachIndexed { index, mark ->
+            assertSame(mark, scene.marks[index])
+            assertSame(mark.position, scene.marks[index].position)
+        }
+    }
+
+    /** A parallel projection draws every marker at the size it was given. */
+    @Test
+    fun `orthographic marker sizes do not depend on the point count or the depth`() {
+        val (scene, _) = scatterScene(points = 500)
+        val result = Chart3DProjector.of(
+            scene,
+            Chart3DCamera(rotationX = 30.0, rotationY = 30.0),
+            Chart3DProjection.Orthographic,
+            plot,
+        )!!.project(scene)
+        assertEquals(1, result.marks.map { it.radius }.distinct().size)
+    }
+
+    /**
+     * §188: the projection pass at three representative sizes.
+     *
+     * Printed, never asserted, for the reason at the top of this file. What the
+     * numbers are good for is a comparison against each other — the pass should
+     * be close to linear in the point count, and a change that made it
+     * quadratic would show up here long before it showed up as a stutter.
+     */
+    @Test
+    fun `measure the scatter projection pass`() {
+        val camera = Chart3DCamera(rotationX = 25.0, rotationY = 30.0)
+        listOf(100, 1_000, 10_000).forEach { points ->
+            val (scene, _) = scatterScene(points)
+            val projector = projector(scene, camera)
+            // Warmed immediately before its own run: warming once for every
+            // size charges the first case with the JIT the others benefit
+            // from, and the first case is the small one.
+            repeat(WARMUP) { projector.project(scene) }
+            val start = System.nanoTime()
+            repeat(RUNS) { projector.project(scene) }
+            val perPass = (System.nanoTime() - start) / RUNS / 1000.0
+            val result = projector.project(scene)
+            println(
+                "3D scatter projection: $points points — " +
+                    "${result.diagnostics.renderedMarks} drawn, " +
+                    "${result.diagnostics.renderedFaces} frame faces, " +
+                    "%.1f microseconds per pass".format(perPass),
+            )
+        }
+    }
+
+    /** §188: what a tap costs, with and without the screen-space index. */
+    @Test
+    fun `measure scatter hit testing`() {
+        val camera = Chart3DCamera(rotationX = 25.0, rotationY = 30.0)
+        listOf(100, 1_000, 10_000).forEach { points ->
+            val (scene, _) = scatterScene(points)
+            val marks = projector(scene, camera).project(scene).marks
+            val index = io.devkit.chartkit.layer.three.MarkIndex.of(marks)!!
+            val probes = marks.filterIndexed { i, _ -> i % 7 == 0 }.map { it.center }
+
+            repeat(WARMUP) { probes.forEach { io.devkit.chartkit.three.Chart3DHitTest.markAt(marks, it.x, it.y, 12.0) } }
+            var start = System.nanoTime()
+            repeat(RUNS / 10) {
+                probes.forEach { io.devkit.chartkit.three.Chart3DHitTest.markAt(marks, it.x, it.y, 12.0) }
+            }
+            val perScan = (System.nanoTime() - start) / (RUNS / 10) / probes.size / 1000.0
+
+            repeat(WARMUP) { probes.forEach { index.candidates(it.x, it.y, 12.0) } }
+            start = System.nanoTime()
+            repeat(RUNS / 10) { probes.forEach { index.candidates(it.x, it.y, 12.0) } }
+            val perIndexed = (System.nanoTime() - start) / (RUNS / 10) / probes.size / 1000.0
+
+            println(
+                "3D scatter hit test: $points points — " +
+                    "%.2f microseconds per full scan, ".format(perScan) +
+                    "%.2f microseconds per indexed lookup".format(perIndexed),
+            )
+        }
+    }
+
+    /** §188: what building the cloud's world positions costs. */
+    @Test
+    fun `measure the scatter world build`() {
+        listOf(100, 1_000, 10_000).forEach { points ->
+            repeat(WARMUP / 4) { scatterScene(points) }
+            val runs = (RUNS / 10).coerceAtLeast(1)
+            val start = System.nanoTime()
+            repeat(runs) { scatterScene(points) }
+            val perBuild = (System.nanoTime() - start) / runs / 1000.0
+            println(
+                "3D scatter world build: $points points — " +
+                    "%.1f microseconds per build".format(perBuild),
+            )
+        }
+    }
+
     // ---- helpers ----------------------------------------------------------
+
+    /**
+     * A deterministic point cloud, in the same three-scale pipeline the layer
+     * uses — so what is measured is the real path and not a synthetic one.
+     */
+    private fun scatterScene(
+        points: Int,
+    ): Pair<Chart3DScene, List<io.devkit.chartkit.three.Chart3DMark>> {
+        fun scale(min: Double, max: Double) = io.devkit.chartkit.scale.LinearScale(
+            io.devkit.chartkit.scale.NumericDomain(min, max),
+            rangeStart = 0f,
+            rangeEnd = 1f,
+        )
+        val coordinates = io.devkit.chartkit.three.Cartesian3DCoordinates(
+            xScale = scale(18.0, 80.0),
+            yScale = scale(20_000.0, 200_000.0),
+            zScale = scale(0.0, 100.0),
+            box = io.devkit.chartkit.three.Chart3DPlotBox(
+                width = plot.width.toDouble(),
+                height = plot.height.toDouble(),
+                depth = plot.height.toDouble(),
+            ),
+        )
+        val marks = ArrayList<io.devkit.chartkit.three.Chart3DMark>(points)
+        for (index in 0 until points) {
+            // A cheap deterministic spread: three coprime strides, so the cloud
+            // fills the box without a random source the run could vary by.
+            val position = coordinates.worldOf(
+                x = 18.0 + (index * 37 % 620) / 10.0,
+                y = 20_000.0 + (index * 53 % 1800) * 100.0,
+                z = (index * 29 % 1000) / 10.0,
+            ) ?: continue
+            marks += io.devkit.chartkit.three.Chart3DMark(
+                position = position,
+                radius = 5.0,
+                marker = io.devkit.chartkit.three.Marker3D.Sphere,
+                key = io.devkit.chartkit.three.Chart3DKey(
+                    seriesId = "observations",
+                    categoryIndex = index,
+                    category = "",
+                    stackId = "observations",
+                    pointIndex = index,
+                ),
+            )
+        }
+        val frame = io.devkit.chartkit.three.Chart3DFrame.Auto
+            .panelsFor(coordinates.volume, Chart3DCamera(rotationX = 25.0, rotationY = 30.0))
+        return Chart3DScene(frame, Chart3DLighting.Default, marks) to marks
+    }
+
 
     private fun radialScene(
         slices: Int,

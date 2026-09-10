@@ -41,7 +41,7 @@ the opposite of the point.
 
 - [Install](#install) · [Requirements](#requirements) · [Run the sample](#run-the-sample)
 - Cartesian charts: [Line](#line-chart) · [Area](#area-chart) · [Bar](#bar-chart) · [Horizontal](#horizontal-bars) · [Grouped](#grouped-bars) · [Stacked](#stacked-bars) · [100% stacked](#100-stacked-bars) · [Multi-series](#multiple-series) · [Combined](#combined-charts) · [Multi-axis combos](#multi-axis-combo-charts)
-- 3D: [3D columns](#3d-columns) · [3D pie and donut](#3d-pie-and-donut)
+- 3D: [3D columns](#3d-columns) · [3D pie and donut](#3d-pie-and-donut) · [3D scatter](#3d-scatter)
 - Polar charts: [Pie](#pie-chart) · [Donut](#donut-chart) · [Radial bar](#radial-bar-chart) · [Radar](#radar-chart) · [Polar coordinates](#polar-coordinates)
 - Statistical: [Scatter](#scatter-chart) · [Bubble](#bubble-chart) · [Histogram](#histogram) · [Box plot](#box-plot) · [Violin](#violin-plot) · [Statistics API](#statistics-api)
 - Density: [Heatmap](#heatmap) · [Calendar heatmap](#calendar-heatmap) · [Colour scales](#colour-scales)
@@ -149,7 +149,8 @@ Open the drawer and pick a **ChartKit** destination:
 | Geographic | A choropleth over the sample's own GeoJSON: quantile against continuous shading, both projections, labels, a legend, missing data, the join report and the data table |
 | Gauges | Ten demos: the reference speedometer, a semicircle stated as two angles, a full-circle compass, a three-quarter dial, four bands over a range crossing zero, three needles with a legend, an adjustable dial, a compact KPI pair, a deterministic realtime feed, and a custom counterweighted needle |
 | 3D pie and donut | Nineteen demos: the reference 3D pie and 3D donut, a plain pie and donut, exploded pies and donuts, tap-to-explode selection, perspective against orthographic, custom depth, custom lighting, a custom start angle with slice gaps, partial pies and donuts, Compose centre content, animated data updates, an interactive camera, dark mode, zero/null/negative values and twenty slices — with live pitch, yaw, distance, depth and projection controls and the accessible data table |
-| 3D columns | Fifteen demos: the reference grouped-and-stacked arrangement, a single series, grouped, stacked, depth rows, 100% stacked, negative values, null against zero, an interactive camera, custom lighting, the frame on and off, dark mode, twenty categories, and the low-level `CartesianChart3D` API — with live pitch, yaw, distance, depth and projection controls and the accessible data table |
+| 3D scatter | Sixteen demos: a basic X/Y/Z cloud, a draggable camera, multi-series, sphere markers, billboard markers, cube markers, colour encoding, size encoding, size and colour together, selection guides, the 3D frame on and off, a five-thousand-point cloud, dark mode, and the low-level `CartesianChart3D` API — with live pitch, yaw, distance, scene-depth, projection, guide-mode, render-mode and camera-preset controls and the accessible data table |
+| 3D columns | Seventeen demos: the reference grouped-and-stacked arrangement, a single series, grouped, stacked, depth rows, 100% stacked, negative values, null against zero, an interactive camera, colour by point, scene depth, custom lighting, the frame on and off, dark mode, twenty categories, and the low-level `CartesianChart3D` API — with live pitch, yaw, distance, column-depth, scene-depth and projection controls and the accessible data table |
 | Multi-axis combos | Six demos: the reference weather chart with three units, a business combo, a financial combo with volume on its own axis, legend toggling with axis auto-hide, zero alignment, and a shared crosshair with per-axis chips |
 | Set relationships | Thirteen Venn and Euler demos: two, three and four sets, proportional sizing, Venn against Euler, hand-placed icon groups, icons in labels, packed image content, four-level nesting, disjoint sets, explicit intersection colours, collection-driven sets and the accessibility tables |
 | Dashboard | Linked candlestick and volume charts with aligned plots, an overview navigator, and cross-filtering |
@@ -568,6 +569,9 @@ Below three metrics the chart draws its empty state: two spokes are a line, not
 a chart.
 
 ## Scatter chart
+
+> Three variables rather than two? See the [3D scatter](#3d-scatter), which puts
+> x, y **and** z on independent analytical scales inside one volume.
 
 ```kotlin
 data class Observation(val height: Double, val weight: Double)
@@ -3425,6 +3429,57 @@ the depth cue — the *ratio* of depth to width — the same on a phone and on a
 tablet. `Relative(1.0)` gives a square footprint. `Absolute(pixels)` is there for
 a chart that has to match another exactly.
 
+### Scene depth
+
+```kotlin
+ColumnChart3D(..., sceneDepth = Chart3DSceneDepth.Relative(2.0))
+```
+
+Scene depth and column depth are different quantities and are kept apart on
+purpose. **Scene depth is the room** — the extent of the volume the chart stands
+in, what the frame's floor and walls enclose, and what the camera is fitted to.
+**Column depth is the thickness of one box** standing in that room.
+
+Doubling the column depth makes every box thicker. Doubling the scene depth
+leaves every box exactly as it was and gives it more room behind and in front,
+which strengthens the perspective without changing what any column looks like.
+The content stays centred in the volume, so deepening the scene does not lurch
+the chart toward the reader.
+
+`Auto` is exactly the depth the content occupies, so a chart nobody configured
+is unchanged. A volume shallower than the columns standing in it is refused
+rather than drawn through: the back row would come out of the back wall.
+
+### Colour by point
+
+```kotlin
+ColumnChart3D(
+    data = sales,
+    category = { it.month },
+    value = { it.total },
+    colorByPoint = true,
+)
+```
+
+The palette walks the **categories** rather than the series. Worth reaching for
+on a single-series chart, where twelve identical blue columns tell the reader
+nothing the axis has not already said; misleading on a multi-series one, where
+colour is how a reader ties a column to a legend row.
+
+It changes the palette and never the identity: the legend, the tooltip, the
+selection callback and the accessibility announcement all still say which series
+a column belongs to.
+
+For an arbitrary rule — a threshold, a lookup, a status — pass a resolver
+instead, which wins over both the palette and the series colour:
+
+```kotlin
+ColumnChart3D(..., pointColor = { if (it.total < target) Color.Red else null })
+```
+
+Resolved once per data change rather than per frame, so the lambda may do real
+work and a camera drag re-runs none of it.
+
 ### Camera
 
 ```kotlin
@@ -3440,11 +3495,35 @@ TextButton(onClick = { camera.reset() }) { Text("Reset view") }
 ```
 
 The state is hoisted for the same reason the viewport is: the view is a property
-of the reader's session, not of the data. `rotateBy`, `zoomBy`, `reset` and a
-suspending `animateTo` are all on it, and `rememberSaveableChart3DCameraState`
-keeps the view across a configuration change.
+of the reader's session, not of the data, and an application that wants to drive
+it from a slider, reset it, animate it or restore it across a rotation needs a
+handle on it.
 
-Presets: `Chart3DCamera.Default`, `Front`, `Isometric`, `Presentation`.
+```kotlin
+camera.rotateTo(rotationX = 25.0)        // absolute; the other angle is left alone
+camera.rotateBy(deltaX = 4.0, deltaY = -2.0)
+camera.zoomTo(distance = 4.5)            // absolute
+camera.zoomBy(factor = 1.2f)             // multiplicative, like a pinch
+camera.reset()                           // exactly the camera it was created with
+scope.launch { camera.animateTo(Chart3DCamera.Isometric) }
+```
+
+Absolute and relative forms of both, because a slider reports a position and a
+gesture reports a change; expressing a slider as a delta makes the two drift
+apart the first time anything else moves the camera. Everything is clamped on
+the way in, so no caller can put the reader under the floor.
+`rememberSaveableChart3DCameraState` keeps the view across a configuration
+change.
+
+`animateTo` runs on ChartKit's own animation infrastructure and is suspending,
+so interrupting one move with another is ordinary structured concurrency: cancel
+the first job and start the second, and the camera continues from wherever it
+had reached rather than jumping back.
+
+Presets: `Chart3DCamera.Default`, `Front`, `Isometric`, `Presentation`, `Top`,
+`Side` — and `Radial`, for a pie or a donut. The **same** `Chart3DCameraState`
+drives `ColumnChart3D`, `ScatterChart3D`, `PieChart3D` and `DonutChart3D`; pass
+one state to several charts and they turn together.
 
 Both angles default to something, and neither defaults to zero — a chart at
 `0, 0` is a bar chart with its columns hidden behind each other.
@@ -3678,9 +3757,9 @@ again on every frame of a camera drag:
 
 | Columns | Faces drawn | Per projection pass |
 |---|---|---|
-| 50 | 150 | 22–80 µs |
-| 120 | 360 | 62–152 µs |
-| 500 | 1,500 | 226–237 µs |
+| 50 | 150 | 38–45 µs |
+| 120 | 360 | 63–225 µs |
+| 500 | 1,500 | 215–256 µs |
 
 The spread at the small sizes is the machine, not the chart: a pass that takes
 tens of microseconds is close enough to the noise floor of a laptop under load
@@ -3696,7 +3775,8 @@ on yours; no other performance claim is made here.
 Extruded radial slices projected through a camera, on the same slice engine,
 legend, tooltip, selection, animation and accessibility model as the flat
 [pie chart](#pie-chart) — and on the same scene, camera, projection, lighting,
-depth sorting and hit testing as the [3D columns](#3d-columns).
+depth sorting and hit testing as the [3D columns](#3d-columns) and the
+[3D scatter](#3d-scatter).
 
 ```kotlin
 data class Share(val browser: String, val users: Double)
@@ -4117,6 +4197,536 @@ not frame times, they are not measured on a device, and they say nothing about
 what Compose then costs to draw the paths. Run
 `./gradlew :chartkit:testDebugUnitTest --tests '*Chart3DPerformanceTest*' -i` to
 reproduce them on yours; no other performance claim is made here.
+
+## 3D scatter
+
+Three analytical variables, three independent scales, one volume — on the same
+scene, camera, projection, lighting, depth sorting and hit testing as the
+[3D columns](#3d-columns) and the [3D pie and donut](#3d-pie-and-donut).
+
+```kotlin
+data class Observation(val age: Double, val income: Double, val score: Double)
+
+ScatterChart3D(
+    data = observations,
+    x = { it.age },
+    y = { it.income },
+    z = { it.score },
+    xAxis = ChartAxis(title = "Age"),
+    yAxis = ChartAxis(title = "Income"),
+    zAxis = ChartAxis(title = "Satisfaction"),
+    modifier = Modifier.fillMaxWidth().height(360.dp),
+)
+```
+
+No conversion step and no point type: `data` is a `List<Observation>` and stays
+one, exactly as it does for a line, a bar or a flat scatter.
+
+### The Z here is not the Z of a 3D column chart
+
+This is the distinction the whole feature turns on, and ChartKit keeps it
+explicit in the API, in the types and in the accessibility output.
+
+| | 3D columns | 3D scatter |
+|---|---|---|
+| X | a category | an analytical variable |
+| Y | an analytical variable | an analytical variable |
+| Z | **visual grouping** — which stack a box belongs to | **an analytical variable**, with its own axis |
+| Is there a Z axis? | No, and there is deliberately no way to ask for one | Yes: `zAxis`, `zUnit`, `zDomain`, its own ticks and formatter |
+| What changes the depth extent? | `sceneDepth`, a presentation choice | `sceneDepth`, still a presentation choice — the *values* come from `zScale` |
+
+A numeric depth axis on a column chart would encode a quantity in the one
+direction the reader cannot measure, so `ColumnChart3D` does not have one. A
+scatter's three variables are equally real, and its coordinate system treats
+them identically — which is why `Cartesian3DCoordinates` holds three
+`LinearScale`s of one type rather than two scales and a depth setting.
+
+### X, Y and Z axes
+
+Each dimension owns its own domain, derived only from its own field:
+
+```kotlin
+ScatterChart3D(
+    data = observations,
+    x = { it.age }, y = { it.income }, z = { it.score },
+    xAxis = ChartAxis(title = "Age"),
+    yAxis = ChartAxis(title = "Income", valueFormatter = ChartNumberFormatters.compact()),
+    zAxis = ChartAxis(title = "Satisfaction", scale = AxisScale.Log()),
+    xUnit = ChartUnit.Custom("yrs", "years"),
+    yUnit = ChartUnit.Currency("£"),
+    zUnit = ChartUnit.Percent,
+    xDomain = DomainPolicy.Auto(),
+    yDomain = DomainPolicy.IncludeZero(),
+    zDomain = DomainPolicy.Fixed(0.0, 100.0),
+)
+```
+
+A dataset spanning `18..80`, `20,000..200,000` and `0..100` produces three
+separate normalisations mapped into one box. A single combined range over all
+three fields — which is what a naive implementation reaches for — would flatten
+the two small variables to a sliver at the bottom of the volume.
+
+Everything an X or Y axis can do, the Z axis can do: a title, a unit, a
+formatter, an explicit tick list, a tick count, `Auto` / `IncludeZero` /
+`Fixed` / `Bounded` domains, and a logarithmic or symmetric-log scale.
+
+The Z axis is **registered**, not invented: it gets a stable
+`ChartAxisId.DefaultZ`, the duplicate check every other axis gets, and a place
+in the same `AxisRegistry`. `AxisDimension` gained a `Z` case and nothing about
+`X` or `Y` changed — the one property that differs is `onPlotEdge`, which is
+`false` for `Z` because there is no edge of a flat rectangle that means "away
+from the reader". A depth axis given a `position` is a configuration error and
+says so.
+
+Tick labels are drawn upright at *projected* world positions, so a label cannot
+drift from the thing it names. The two side titles are turned through ninety
+degrees, exactly as the flat axis renderer turns its Start and End titles — with
+three titles on three sides at once, upright ones would take half the canvas.
+Which physical edge of the volume carries each family is chosen from the camera
+so the Y labels are always down the left, the X labels along the near bottom and
+the Z labels down the right; a rotation moves the labels and never renumbers
+them. Where the three families converge at a corner, they go through the same
+collision placer the value labels use, and a dropped label is a Z one.
+
+### Multiple series
+
+```kotlin
+ScatterChart3D(
+    series = listOf(
+        ChartSeries("control", "Control", control),
+        ChartSeries("treated", "Treated", treated),
+    ),
+    x = { it.age }, y = { it.income }, z = { it.score },
+    legend = LegendPosition.Bottom,
+    legendTogglesSeries = true,
+)
+```
+
+Series behave as they do everywhere else: one palette slot each, one legend row
+each, and hiding one through the legend removes its markers and narrows all
+three Auto domains — the depth axis included, which is what keeps the cloud
+filling its box after a toggle.
+
+### Markers
+
+```kotlin
+ScatterChart3D(..., marker = Marker3D.Sphere, markerSize = 8.dp)
+```
+
+| Marker | What it is | Cost | When |
+|---|---|---|---|
+| `Sphere` | a disc with a radial gradient placed where a sphere's normal would face the scene's light | one circle and one gradient per point | the default; up to a few thousand points |
+| `BillboardCircle` | a flat filled disc, always facing the reader | one circle per point | large clouds, and anything where the shading is not carrying its weight |
+| `Cube` | a real box in the scene, six faces projected, culled, lit and sorted individually | six faces per point | tens of points, where the orientation of the box is itself informative |
+
+`Sphere` and `BillboardCircle` are **screen-space glyphs anchored at world
+positions**: the centre comes from the real X/Y/Z projection, so a cloud of them
+still reads as a volume, but the radius is stated in `dp` because a marker has
+to be visible and hittable whatever the data does. `Cube` is the exception — it
+is scene geometry, so the scene's own fit and the perspective scale it like
+anything else.
+
+The sphere's shading is not a hardcoded gradient. Its bright and dark ends are
+`Chart3DLighting`'s own answers for the two normals that face into and away from
+the light, and its highlight direction is that light projected onto the screen —
+so every marker in a scene shares one direction, changing the lighting changes
+the markers, and rotating the camera does not, because the light is fixed to the
+camera exactly as it is for a column's faces.
+
+### Render modes
+
+```kotlin
+ScatterChart3D(..., renderMode = Scatter3DRenderMode.Auto)
+```
+
+- **`Rich`** draws the marker you asked for: sphere shading, outlines, cube faces.
+- **`Optimized`** draws flat billboards with no gradient and no outline. What is
+  lost is the roundness of markers six pixels across; the depth cue that
+  survives — the arrangement of the cloud, and the perspective size falloff — is
+  the stronger one anyway.
+- **`Auto`** picks `Rich` up to `Scatter3DLayer.RICH_POINT_LIMIT` visible points
+  and `Optimized` beyond it.
+
+The threshold is a **named public constant**, not a hidden heuristic: a caller
+has to be able to predict which mode their dataset will get and to pin it when
+the answer is wrong for them. It counts *visible* points, so hiding a series
+through the legend can move a chart across it — which is correct, because the
+cost is what changed. The number is a starting point chosen so a few thousand
+shaded markers stay comfortable; see [Performance](#performance-and-limitations-2)
+for what was actually measured.
+
+### Colour and size encodings
+
+```kotlin
+ScatterChart3D(
+    data = observations,
+    x = { it.age }, y = { it.income }, z = { it.score },
+    size = { it.household },      // a fourth channel, through a SizeScale
+    color = { it.tenure },        // a fifth, through a ColorScale
+    minMarkerSize = 3.dp,
+    maxMarkerSize = 13.dp,
+    colorLegendTitle = "Years with us",
+)
+```
+
+Both build on the scales the rest of the library already uses. `size` goes
+through [`SizeScale`](#size-scales) in `Area` mode by default, so a value twice
+as large draws a marker occupying twice the **area** — mapping a value straight
+onto a radius is the single most common way a bubble chart lies, and the default
+here prevents it. One size scale spans every series, so two groups in one chart
+are measured against one domain.
+
+`color` goes through a [`ColorScale`](#colour-scales); pass your own for a
+threshold or diverging ramp, or leave it and get the theme's continuous one over
+the observed range. When colour carries a quantity the chart draws the same
+`ChartColorLegend` a heatmap and a choropleth draw, from the same scale object —
+so a marker's colour and the key beside it cannot disagree. Set
+`colorLegend = false` to place your own.
+
+This gives `X`, `Y`, `Z`, size and colour as five analytical channels through
+one coordinate system and one renderer. A `BubbleChart3D` would be this with a
+shorter parameter list, not a new engine.
+
+### Draggable camera
+
+```kotlin
+val camera = rememberChart3DCameraState(
+    camera = Chart3DCamera.Isometric,
+    limits = Chart3DCameraLimits.Cartesian3D,
+)
+
+ScatterChart3D(..., cameraState = camera, interaction = Chart3DInteraction.RotateAndSelect)
+
+TextButton(onClick = { camera.reset() }) { Text("Reset view") }
+Button(onClick = { scope.launch { camera.animateTo(Chart3DCamera.Top) } }) { Text("Top") }
+```
+
+`RotateAndSelect` is the **default** here, and it is the one place ChartKit
+turns rotation on by default: a scatter is explored rather than read, and
+turning it is how a reader resolves which of two overlapping points is in front.
+A horizontal drag turns the scene about its vertical axis, a vertical drag tips
+it, and a pinch changes the camera distance.
+
+A tap and a drag do not fight. The rotation gesture reports nothing until the
+pointer has passed the platform's own touch slop, so a tap never moves the
+camera by the pixel or two a finger travels while pressing; and once a drag has
+begun it consumes its events, so a rotation does not leave a trail of selections
+behind it. `Chart3DInteraction.Select`, `Rotate` and `None` are the other three.
+
+`Chart3DCameraLimits.Cartesian3D` is freer than the column default in both
+directions — the whole reason to turn a point cloud is to look along a different
+pair of axes — and still bounded: never below the floor plane, and never through
+a quarter turn of yaw, so X and Z can never trade places on screen.
+
+The camera state is the same type the 3D columns, pies and donuts take. Pass one
+to several charts and they turn together.
+
+### Projection
+
+```kotlin
+ScatterChart3D(..., projection = Chart3DProjection.Orthographic)
+```
+
+`Perspective` (the default) divides by depth: a far observation is drawn
+smaller, and two points an equal distance apart are drawn at unequal separations
+depending on where in the volume they sit. That is what perspective *is*, and it
+is the depth cue that makes the cloud read as a volume.
+
+`Orthographic` is parallel: depth changes position and never size, so two equal
+observations are drawn as equal discs wherever they stand, and equal distances
+are drawn equal. **Reach for it whenever a comparison matters more than the
+sense of depth.** The cost is a flatter picture, and that two points exactly in
+line coincide; depth ordering still resolves which is in front.
+
+This is not a caveat about 3D scatter charts being invalid — a point cloud whose
+structure only appears in three dimensions is a real thing to want. It is a
+caveat about reading *magnitudes* off one, and orthographic is the answer.
+
+### Frame, grids and scene fitting
+
+```kotlin
+ScatterChart3D(
+    ...,
+    frame = Chart3DFrame(floor = true, back = true, side = Chart3DSideWall.Auto),
+    gridPlanes = Chart3DGridPlanes.All,
+    sceneDepth = Chart3DSceneDepth.Relative(0.8),
+    fit = Chart3DSceneFit.Volume,
+)
+```
+
+The frame is the generic `Chart3DFrame` the columns use: a floor, a back wall
+and one side wall, whichever the camera leaves *behind* the data. `Auto` picks
+it from the yaw, which is the only choice that works while a reader is turning
+the chart.
+
+Grids come from the three axes' own ticks, so a line on the back wall is at the
+same value as the label beside it:
+
+- `Primary` (the default) — the back wall's X/Y grid only.
+- `All` — back, floor and side.
+- `None`, or `Custom(back, floor, side)`.
+
+Three planes carrying two families of lines each is six sets, and drawn all at
+once they form a cage the data sits inside. `Primary` is the restrained default;
+reach for `All` on a dense cloud that genuinely needs the floor to say where in
+depth a point sits.
+
+`sceneDepth` sets how deep the box is. `Auto` makes it as close to cubic as the
+plot allows, which is the right default when three variables are equally
+important. Unlike a column chart, a *shallower* volume is legitimate here —
+every point is inside the box by construction — so an `Absolute` or `Relative`
+value below the reference is honoured.
+
+`fit` decides what the camera is fitted to. `Content` (the default) fits
+everything, which is right when the data is the picture. `Volume` fits the
+declared plot box and lets points outside their domains fall visibly outside it
+— worth reaching for on a streaming chart, where fitting to each arriving
+outlier makes the cloud appear to breathe.
+
+### Selection, tooltips and guides
+
+```kotlin
+ScatterChart3D(
+    ...,
+    guides = Scatter3DGuides.Axes,
+    onSelectionChanged = { selection ->
+        val point = selection?.cartesian3D ?: return@ScatterChart3D
+        println("${point.xTitle}: ${point.formattedX}")
+    },
+    tooltip = { data ->
+        val point = data.selection.cartesian3D!!
+        Card { Text("${data.item.name}: ${point.formattedZ}") }
+    },
+)
+```
+
+A tap resolves to the **front-most** observation under it, with a forgiving
+radius so a fingertip does not have to be pixel-exact on a five-pixel marker.
+Front-most and not nearest: of two overlapping points the reader can only see
+one, and answering with the other would select something that is not under their
+finger. The order it resolves by is the order the renderer drew in — one
+comparison, one depth, faces and markers together — so a marker hidden behind an
+opaque frame panel loses to the panel, and the answer is then "nothing" rather
+than "the point behind the wall".
+
+The default tooltip shows all three values, each through **its own** axis
+formatter and unit, so it cannot round differently from the ticks beside it. A
+custom one gets the caller's object, the three raw values, the three formatted
+strings, the axis titles and the screen anchor, through
+`ChartSelectionDetails.Cartesian3D`.
+
+Guides answer the question a crosshair was for. A 2D crosshair works because a
+screen position determines a domain value; under a projection every pixel is a
+whole ray through the volume, so a vertical line down the plot names no x and
+drawing one anyway would be a confident lie. Instead:
+
+- `Axes` draws three lines from the selected point to the floor, the side wall
+  and the back wall, each parallel to one axis and each derived from the point's
+  own analytical coordinates.
+- `Planes` adds a mark where the point lands on each of the three planes.
+- `None` is the default: a chart is not always being interrogated.
+
+### Animation
+
+Point movement is interpolated in **data space**, on three animations sharing
+one clock, and everything downstream re-runs from the interpolated values every
+frame:
+
+```
+animated (x, y, z)  →  three scales  →  world point  →  camera  →  projection
+```
+
+Interpolating projected screen positions would be cheaper and would be wrong the
+moment the data animation and a camera animation overlap — which on a chart the
+reader can turn is most of the time. Because the two compose through the
+pipeline rather than being added together, a point that moves while the reader
+is dragging follows a straight line *in the data* and not a straight line across
+the glass.
+
+Points are matched by their index in the caller's own list, so a value changing
+animates and a list changing shape snaps. `ChartAnimation.None` switches it off.
+
+### Accessibility
+
+Three axis names, a count, and nothing about the camera:
+
+```text
+3D scatter chart. X axis: Age. Y axis: Income. Z axis: Satisfaction.
+120 observations in 2 series.
+```
+
+and for a selected point:
+
+```text
+Control, observation 18. Age: 34. Income: £82,000. Satisfaction: 76 %.
+```
+
+No depth, no marker, no "this point is in front". Front is a fact about where
+the camera happens to be, and a chart that announced it would be reporting its
+own rendering as data. Turning the chart changes nothing a screen reader hears,
+nothing about the selected item's value, and nothing in the data table.
+
+Past two hundred points a series is announced as a range rather than as
+individual entries — nobody listens to fifty thousand announcements, and the
+table is the right tool at that size:
+
+```kotlin
+ChartDataTableView(
+    table = scatter3DDataTable(
+        series = listOf(ChartSeries("control", "Control", control)),
+        x = { it.age }, y = { it.income }, z = { it.score },
+        xColumn = "Age", yColumn = "Income", zColumn = "Satisfaction",
+    ),
+)
+```
+
+Three columns, because there are three measurements. Nothing in it mentions a
+camera, a projection or a depth order: those are rendering choices, and a table
+that reported them would change its contents every time somebody turned the
+chart for data that had not moved.
+
+### The low-level API
+
+```kotlin
+CartesianChart3D(cameraState = camera, legend = LegendPosition.Bottom) {
+    scatter(
+        data = control, x = { it.age }, y = { it.income }, z = { it.score },
+        seriesId = "control", seriesName = "Control",
+        zAxis = ChartAxis(title = "Satisfaction"),
+    )
+    scatter(
+        data = treated, x = { it.age }, y = { it.income }, z = { it.score },
+        seriesId = "treated", seriesName = "Treated",
+    )
+}
+```
+
+`ScatterChart3D` is this with one layer and a shorter parameter list; both reach
+the same `CartesianChartCore`, so the legend, the tooltip, the selection model,
+the animation clock and the accessibility summary are not merely similar between
+them — they are the same code. A chart declaring a `scatter` gets a Z axis in
+its registry; one declaring only `columns` does not.
+
+Marked `@ExperimentalChartKitApi` for the same reason `CartesianChart` is: the
+layer grammar is where a multi-layer 3D scene will want room to move.
+
+### Architecture
+
+```text
+caller's own objects
+  → normalizeSeries (x, y)             the shared 2D normalisation
+  → three independent scales           (Cartesian3DCoordinates: x, y, z)
+  → world points inside the plot box   ← cached on the plot size alone
+  → Chart3DScene: frame panels + marks
+  → Chart3DProjector                   ← rebuilt on any camera change
+  → one back-to-front order over faces and marks
+  → draw · hit test · guides
+```
+
+Two caches, and they are the whole performance story of a camera drag. World
+points depend on the data and the plot box and on nothing about the camera, so a
+drag reuses every one of them; the projection depends on the camera and nothing
+else, so a tooltip appearing reuses that. Neither the scales nor the domains are
+touched by either.
+
+**One change to the generic 3D core made this possible**, and it is the same
+kind of change `Chart3DGeometry` was for the pie. A scene could hold surfaces
+and only surfaces, and a scatter point is not a surface: a sphere resolved
+finely enough to look round at eight pixels is a hundred triangles, and ten
+thousand of those is a million faces to project, cull and sort for a picture in
+which no individual facet is ever visible. So `Chart3DScene` gained a second
+primitive — `Chart3DMark`, a world position with a screen-space radius — and the
+projector projects, culls and depth-sorts them **in the same pass and against
+the same comparator** as faces. `Chart3DProjectionResult.items` merges the two
+sorted lists into one order.
+
+That merge is the correctness argument for the whole layer. "Is this point in
+front of the back wall" has exactly one right answer and it is a depth
+comparison; drawing the frame first and the markers afterwards — which is what
+two layers would have to do — puts every point in front of every wall, and the
+error appears exactly when a reader rotates the chart, which is when they are
+least able to tell a depth bug from a data one.
+
+What was **not** added: no `Scatter3DCamera`, no `Scatter3DProjection`, no
+`Scatter3DDepthSorter`, no `Scatter3DLighting`, no second renderer and no second
+scene. `Marker3D.Cube` is a `Cuboid3D` — the column chart's own primitive — put
+into the scene unchanged.
+
+Hit testing over a large cloud goes through a uniform screen-space bucket grid,
+built inside the object that holds the projection it was derived from. That is
+the whole answer to staleness: a camera change produces a new projection, which
+produces a new index, and there is no code path that can consult an index built
+for a different camera because there is no index that outlives its projection.
+Below a couple of hundred points a linear scan is cheaper than the buckets, and
+that is what runs.
+
+### Performance and limitations
+
+- **Painter's algorithm.** Faces and marks are ordered back to front by
+  camera-space depth. Exact for non-intersecting solids and for point marks,
+  which is what this scene is. Two interpenetrating polygons cannot be ordered
+  by one depth each; ChartKit's own geometry never produces that case.
+- **Transparency.** Markers are opaque by default and the ordering is
+  deterministic. Give them alpha and the back-to-front order still holds, but
+  overlapping translucent markers accumulate: three points in line read as
+  darker than one, which is a density cue rather than a value, and a reader may
+  take it for one. Prefer smaller opaque markers to larger translucent ones.
+- **Perspective distortion.** A far observation is drawn smaller and equal
+  distances are drawn unequally. `Orthographic` removes both.
+- **Extreme angles.** Near the pitch limit the volume flattens and the depth
+  axis stops being readable well before it stops being drawn, which is why
+  `Chart3DCameraLimits.Cartesian3D` stops short of both ends.
+- **Overplotting.** A 3D scatter has the same overplotting problem a 2D one has
+  and adds occlusion to it: a point behind another is *invisible*, not merely
+  overlapped. Rotation is the answer, which is why it is on by default here.
+- **Labels are dropped, never shrunk.** Where three axes' labels converge at a
+  corner, what survives is legible and what would have overprinted is left out.
+- **No frustum culling.** Points that fail to project or fall behind the near
+  plane are dropped; points outside the plot rectangle are still projected. The
+  architecture is compatible with adding one, and nothing measured so far has
+  needed it.
+
+Measured, on a JVM, warm, over three runs of `Chart3DPerformanceTest` on an
+Apple-silicon laptop with the emulator closed. The projection pass — camera
+transform, culling, sort and lighting for the frame, plus the projection and
+depth sort of every mark — is the part that runs again on every frame of a
+camera drag:
+
+| Points | Marks drawn | Per projection pass |
+|---|---|---|
+| 100 | 100 | 12–16 µs |
+| 1,000 | 1,000 | 73–107 µs |
+| 10,000 | 10,000 | 563–1,074 µs |
+
+The world build — the three scales and the world positions, which a camera move
+skips entirely:
+
+| Points | Per world build |
+|---|---|
+| 100 | 15–16 µs |
+| 1,000 | 21–23 µs |
+| 10,000 | 287–303 µs |
+
+And one pointer probe, with and without the screen-space index:
+
+| Points | Full scan | Indexed |
+|---|---|---|
+| 100 | 0.41–0.53 µs | 0.28–0.32 µs |
+| 1,000 | 0.34–0.43 µs | 0.20 µs |
+| 10,000 | 1.45–1.90 µs | 0.61–0.72 µs |
+
+The projection pass is close to linear in the point count, which is what it
+should be. The hit-test figures are the reason the index exists and also the
+reason it does not run below a couple of hundred points: at a hundred points the
+scan is already fast enough that the buckets are not worth allocating.
+
+Those are figures for those stages on that machine and nothing else. They are
+not frame times, they are not measured on a device, and they say nothing about
+what Compose then costs to draw ten thousand circles. Run
+`./gradlew :chartkit:testDebugUnitTest --tests '*Chart3DPerformanceTest*' -i` to
+reproduce them on yours; no other performance claim is made here — in
+particular, no supported point count is claimed, because none was measured on a
+device.
 
 ## Grid lines
 
@@ -5653,10 +6263,14 @@ Core
 ├── three        Point3D · Vector3D · Matrix4 · Bounds3D · Face3D
 │                Chart3DGeometry — Cuboid3D · RadialSector3D (Sector3D ·
 │                AnnularSector3D) · ArcTessellator3D · Chart3DQuality
+│                Chart3DMark · Marker3D (billboard · sphere · cube) ·
+│                Marker3DShading · Projected3D (faces and marks, one order)
+│                Cartesian3DCoordinates · Chart3DPlotBox (X/Y/Z → world)
 │                Chart3DCamera · Chart3DProjection (perspective · orthographic)
 │                Chart3DScene · Chart3DObject · Chart3DLighting · Chart3DFrame
-│                Chart3DDepth · Chart3DProjector (transform · cull · sort ·
-│                light · fit) · Chart3DHitTest · Chart3DDiagnostics
+│                Chart3DGridPlanes · Chart3DDepth · Chart3DSceneDepth
+│                Chart3DProjector (transform · cull · sort · light · fit)
+│                Chart3DHitTest · Chart3DDiagnostics
 │                Column3DLayoutEngine · Radial3DLayoutEngine
 ├── timeline     TimelineModel · lane and row assignment · dependencies
 ├── transform    WaterfallTransform · FunnelTransform
@@ -5679,6 +6293,9 @@ Coordinates
 ├── PolarCoordinates       centre + inner/outer radius + start/sweep + direction
 │                          (3D pies and donuts are drawn on these too, on the
 │                           same terms: an extruded scene above the same ring)
+├── Cartesian3DCoordinates three independent scales mapped into one plot box
+│                          (the 3D scatter's own; the *only* place ChartKit
+│                           treats depth as a quantity rather than as grouping)
 ├── PlanarCoordinates      a plain rectangle, for layout-driven visualisations
 └── GeoCoordinates         projection + fitted extent + two-dimensional camera
 
@@ -5705,9 +6322,11 @@ Layers
 ├── 3D          columns (grouped · stacked · grouped and stacked · percent),
 │               on Cartesian coordinates and the same stack engine
 │               radial (pie · donut · partial · exploded), on polar
-│               coordinates and the same slice engine — and on the same
-│               scene, camera, projection, culling, sort, lighting and
-│               hit test as the columns
+│               coordinates and the same slice engine
+│               scatter (true X/Y/Z, three independent scales, size and
+│               colour encodings, selection guides), on its own
+│               Cartesian3DCoordinates — and all three on the same scene,
+│               camera, projection, culling, sort, lighting and hit test
 ├── Planar      treemap · Sankey · funnel · graph · set diagram
 └── Geographic  choropleth
 
@@ -6216,8 +6835,8 @@ adopted for something it cannot do.
 ## Testing
 
 ```bash
-./gradlew :chartkit:testDebugUnitTest          # 1,025 JVM tests
-./gradlew :chartkit:connectedDebugAndroidTest  # 229 Compose UI tests
+./gradlew :chartkit:testDebugUnitTest          # 1,230 JVM tests
+./gradlew :chartkit:connectedDebugAndroidTest  # 286 Compose UI tests
 ```
 
 | Suite | Covers |
@@ -6308,6 +6927,10 @@ adopted for something it cannot do.
 | `ChartSemanticsAndThemeTest` | Announcements, custom summaries, theme precedence, light and dark |
 | `ChartSetDiagramTest` | Two, three and four sets drawing; empty, coincident and tangent geometry; nested Euler; selection of exclusive, pairwise and triple regions; clearing outside; empty theoretical regions; static mode; the tooltip; custom set labels, region labels, region content and icon groups; reported clearance; colour modes leaving the data alone; explicit intersection colours; focus dimming; the generic API and custom arrangements; collection-driven counting; the data table; the animated reveal |
 | `ChartMultiAxisTest` | Three axes drawn at three offsets, each labelled in its own unit and its own values; every series inside one plot area and none of them flattened; the plot shrinking as axes are added; compaction thinning ticks without dropping an axis; aligned ticks on identical rows; grid ownership; an axis hiding when its last series is hidden and giving back its gutter; legend toggling; a shared tooltip with a row per axis in its own unit and its own screen position; by-axis row ordering; selection resolving through the right axis; panning; an annotation drawn on its own axis' scale; an unregistered axis and cross-axis stacking failing; a unit mismatch reported and drawn; single-axis and legacy-secondary-axis charts unchanged; announcements naming axes and units and never ids |
+| `Cartesian3DCoordinatesTest` | Three independent scales: each domain's minimum, maximum and midpoint landing in its own extent; wildly different magnitudes normalising to the same fraction; a domain straddling zero; a logarithmic depth axis; an observation missing a coordinate having no position; a value outside a fixed domain drawn outside the box rather than clamped into it |
+| `Scatter3DPipelineTest` | A known X/Y/Z observation mapping to a known world point and projecting finitely; perspective drawing a near mark larger and orthographic drawing every mark the same; overlapping observations painted back to front; marks and frame walls interleaving in one depth order; the merged list staying in descending depth; a tap resolving to the front-most and never to a fully hidden rear one; a forgiving tap radius; a rotation moving an observation and the hit test following it; render order and hit-test frontness coming from one depth; a billboard centred on its projected position at every angle; sphere shading being the lighting model's own answers; a zero-radius marker neither drawn nor selectable; grid planes and their tick positions; the spatial index answering exactly what a full scan answers |
+| `Chart3DCameraTest` | `rotateTo` and `rotateBy` agreeing, one axis at a time, absolute and multiplicative zoom, invalid zooms ignored; pitch and yaw clamped however far a drag goes; reset returning to exactly the configured camera; a camera assigned out of bounds clamped rather than drawn; a camera change reprojecting the very same cuboid instances; the projection switch reprojecting one scene and only perspective foreshortening the far row; hit testing correct at three camera angles; a deeper scene leaving column thickness and heights untouched and sharing the extra room front and back; a volume shallower than its content refused; colour by point walking the categories without losing the series; an explicit point colour winning; a Z axis registering beside X and Y, duplicate ids, wrong-dimension lookups, a Z axis never laid out on an edge, and two primary Z axes refused |
+| `Chart3DScatterTest` | A scatter drawing; every observation becoming a mark; cube markers entering as boxes rather than glyphs; `Auto` never dropping observations at either side of its limit; an empty dataset; a point missing a coordinate not drawn; a tap reporting all three values through their own axes; a drag turning the camera without selecting and a tap never moving it; reset after a drag; an animated camera move landing, and a second overriding the first; turning the chart not changing what a selection says; the summary naming three axes and never the camera; the series count; frame, grid, projection, guide and encoding combinations; a unit carried onto the axis title and into the selection |
 | `ChartGeoTest` | A choropleth drawing under both projections, empty geometry, labels, the colour legend and its "no data" swatch, join reporting including a key mismatch, selection by region, unmeasured regions, clearing outside the geography, static mode taking no input, camera zoom/pan/reset, immediate tap selection, the tooltip, the data table |
 
 ## Licence

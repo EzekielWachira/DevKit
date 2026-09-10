@@ -84,6 +84,12 @@ internal fun buildColumns3DLayer(
             values = aligned[index].values,
             items = series.items,
             sourceIndices = aligned[index].sourceIndices,
+            // Aligned to the merged category order like the values beside them,
+            // so a series that omits a category leaves a hole in both rather
+            // than shifting its colours one band to the left.
+            pointColors = layer.pointColors[series.id]
+                ?.let { colors -> aligned[index].sourceIndices.map { colors.getOrNull(it) } }
+                ?: emptyList(),
         )
     }
 
@@ -106,6 +112,8 @@ internal fun buildColumns3DLayer(
         grouping = layer.grouping,
         arrangement = layer.arrangement,
         depth = layer.depth,
+        sceneDepth = layer.sceneDepth,
+        colorByPoint = layer.colorByPoint,
         groupPadding = layer.groupPadding,
         depthGap = layer.depthGap,
         // The chart's own scale, transform and domain, as a function of a

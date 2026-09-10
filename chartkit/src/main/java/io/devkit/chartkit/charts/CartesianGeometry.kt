@@ -252,6 +252,11 @@ internal sealed class ResolvedLayer {
         val grouping: BarGrouping,
         val arrangement: io.devkit.chartkit.three.Column3DArrangement,
         val depth: io.devkit.chartkit.three.Chart3DDepth,
+        val sceneDepth: io.devkit.chartkit.three.Chart3DSceneDepth,
+        /** Whether the palette walks the categories rather than the series. */
+        val colorByPoint: Boolean,
+        /** An explicit ARGB colour per source index, by series id. */
+        val pointColors: Map<String, List<Int?>>,
         val categoryPadding: Double,
         val groupPadding: Double,
         val depthGap: Double,
@@ -301,6 +306,77 @@ internal sealed class ResolvedLayer {
     ) : ResolvedLayer() {
         override val axisKind: ChartXAxisKind get() = data.xAxisKind
         override val seriesData: PlotData get() = data
+    }
+
+    /**
+     * A true X/Y/Z scatter: three analytical variables, three scales.
+     *
+     * ### Why the Z values ride alongside [PlotData] rather than inside it
+     *
+     * [io.devkit.chartkit.model.PlotData] is the engine's two-dimensional
+     * normalisation — an x, a y and the caller's object — and every layer, every
+     * scale, every domain merge and every tooltip in the library is written
+     * against exactly that shape. Widening it with a nullable third coordinate
+     * would put a field on fifty thousand points of every line chart ever drawn
+     * for the benefit of one layer.
+     *
+     * So X and Y are normalised by the shared engine and reach the chart's own
+     * scales through it, and Z travels beside them, keyed by series id and
+     * indexed by the same `sourceIndex` the points carry. The two cannot drift:
+     * a point whose source index has no Z is dropped rather than placed, which
+     * is [buildScatter3DLayer]'s first decision.
+     *
+     * @param zValues the depth variable per series id, indexed by source index.
+     * @param sizes and [colorValues] the optional size and colour encodings,
+     *   in the same shape. `null` when the caller encoded nothing.
+     * @param sizeScale and [colorScale] resolved once per data change, across
+     *   every series, so two series are measured against one domain.
+     */
+    @Suppress("LongParameterList")
+    class Scatter3D(
+        override val key: String,
+        val data: PlotData,
+        val zValues: Map<String, List<Double?>>,
+        val sizes: Map<String, List<Double?>>?,
+        val colorValues: Map<String, List<Double?>>?,
+        val sizeScale: io.devkit.chartkit.scale.SizeScale?,
+        val colorScale: io.devkit.chartkit.scale.ColorScale?,
+        val xAxis: ChartAxis,
+        val yAxis: ChartAxis,
+        val zAxis: ChartAxis,
+        val xUnit: ChartUnit,
+        val yUnit: ChartUnit,
+        val zUnit: ChartUnit,
+        val zDomain: io.devkit.chartkit.scale.DomainPolicy,
+        val sceneDepth: io.devkit.chartkit.three.Chart3DSceneDepth,
+        val camera: () -> io.devkit.chartkit.three.Chart3DCamera,
+        val projection: io.devkit.chartkit.three.Chart3DProjection,
+        val lighting: io.devkit.chartkit.three.Chart3DLighting,
+        val frame: io.devkit.chartkit.three.Chart3DFrame,
+        val gridPlanes: io.devkit.chartkit.three.Chart3DGridPlanes,
+        val fit: io.devkit.chartkit.layer.three.Chart3DSceneFit,
+        val marker: io.devkit.chartkit.three.Marker3D,
+        val markerRadius: androidx.compose.ui.unit.Dp?,
+        val renderMode: io.devkit.chartkit.layer.three.Scatter3DRenderMode,
+        val guides: io.devkit.chartkit.layer.three.Scatter3DGuides,
+        val debug: io.devkit.chartkit.layer.three.Chart3DDebug,
+        val onDiagnostics: ((io.devkit.chartkit.three.Chart3DDiagnostics) -> Unit)?,
+        override val valueAxisId: ChartAxisId = ChartAxisId.DefaultY,
+        override val declaredUnits: Set<ChartUnit> = emptySet(),
+    ) : ResolvedLayer() {
+        override val axisKind: ChartXAxisKind get() = ChartXAxisKind.Numeric
+        override val seriesData: PlotData get() = data
+
+        /**
+         * Every Z value the visible series contribute, for the Z domain.
+         *
+         * Visible only, so hiding a series through the legend narrows the depth
+         * axis exactly as it narrows the value axis — which is the established
+         * ChartKit behaviour §95 asks the third dimension to follow.
+         */
+        fun visibleZValues(): List<Double> = data.visibleSeries.flatMap { series ->
+            zValues[series.id].orEmpty().filterNotNull().filter { it.isFinite() }
+        }
     }
 
     /** Histogram bars over a continuous axis. */
@@ -1482,6 +1558,29 @@ internal fun buildCartesianGeometry(
                         ),
                         formatter = valueFormatter,
                     )
+                }
+            }
+
+            is ResolvedLayer.Scatter3D -> {
+                val scatter = buildScatter3DLayer(
+                    id = layerId,
+                    layer = layer,
+                    coords = coords,
+                    plot = plot,
+                    valueFormatter = layerFormatter,
+                    density = density,
+                    textMeasurer = textMeasurer,
+                    typography = typography,
+                    dimensions = dimensions,
+                    markerRadiusPx = with(density) {
+                        (layer.markerRadius ?: dimensions.scatter3DMarkerRadius).toPx()
+                    },
+                    locale = locale,
+                )
+                if (scatter != null) {
+                    renderers += scatter
+                    hitTestable += scatter
+                    summaries += scatter.describe()
                 }
             }
 

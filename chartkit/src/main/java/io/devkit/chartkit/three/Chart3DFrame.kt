@@ -28,6 +28,76 @@ enum class Chart3DFrameGrid {
 }
 
 /**
+ * Which of a 3D plot's three planes carry a grid of analytical reference lines.
+ *
+ * ### Why this is not simply "on" and "off"
+ *
+ * A true Cartesian 3D plot has three planes and each can carry two families of
+ * lines, so the honest maximum is six sets. Drawn all at once they form a cage:
+ * every one of the reader's sight lines crosses four or five rules that mean
+ * different things, and the data sits inside a lattice that is visually
+ * stronger than it is. [Primary] is the restrained default §115 asks for — the
+ * back wall alone, which is where a reader looks to read a height — and [All]
+ * exists because a dense point cloud genuinely does need the floor to say where
+ * in depth a point sits.
+ */
+sealed interface Chart3DGridPlanes {
+
+    /** Whether the back wall carries its X/Y grid. */
+    val back: Boolean
+
+    /** Whether the floor carries its X/Z grid. */
+    val floor: Boolean
+
+    /** Whether the side wall carries its Y/Z grid. */
+    val side: Boolean
+
+    /** No grid lines at all. */
+    data object None : Chart3DGridPlanes {
+        override val back: Boolean get() = false
+        override val floor: Boolean get() = false
+        override val side: Boolean get() = false
+    }
+
+    /** The back wall only. The default, and the one a reader reads values off. */
+    data object Primary : Chart3DGridPlanes {
+        override val back: Boolean get() = true
+        override val floor: Boolean get() = false
+        override val side: Boolean get() = false
+    }
+
+    /** Back, floor and side. For a point cloud that needs all three references. */
+    data object All : Chart3DGridPlanes {
+        override val back: Boolean get() = true
+        override val floor: Boolean get() = true
+        override val side: Boolean get() = true
+    }
+
+    /** Exactly the planes stated. */
+    data class Custom(
+        override val back: Boolean = true,
+        override val floor: Boolean = false,
+        override val side: Boolean = false,
+    ) : Chart3DGridPlanes
+}
+
+/**
+ * One grid line, as a world-space segment on a named plane.
+ *
+ * The plane is carried so a renderer can draw the floor's lines more faintly
+ * than the wall's — the floor is seen at a glancing angle, and lines drawn on
+ * it at the same weight read as much darker than the same lines seen square on.
+ */
+data class Chart3DGridLine(
+    val from: Point3D,
+    val to: Point3D,
+    val plane: Chart3DPlane,
+)
+
+/** Which surface of the plot volume something sits on. */
+enum class Chart3DPlane { Back, Floor, Side }
+
+/**
  * The floor and walls a 3D plot stands in.
  *
  * ### Restraint is the design
@@ -149,6 +219,105 @@ data class Chart3DFrame(
                 Point3D(volume.minX, volume.minY, volume.maxZ)
             lines += Point3D(volume.maxX, volume.minY, volume.minZ) to
                 Point3D(volume.maxX, volume.minY, volume.maxZ)
+        }
+        return lines
+    }
+
+    /**
+     * Grid lines on the three planes, from the axes' own tick positions.
+     *
+     * ### Every line is an axis tick, and nothing else is a line
+     *
+     * The fractions come from the three scales that drew the data, so a line on
+     * the back wall is at the same value as the label written beside it and a
+     * line on the floor is at the same depth as the Z tick that names it. A 3D
+     * chart that generated its own line positions — evenly spaced, say, or one
+     * per marker — would produce a grid that looks authoritative and measures
+     * nothing.
+     *
+     * The side wall is whichever [resolveSide] picked, so its lines are always
+     * on the far wall and never between the reader and the data.
+     *
+     * @param xFractions the `0..1` positions of the X axis' ticks, and likewise
+     *   [yFractions] and [zFractions]. A dimension with no ticks contributes no
+     *   lines, which is how an axis with `showLabels = false` ends up with a
+     *   bare plane rather than an unlabelled grid.
+     */
+    @Suppress("LongParameterList", "CyclomaticComplexMethod")
+    fun gridLines(
+        volume: Bounds3D,
+        camera: Chart3DCamera,
+        planes: Chart3DGridPlanes,
+        xFractions: List<Double> = emptyList(),
+        yFractions: List<Double> = emptyList(),
+        zFractions: List<Double> = emptyList(),
+    ): List<Chart3DGridLine> {
+        if (planes == Chart3DGridPlanes.None || !volume.isFinite) return emptyList()
+        fun x(fraction: Double) = volume.minX + volume.width * fraction
+        fun y(fraction: Double) = volume.minY + volume.height * fraction
+        fun z(fraction: Double) = volume.minZ + volume.depth * fraction
+
+        val lines = ArrayList<Chart3DGridLine>()
+        if (back && planes.back) {
+            val wall = volume.maxZ
+            yFractions.forEach { fraction ->
+                val at = y(fraction)
+                lines += Chart3DGridLine(
+                    Point3D(volume.minX, at, wall),
+                    Point3D(volume.maxX, at, wall),
+                    Chart3DPlane.Back,
+                )
+            }
+            xFractions.forEach { fraction ->
+                val at = x(fraction)
+                lines += Chart3DGridLine(
+                    Point3D(at, volume.minY, wall),
+                    Point3D(at, volume.maxY, wall),
+                    Chart3DPlane.Back,
+                )
+            }
+        }
+        if (floor && planes.floor) {
+            val base = volume.minY
+            xFractions.forEach { fraction ->
+                val at = x(fraction)
+                lines += Chart3DGridLine(
+                    Point3D(at, base, volume.minZ),
+                    Point3D(at, base, volume.maxZ),
+                    Chart3DPlane.Floor,
+                )
+            }
+            zFractions.forEach { fraction ->
+                val at = z(fraction)
+                lines += Chart3DGridLine(
+                    Point3D(volume.minX, base, at),
+                    Point3D(volume.maxX, base, at),
+                    Chart3DPlane.Floor,
+                )
+            }
+        }
+        if (planes.side) {
+            val wall = when (resolveSide(camera)) {
+                Chart3DSideWall.Left -> volume.minX
+                Chart3DSideWall.Right -> volume.maxX
+                else -> return lines
+            }
+            yFractions.forEach { fraction ->
+                val at = y(fraction)
+                lines += Chart3DGridLine(
+                    Point3D(wall, at, volume.minZ),
+                    Point3D(wall, at, volume.maxZ),
+                    Chart3DPlane.Side,
+                )
+            }
+            zFractions.forEach { fraction ->
+                val at = z(fraction)
+                lines += Chart3DGridLine(
+                    Point3D(wall, volume.minY, at),
+                    Point3D(wall, volume.maxY, at),
+                    Chart3DPlane.Side,
+                )
+            }
         }
         return lines
     }

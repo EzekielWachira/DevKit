@@ -34,6 +34,9 @@ data class Chart3DDiagnostics(
      * or unexpectedly slow.
      */
     val tessellationSegments: Int = 0,
+    /** Point marks the scene held, and how many of them survived projection. */
+    val markCount: Int = 0,
+    val renderedMarks: Int = 0,
 )
 
 /**
@@ -101,6 +104,32 @@ class Chart3DProjector private constructor(
     }
 
     /**
+     * How a screen-space size at [cameraDepth] relates to the same size at the
+     * centre of the scene.
+     *
+     * The one number a point mark needs that a face does not. A face is a
+     * polygon whose vertices are each projected, so perspective foreshortening
+     * falls out of the arithmetic; a mark is a glyph with one position, so the
+     * foreshortening has to be applied to its radius explicitly.
+     *
+     * Under perspective this is `distance / z`, which is the very factor
+     * [Chart3DProjection.Perspective] applies to a point's coordinates — so a
+     * marker shrinks with depth at exactly the rate the geometry around it
+     * does. Under a parallel projection it is `1`, and a marker's size is
+     * therefore independent of its depth: two equal observations are drawn as
+     * equal discs wherever they stand, which is the property that makes
+     * orthographic the honest mode for comparing them.
+     */
+    fun sizeScaleAt(cameraDepth: Double): Double {
+        if (parallel) return 1.0
+        if (!cameraDepth.isFinite() || cameraDepth <= 0.0) return 0.0
+        return distance / cameraDepth
+    }
+
+    /** The screen-space shading a sphere marker takes under this scene's light. */
+    val markerShading: Marker3DShading = Marker3DShading.of(lighting)
+
+    /**
      * Every visible face of [scene], back to front, lit and ready to draw.
      *
      * The returned order **is** the draw order. A caller that reorders it — to
@@ -161,9 +190,33 @@ class Chart3DProjector private constructor(
             }
         }
 
+        val marks = ArrayList<ProjectedMark>(scene.marks.size)
+        scene.marks.forEachIndexed { markIndex, mark ->
+            if (mark.isDegenerate) return@forEachIndexed
+            val camera = toCamera(mark.position)
+            val screen = toScreen(mark.position) ?: return@forEachIndexed
+            val radius = mark.radius * sizeScaleAt(camera.z)
+            // A mark whose projected radius has rounded to nothing is not
+            // drawn and, more importantly, is not *hit testable*: a disc of no
+            // area under a finger would answer a tap the reader could not have
+            // aimed at.
+            if (!radius.isFinite() || radius < MIN_MARK_RADIUS) return@forEachIndexed
+            marks += ProjectedMark(
+                center = screen,
+                radius = radius,
+                depth = camera.z,
+                brightness = lighting.brightnessOf(TOWARD_CAMERA),
+                marker = mark.marker,
+                markIndex = markIndex,
+                key = mark.key,
+            )
+        }
+
         val sorted = faces.sortedWith(DEPTH_ORDER)
+        val sortedMarks = marks.sortedWith(MARK_DEPTH_ORDER)
         return Chart3DProjectionResult(
             faces = sorted,
+            marks = sortedMarks,
             diagnostics = Chart3DDiagnostics(
                 objectCount = scene.objects.size,
                 faceCount = total,
@@ -172,6 +225,8 @@ class Chart3DProjector private constructor(
                 clippedFaces = clipped,
                 renderedFaces = sorted.size,
                 fitScale = scale,
+                markCount = scene.marks.size,
+                renderedMarks = sortedMarks.size,
             ),
         )
     }
@@ -183,6 +238,28 @@ class Chart3DProjector private constructor(
 
         /** Twice the area of the smallest polygon worth painting, in square pixels. */
         private const val MIN_DOUBLE_AREA = 0.25
+
+        /** Below this a projected marker is neither visible nor aimable, in pixels. */
+        private const val MIN_MARK_RADIUS = 0.2
+
+        /**
+         * The camera-space normal of a surface square on to the reader.
+         *
+         * Camera space looks along `+z`, so a surface facing the eye points
+         * back along `-z`. This is the normal a billboard has by definition and
+         * the normal at the centre of a sphere marker's visible disc.
+         */
+        private val TOWARD_CAMERA = Vector3D(0.0, 0.0, -1.0)
+
+        /**
+         * Marks back to front, then by their position in the scene.
+         *
+         * The same shape as [DEPTH_ORDER] and for the same reason: two
+         * observations at identical depths — which is exactly what happens on
+         * a dataset with repeated values — must not swap places between frames.
+         */
+        private val MARK_DEPTH_ORDER: Comparator<ProjectedMark> =
+            compareByDescending<ProjectedMark> { it.depth }.thenBy { it.markIndex }
 
         /**
          * Back to front, then deterministic.
@@ -338,8 +415,39 @@ data class Chart3DReserve(
     }
 }
 
-/** The faces to draw, and what the pass cost. */
+/** The faces and marks to draw, and what the pass cost. */
 data class Chart3DProjectionResult(
     val faces: List<ProjectedFace>,
     val diagnostics: Chart3DDiagnostics,
-)
+    val marks: List<ProjectedMark> = emptyList(),
+) {
+    /**
+     * Faces and marks in one back-to-front order.
+     *
+     * The list a renderer that has both should draw, and the list a hit test
+     * over both should search backwards. Built lazily, because a chart with no
+     * marks — every 3D column and every 3D pie in the library — never asks for
+     * it and pays nothing for its existence.
+     *
+     * Merging two already-sorted lists rather than re-sorting their
+     * concatenation: both inputs are in descending depth, so one pass is enough
+     * and the relative order within each is preserved exactly as its own
+     * comparator settled it.
+     */
+    val items: List<Projected3D> by lazy(LazyThreadSafetyMode.NONE) {
+        if (marks.isEmpty()) return@lazy faces
+        if (faces.isEmpty()) return@lazy marks
+        val merged = ArrayList<Projected3D>(faces.size + marks.size)
+        var f = 0
+        var m = 0
+        while (f < faces.size && m < marks.size) {
+            // Descending depth, and a tie hands it to the face: a marker
+            // sitting exactly on the floor it is measured from should be drawn
+            // on top of the floor, not swallowed by it.
+            if (faces[f].depth >= marks[m].depth) merged += faces[f++] else merged += marks[m++]
+        }
+        while (f < faces.size) merged += faces[f++]
+        while (m < marks.size) merged += marks[m++]
+        merged
+    }
+}
