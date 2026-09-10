@@ -32,7 +32,27 @@ find "$HOME/.m2/repository/$GROUP_PATH" -name "*.pom" \
 
 echo
 echo "==> Resolving and compiling from a consumer that uses Maven coordinates"
-./gradlew --project-dir consumer-test verifyAll
+
+# The versions under test are read from the *parent* build and passed in, rather
+# than trusted from `consumer-test/gradle.properties`.
+#
+# That file keeps its own copy so the consumer build still runs standalone, and
+# a copy is a thing that goes stale. When it did, this check turned into a false
+# pass: the consumer asked for the previous ChartKit version, found one in the
+# developer's `~/.m2` left over from an earlier `publishToMavenLocal`, and
+# compiled happily — while CI, with a clean `~/.m2`, resolved the *real*
+# previous version from Maven Central and failed on APIs that had not shipped
+# yet. Passing the numbers in means the consumer can only ever be asked about
+# the versions this build is actually publishing.
+prop() {
+  sed -n "s/^$1=//p" gradle.properties | tr -d '[:space:]'
+}
+
+./gradlew --project-dir consumer-test verifyAll \
+  -PdevkitChartKitVersion="$(prop devkit.version.chartkit)" \
+  -PdevkitFillKitVersion="$(prop devkit.version.fillkit)" \
+  -PdevkitNetKitVersion="$(prop devkit.version.netkit)" \
+  -PdevkitEcosystemVersion="$(prop devkit.version.ecosystem)"
 
 echo
 echo "==> Publication verified"
