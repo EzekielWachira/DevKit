@@ -528,8 +528,16 @@ RadarChart(
     data = ratings,
     metric = { it.aspect },
     value = { it.score },
+    valueRange = 0.0..100.0,
 )
 ```
+
+`valueRange` is in the first example because a single series without one is the
+case where the default has nothing to say. `RadarNormalization.PerAxis` scales
+each spoke to its own metric's range, and one series gives each spoke a range of
+exactly one value — so every point lands on the outer ring and the chart draws a
+regular polygon whatever the numbers are. Scores out of a hundred are
+comparable, so give them one range and let the shape carry the meaning.
 
 Comparing two or three profiles is what a radar chart is genuinely good at:
 
