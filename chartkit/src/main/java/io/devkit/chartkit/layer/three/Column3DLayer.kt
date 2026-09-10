@@ -97,6 +97,8 @@ internal class Column3DSeriesInfo(
     val values: List<Double?>,
     val items: List<Any?>,
     val sourceIndices: List<Int>,
+    /** An explicit ARGB colour per category, from the caller's own resolver. */
+    val pointColors: List<Int?> = emptyList(),
 )
 
 /**
@@ -125,6 +127,8 @@ internal class Column3DLayer(
     private val grouping: BarGrouping,
     private val arrangement: Column3DArrangement,
     private val depth: Chart3DDepth,
+    private val sceneDepth: io.devkit.chartkit.three.Chart3DSceneDepth,
+    private val colorByPoint: Boolean,
     private val groupPadding: Double,
     private val depthGap: Double,
     private val valueFraction: (Double) -> Double,
@@ -163,6 +167,7 @@ internal class Column3DLayer(
             stackId = it.stackId,
             values = it.values,
             sourceIndices = it.sourceIndices,
+            pointColors = it.pointColors,
         )
     }
     private val itemsBySeries: Map<String, List<Any?>> =
@@ -730,6 +735,8 @@ internal class Column3DLayer(
             groupPadding = groupPadding,
             depthGap = depthGap,
             reveal = reveal,
+            sceneDepth = sceneDepth,
+            colorByPoint = colorByPoint,
         )
 
         val framePanels = frame.panelsFor(layout.volume, camera)

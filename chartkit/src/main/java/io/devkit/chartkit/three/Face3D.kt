@@ -101,6 +101,32 @@ data class Face3D(
 }
 
 /**
+ * Something projected that can be ordered against anything else projected.
+ *
+ * ### Why an interface and not two lists
+ *
+ * A 3D scatter draws point marks *and* frame walls, and the only correct answer
+ * to "which is in front" is one comparison over both. Keeping faces and marks
+ * in separate lists and drawing one after the other would put every marker
+ * either always in front of the floor or always behind the back wall, and the
+ * error would appear exactly when a reader rotated the chart — which is when
+ * they are least able to tell a depth bug from a data one.
+ *
+ * So both kinds carry the same [depth], in camera space, and
+ * [Chart3DProjector] sorts them together. [key] is here for the same reason it
+ * is on a face: it is what tells a hit test the difference between data and
+ * scenery.
+ */
+sealed interface Projected3D {
+
+    /** The camera-space depth of the item's centre. Larger is further away. */
+    val depth: Double
+
+    /** What data this stands for, or `null` for scene furniture. */
+    val key: Chart3DKey?
+}
+
+/**
  * A face after the camera and the projection have been applied.
  *
  * Screen coordinates in `x`/`y`, in the plot's own pixel space with y growing
@@ -120,13 +146,13 @@ data class Face3D(
  */
 data class ProjectedFace(
     val points: List<Projected2D>,
-    val depth: Double,
+    override val depth: Double,
     val brightness: Double,
     val side: FaceSide,
     val objectIndex: Int,
     val faceIndex: Int,
-    val key: Chart3DKey?,
-) {
+    override val key: Chart3DKey?,
+) : Projected3D {
     /** The signed area of the projected polygon, doubled. Negative when wound the other way. */
     fun doubleSignedArea(): Double {
         if (points.size < 3) return 0.0

@@ -87,4 +87,26 @@ object ChartDefaults {
             showSeriesNames = showSeriesNames,
         )
     }
+
+    /**
+     * The default tooltip for a true X/Y/Z chart: all three values, each
+     * through its own axis formatter.
+     *
+     * Separate from [Tooltip] rather than a branch inside it, because a caller
+     * wrapping the 3D one is wrapping something with three lines and a caller
+     * wrapping the flat one is wrapping something with an x and a value. It
+     * falls back to [Tooltip] for a selection that carries no third coordinate.
+     */
+    @Composable
+    fun <T> Scatter3DTooltip(
+        data: ChartTooltipData<T>,
+        modifier: Modifier = Modifier,
+        showSeriesName: Boolean = data.isMultiSeries,
+    ) {
+        io.devkit.chartkit.components.tooltip.Chart3DTooltip(
+            data = data,
+            modifier = modifier,
+            showSeriesName = showSeriesName,
+        )
+    }
 }

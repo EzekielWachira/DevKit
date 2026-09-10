@@ -54,6 +54,16 @@ internal class Column3DSeries(
     val stackId: String,
     val values: List<Double?>,
     val sourceIndices: List<Int>,
+    /**
+     * An explicit ARGB colour per category, from the caller's own resolver.
+     *
+     * Parallel to [values], and `null` wherever the resolver returned nothing —
+     * which is the ordinary case, and means the segment falls back to the
+     * series' colour. Resolved once per data change, in composition, because a
+     * caller's lambda may be arbitrary work and the layout runs on every
+     * animation frame.
+     */
+    val pointColors: List<Int?> = emptyList(),
 )
 
 /**
@@ -134,6 +144,8 @@ internal object Column3DLayoutEngine {
         groupPadding: Double,
         depthGap: Double,
         reveal: Float = 1f,
+        sceneDepth: Chart3DSceneDepth = Chart3DSceneDepth.Auto,
+        colorByPoint: Boolean = false,
     ): Column3DLayout {
         require(groupPadding >= 0.0 && groupPadding < 1.0) {
             "Group padding must be in [0, 1), was $groupPadding"
@@ -184,6 +196,19 @@ internal object Column3DLayoutEngine {
         val segments = ArrayList<Column3DSegment>(series.size * categories.size)
         val depthStride = columnDepth * (1.0 + depthGap)
 
+        // How deep the columns themselves reach, and how deep the room they
+        // stand in is. Computed before any box is built because the room's
+        // extra depth is shared equally in front of and behind the content —
+        // a scene deepened only at the back would swing the whole chart toward
+        // the reader as the slider moved, which reads as a camera change
+        // rather than as more room.
+        val occupiedDepth = when (arrangement) {
+            Column3DArrangement.Side -> columnDepth
+            Column3DArrangement.Depth -> columnDepth + depthStride * (stackCount - 1)
+        }
+        val sceneZ = Chart3DSceneDepth.resolve(sceneDepth, max(occupiedDepth, MIN_VOLUME_DEPTH))
+        val zOffset = (sceneZ - occupiedDepth) / 2.0
+
         stackIds.forEachIndexed { stackIndex, stackId ->
             val members = series.filter { it.stackId == stackId }
             if (members.isEmpty()) return@forEachIndexed
@@ -201,7 +226,7 @@ internal object Column3DLayoutEngine {
                 }
                 Column3DArrangement.Depth -> -band / 2.0
             }
-            val z = when (arrangement) {
+            val z = zOffset + when (arrangement) {
                 Column3DArrangement.Side -> 0.0
                 Column3DArrangement.Depth -> stackIndex * depthStride
             }
@@ -250,8 +275,16 @@ internal object Column3DLayoutEngine {
                         value = rawValue,
                         plottedValue = tip - base,
                         stackTotal = totals.getOrElse(categoryIndex) { 0.0 },
-                        paletteIndex = member.paletteIndex,
-                        colorOverride = member.colorOverride,
+                        // Colour by point walks the palette across the
+                        // *categories* rather than across the series, which is
+                        // what makes a single-series chart show one colour per
+                        // bar. The series identity is untouched: the key still
+                        // says which series this is, so the legend, the
+                        // tooltip, selection and the accessibility summary all
+                        // read exactly as they did.
+                        paletteIndex = if (colorByPoint) categoryIndex else member.paletteIndex,
+                        colorOverride = member.pointColors.getOrNull(categoryIndex)
+                            ?: member.colorOverride,
                         cuboid = Cuboid3D(
                             x = centre.toDouble() + xOffset,
                             width = slotWidth,
@@ -267,10 +300,6 @@ internal object Column3DLayoutEngine {
             }
         }
 
-        val totalDepth = when (arrangement) {
-            Column3DArrangement.Side -> columnDepth
-            Column3DArrangement.Depth -> columnDepth + depthStride * (stackCount - 1)
-        }
         return Column3DLayout(
             segments = segments,
             volume = Bounds3D(
@@ -279,7 +308,7 @@ internal object Column3DLayoutEngine {
                 minY = 0.0,
                 maxY = height,
                 minZ = 0.0,
-                maxZ = max(totalDepth, MIN_VOLUME_DEPTH),
+                maxZ = max(sceneZ, MIN_VOLUME_DEPTH),
             ),
             stackIds = stackIds,
         )

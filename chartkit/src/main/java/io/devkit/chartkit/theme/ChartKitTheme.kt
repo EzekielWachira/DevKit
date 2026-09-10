@@ -301,6 +301,25 @@ data class ChartThreeDColors(
     val frameGrid: Color,
     val edge: Color,
     val selectedOutline: Color,
+    /**
+     * The hairline around a point marker.
+     *
+     * Its job is to keep two overlapping markers of similar colour from
+     * reading as one blob, which the shading alone cannot do where both are
+     * lit the same. Drawn in the surface colour rather than in a third hue for
+     * the same reason [edge] is.
+     */
+    val markerOutline: Color,
+    /**
+     * The line from a selected point to its reference plane.
+     *
+     * Distinct from [frameGrid] and stronger: a guide is transient and is
+     * answering a question the reader just asked, while a grid line is
+     * permanent furniture. A guide at the grid's weight disappears into it.
+     */
+    val selectionGuideLine: Color,
+    /** The mark drawn where a selected point projects onto a plane. */
+    val selectionGuideMark: Color,
 )
 
 /**
@@ -545,6 +564,9 @@ data class ChartColors(
         // nor the background.
         edge = axisLine.copy(alpha = 0.35f),
         selectedOutline = selectionGuide,
+        markerOutline = axisLine.copy(alpha = 0.45f),
+        selectionGuideLine = selectionGuide.copy(alpha = 0.75f),
+        selectionGuideMark = selectionGuide,
     ),
     val timeline: ChartTimelineColors = ChartTimelineColors(
         interval = palette[0],
@@ -885,6 +907,42 @@ data class ChartDimensions(
      * tilted one.
      */
     val chart3DExplodeOffset: Dp = 14.dp,
+
+    /**
+     * The radius of a 3D scatter marker, at the depth of the scene's centre.
+     *
+     * Smaller than the flat scatter's point radius and deliberately so: a 3D
+     * plot draws a frame, three sets of axis labels and possibly a grid behind
+     * the same pixels, and a marker sized for an empty 2D plot sits on top of
+     * all of it. Perspective then makes the near ones larger again.
+     */
+    val scatter3DMarkerRadius: Dp = 5.dp,
+
+    /**
+     * The smallest and largest radius a size-encoded 3D marker takes.
+     *
+     * Separate from the 2D bubble bounds, which are much wider. A 3D bubble at
+     * the flat chart's maximum would occlude a large part of the volume it sits
+     * in, and the points it hides are the reader's depth cue.
+     */
+    val scatter3DMinMarkerRadius: Dp = 3.dp,
+    val scatter3DMaxMarkerRadius: Dp = 16.dp,
+
+    /** The hairline around a 3D marker. Zero switches it off. */
+    val scatter3DMarkerOutlineWidth: Dp = 0.5.dp,
+
+    /**
+     * How far outside a marker a tap still selects it.
+     *
+     * A fingertip is around 9mm and a marker is five pixels. Requiring a
+     * pixel-exact tap on one would make a touch scatter chart unusable, and the
+     * only cost of the slack is that a tap in the gap between two points
+     * resolves to the front-most of them rather than to nothing.
+     */
+    val scatter3DSelectionSlop: Dp = 12.dp,
+
+    /** The stroke of a selection guide line. */
+    val scatter3DGuideWidth: Dp = 1.dp,
 
     // ---- timeline -------------------------------------------------------
 

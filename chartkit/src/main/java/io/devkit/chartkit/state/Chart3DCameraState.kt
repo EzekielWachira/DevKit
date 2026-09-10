@@ -65,6 +65,25 @@ class Chart3DCameraState internal constructor(
             currentCamera = value.coerceIn(limits)
         }
 
+    /**
+     * Turns the camera to the given angles, clamped.
+     *
+     * The absolute counterpart to [rotateBy], and what a slider drives: a
+     * control that reports a position has to be able to *state* it, and
+     * expressing that as a delta from whatever the camera currently is means
+     * the two drift apart the first time anything else moves the camera.
+     *
+     * A `null` leaves that angle alone, so turning the chart from a single
+     * horizontal slider does not silently level its pitch.
+     */
+    fun rotateTo(rotationX: Double? = null, rotationY: Double? = null) {
+        val now = camera
+        camera = now.copy(
+            rotationX = rotationX ?: now.rotationX,
+            rotationY = rotationY ?: now.rotationY,
+        )
+    }
+
     /** Turns the camera by the given deltas, clamped. */
     fun rotateBy(deltaX: Double, deltaY: Double) {
         val now = camera
@@ -85,6 +104,17 @@ class Chart3DCameraState internal constructor(
     fun zoomBy(factor: Float) {
         if (!factor.isFinite() || factor <= 0f) return
         camera = camera.copy(distance = camera.distance / factor)
+    }
+
+    /**
+     * Moves the camera to an absolute [distance] in scene widths, clamped.
+     *
+     * Absolute where [zoomBy] is multiplicative, for the same reason [rotateTo]
+     * exists beside [rotateBy]: a pinch is a ratio and a slider is a position.
+     */
+    fun zoomTo(distance: Double) {
+        if (!distance.isFinite() || distance <= 0.0) return
+        camera = camera.copy(distance = distance)
     }
 
     /** Back to exactly the camera this state was created with. */

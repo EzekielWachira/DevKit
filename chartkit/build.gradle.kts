@@ -78,7 +78,8 @@ devKitPublishing {
             "scatter, bubble, histogram, box plot, violin, heatmap, calendar heatmap, " +
             "candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet, timeline, " +
             "range and Gantt on Cartesian coordinates, with grouped and stacked 3D " +
-            "columns projected over the same engine; pie, donut, radial bar, radar, " +
+            "columns and a true X/Y/Z 3D scatter projected over the same engine; pie, " +
+            "donut, radial bar, radar, " +
             "sunburst and gauge on polar ones, with extruded 3D pies and donuts on the " +
             "same scene; treemap, Sankey, funnel and network graphs " +
             "on planar ones. Axes, logarithmic and symmetric-log scales, secondary value " +

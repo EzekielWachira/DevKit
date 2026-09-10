@@ -4,12 +4,15 @@ import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
 import io.devkit.chartkit.accessibility.ChartAccessibility
 import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.animation.rememberAnimatedSeriesValues
 import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
+import io.devkit.chartkit.axis.ChartUnit
 import io.devkit.chartkit.components.legend.LegendPosition
 import io.devkit.chartkit.formatter.ChartValueFormatter
 import io.devkit.chartkit.geometry.BarGrouping
@@ -43,6 +46,7 @@ import io.devkit.chartkit.three.Chart3DLighting
 import io.devkit.chartkit.three.Chart3DProjection
 import io.devkit.chartkit.three.Column3DArrangement
 import io.devkit.chartkit.three.Chart3DDepth
+import io.devkit.chartkit.three.Chart3DSceneDepth
 
 /**
  * What a pointer does to a 3D chart.
@@ -114,6 +118,9 @@ fun <T> ColumnChart3D(
     modifier: Modifier = Modifier,
     seriesName: String = "",
     depth: Chart3DDepth = Chart3DDepth.Auto,
+    sceneDepth: Chart3DSceneDepth = Chart3DSceneDepth.Auto,
+    colorByPoint: Boolean = false,
+    pointColor: ((T) -> Color?)? = null,
     categoryPadding: Double = CategoryScale.DEFAULT_CATEGORY_PADDING,
     categoryAxis: ChartAxis = ChartAxis.Default,
     valueAxis: ChartAxis = ChartAxis.Default,
@@ -144,6 +151,9 @@ fun <T> ColumnChart3D(
         value = value,
         modifier = modifier,
         depth = depth,
+        sceneDepth = sceneDepth,
+        colorByPoint = colorByPoint,
+        pointColor = pointColor,
         categoryPadding = categoryPadding,
         categoryAxis = categoryAxis,
         valueAxis = valueAxis,
@@ -215,6 +225,9 @@ fun <T> ColumnChart3D(
     stack: ((ChartSeries<T>) -> String?)? = null,
     arrangement: Column3DArrangement = Column3DArrangement.Side,
     depth: Chart3DDepth = Chart3DDepth.Auto,
+    sceneDepth: Chart3DSceneDepth = Chart3DSceneDepth.Auto,
+    colorByPoint: Boolean = false,
+    pointColor: ((T) -> Color?)? = null,
     categoryPadding: Double = CategoryScale.DEFAULT_CATEGORY_PADDING,
     groupPadding: Double = DEFAULT_GROUP_PADDING,
     depthGap: Double = DEFAULT_DEPTH_GAP,
@@ -278,6 +291,17 @@ fun <T> ColumnChart3D(
         series.mapNotNull { s -> stack?.invoke(s)?.let { s.id to it } }.toMap()
     }
 
+    // Resolved here and not in the layer. The caller's lambda may do arbitrary
+    // work — a lookup, a threshold test — and the layout it feeds runs on every
+    // frame of an animation and every frame of a camera drag. Keyed on the data
+    // and the lambda, so it runs once per change of either and a rotation
+    // re-resolves nothing.
+    val pointColors = remember(series, pointColor) {
+        pointColor?.let { resolve ->
+            series.associate { s -> s.id to s.data.map { item -> resolve(item)?.toArgb() } }
+        } ?: emptyMap()
+    }
+
     // Read here, in composition, and captured as a lambda the layer calls at
     // draw time. Reading it in the layer's constructor instead would freeze the
     // camera into the geometry, and a rotation would rebuild the whole stack
@@ -298,7 +322,8 @@ fun <T> ColumnChart3D(
     }
 
     val layers = remember(
-        animatedData, grouping, stacks, arrangement, depth, categoryPadding, groupPadding,
+        animatedData, grouping, stacks, arrangement, depth, sceneDepth, colorByPoint, pointColors,
+        categoryPadding, groupPadding,
         depthGap, camera, projection, lighting, frame, valueLabels, categoryAxis,
         effectiveValueAxis, debug, onDiagnostics,
     ) {
@@ -310,6 +335,9 @@ fun <T> ColumnChart3D(
                 grouping = grouping,
                 arrangement = arrangement,
                 depth = depth,
+                sceneDepth = sceneDepth,
+                colorByPoint = colorByPoint,
+                pointColors = pointColors,
                 categoryPadding = categoryPadding,
                 groupPadding = groupPadding,
                 depthGap = depthGap,
@@ -458,8 +486,12 @@ fun CartesianChart3D(
     onDiagnostics: ((Chart3DDiagnostics) -> Unit)? = null,
     state: ChartState<Any?> = rememberChartState(),
     onSelectionChanged: ((io.devkit.chartkit.model.AnyChartSelection?) -> Unit)? = null,
+    // The three-dimensional one, which falls back to the flat tooltip for a
+    // selection that carries no third coordinate — so a chart of columns gets
+    // the column tooltip and a chart of observations gets all three values,
+    // without the caller having to know which they declared.
     tooltip: (@Composable (io.devkit.chartkit.model.AnyChartTooltipData) -> Unit)? = {
-        ChartDefaults.Tooltip(it)
+        ChartDefaults.Scatter3DTooltip(it)
     },
     isLoading: Boolean = false,
     error: Throwable? = null,
@@ -469,7 +501,7 @@ fun CartesianChart3D(
     content: CartesianChart3DScope.() -> Unit,
 ) {
     val camera = cameraState.camera
-    val layers = remember(
+    val scope = remember(
         content, state.hiddenSeriesIds, camera, projection, lighting, frame,
         categoryAxis, valueAxis, debug, onDiagnostics,
     ) {
@@ -483,7 +515,24 @@ fun CartesianChart3D(
             valueAxis = valueAxis,
             debug = debug,
             onDiagnostics = onDiagnostics,
-        ).apply(content).layers.toList()
+        ).apply(content)
+    }
+    val layers = remember(scope) { scope.layers.toList() }
+
+    // A registry with three dimensions when a scatter declared a depth axis,
+    // and the ordinary implicit pair otherwise. Built from what the content
+    // actually declared rather than from a flag on the chart, so a caller
+    // cannot say "3D" and get two axes or vice versa.
+    val axisRegistry = remember(scope, categoryAxis, valueAxis, valueDomain) {
+        scope.declaredZAxis?.let { zAxis ->
+            cartesian3DAxisRegistry(
+                xAxis = categoryAxis,
+                yAxis = valueAxis,
+                zAxis = zAxis,
+                zUnit = scope.declaredZUnit,
+                yDomain = valueAxis.domain ?: valueDomain,
+            )
+        }
     }
 
     val rotateModifier = if (interaction.rotates && !renderMode.isStatic) {
@@ -522,6 +571,7 @@ fun CartesianChart3D(
         viewportState = rememberChartViewportState(),
         sharedCrosshair = null,
         annotations = emptyList(),
+        axisRegistry = axisRegistry,
         renderMode = renderMode,
         staticOptions = staticOptions,
         sceneState = sceneState,
@@ -564,6 +614,20 @@ class CartesianChart3DScope internal constructor(
     private var declaredSeries = 0
 
     /**
+     * The depth axis the first [scatter] declared, or `null`.
+     *
+     * Recorded so the chart can register it: a Z axis is a property of the
+     * *chart*, and a scope that quietly kept it to itself would leave
+     * [io.devkit.chartkit.axis.AxisRegistry.zAxes] empty on a chart that
+     * plainly has three dimensions.
+     */
+    internal var declaredZAxis: ChartAxis? = null
+        private set
+
+    internal var declaredZUnit: ChartUnit = ChartUnit.None
+        private set
+
+    /**
      * A 3D column layer.
      *
      * @param stack which stack each series belongs to. A series named nowhere
@@ -578,6 +642,9 @@ class CartesianChart3DScope internal constructor(
         stack: ((ChartSeries<T>) -> String?)? = null,
         arrangement: Column3DArrangement = Column3DArrangement.Side,
         depth: Chart3DDepth = Chart3DDepth.Auto,
+        sceneDepth: Chart3DSceneDepth = Chart3DSceneDepth.Auto,
+        colorByPoint: Boolean = false,
+        pointColor: ((T) -> Color?)? = null,
         categoryPadding: Double = CategoryScale.DEFAULT_CATEGORY_PADDING,
         groupPadding: Double = DEFAULT_GROUP_PADDING,
         depthGap: Double = DEFAULT_DEPTH_GAP,
@@ -603,6 +670,11 @@ class CartesianChart3DScope internal constructor(
             grouping = grouping,
             arrangement = arrangement,
             depth = depth,
+            sceneDepth = sceneDepth,
+            colorByPoint = colorByPoint,
+            pointColors = pointColor?.let { resolve ->
+                series.associate { s -> s.id to s.data.map { item -> resolve(item)?.toArgb() } }
+            } ?: emptyMap(),
             categoryPadding = categoryPadding,
             groupPadding = groupPadding,
             depthGap = depthGap,
@@ -613,6 +685,145 @@ class CartesianChart3DScope internal constructor(
             labels = valueLabels,
             categoryAxis = categoryAxis,
             valueAxis = valueAxis,
+            debug = debug,
+            onDiagnostics = onDiagnostics,
+        )
+    }
+
+    /**
+     * A true X/Y/Z scatter layer.
+     *
+     * ```kotlin
+     * CartesianChart3D(cameraState = camera) {
+     *     scatter(data = groupA, x = { it.x }, y = { it.y }, z = { it.z }, seriesName = "A")
+     *     scatter(data = groupB, x = { it.x }, y = { it.y }, z = { it.z }, seriesName = "B")
+     * }
+     * ```
+     *
+     * Two `scatter` calls and two `scatter(series = …)` calls are the same
+     * thing to the engine: each declares a set of series, each takes the next
+     * palette slots, and the three axes are the chart's. What a second layer
+     * may **not** do is bring a different Z axis — a chart with two depth
+     * scales has two volumes, and there is one box on screen. The first
+     * layer's Z configuration is the chart's, and a later one is ignored
+     * rather than silently rescaling the first.
+     *
+     * @param z reads the third variable. See [ScatterChart3D].
+     */
+    @Suppress("LongParameterList")
+    fun <T> scatter(
+        data: List<T>,
+        x: (T) -> Number?,
+        y: (T) -> Number?,
+        z: (T) -> Number?,
+        seriesId: String? = null,
+        seriesName: String = "",
+        size: ((T) -> Number?)? = null,
+        color: ((T) -> Number?)? = null,
+        colorScale: io.devkit.chartkit.scale.ColorScale? = null,
+        sizeScale: io.devkit.chartkit.scale.SizeScale? = null,
+        marker: io.devkit.chartkit.three.Marker3D = io.devkit.chartkit.three.Marker3D.Sphere,
+        markerSize: androidx.compose.ui.unit.Dp? = null,
+        renderMode: io.devkit.chartkit.layer.three.Scatter3DRenderMode =
+            io.devkit.chartkit.layer.three.Scatter3DRenderMode.Auto,
+        guides: io.devkit.chartkit.layer.three.Scatter3DGuides =
+            io.devkit.chartkit.layer.three.Scatter3DGuides.None,
+        zAxis: ChartAxis = ChartAxis.Default,
+        zUnit: ChartUnit = ChartUnit.None,
+        zDomain: DomainPolicy = DomainPolicy.Default,
+        sceneDepth: Chart3DSceneDepth = Chart3DSceneDepth.Auto,
+        gridPlanes: io.devkit.chartkit.three.Chart3DGridPlanes =
+            io.devkit.chartkit.three.Chart3DGridPlanes.Primary,
+        fit: io.devkit.chartkit.layer.three.Chart3DSceneFit =
+            io.devkit.chartkit.layer.three.Chart3DSceneFit.Content,
+    ) {
+        scatter(
+            series = listOf(
+                ChartSeries(
+                    id = seriesId ?: "scatter3d${layers.size}",
+                    name = seriesName,
+                    data = data,
+                ),
+            ),
+            x = x, y = y, z = z,
+            size = size, color = color, colorScale = colorScale, sizeScale = sizeScale,
+            marker = marker, markerSize = markerSize, renderMode = renderMode, guides = guides,
+            zAxis = zAxis, zUnit = zUnit, zDomain = zDomain,
+            sceneDepth = sceneDepth, gridPlanes = gridPlanes, fit = fit,
+        )
+    }
+
+    /** A multi-series 3D scatter layer. See the single-series [scatter]. */
+    @Suppress("LongParameterList")
+    fun <T> scatter(
+        series: List<ChartSeries<T>>,
+        x: (T) -> Number?,
+        y: (T) -> Number?,
+        z: (T) -> Number?,
+        size: ((T) -> Number?)? = null,
+        color: ((T) -> Number?)? = null,
+        colorScale: io.devkit.chartkit.scale.ColorScale? = null,
+        sizeScale: io.devkit.chartkit.scale.SizeScale? = null,
+        marker: io.devkit.chartkit.three.Marker3D = io.devkit.chartkit.three.Marker3D.Sphere,
+        markerSize: androidx.compose.ui.unit.Dp? = null,
+        renderMode: io.devkit.chartkit.layer.three.Scatter3DRenderMode =
+            io.devkit.chartkit.layer.three.Scatter3DRenderMode.Auto,
+        guides: io.devkit.chartkit.layer.three.Scatter3DGuides =
+            io.devkit.chartkit.layer.three.Scatter3DGuides.None,
+        zAxis: ChartAxis = ChartAxis.Default,
+        zUnit: ChartUnit = ChartUnit.None,
+        zDomain: DomainPolicy = DomainPolicy.Default,
+        sceneDepth: Chart3DSceneDepth = Chart3DSceneDepth.Auto,
+        gridPlanes: io.devkit.chartkit.three.Chart3DGridPlanes =
+            io.devkit.chartkit.three.Chart3DGridPlanes.Primary,
+        fit: io.devkit.chartkit.layer.three.Chart3DSceneFit =
+            io.devkit.chartkit.layer.three.Chart3DSceneFit.Content,
+    ) {
+        if (declaredZAxis == null) {
+            declaredZAxis = zAxis
+            declaredZUnit = zUnit
+        }
+        val visible = series.map { it.copy(visible = it.visible && it.id !in hiddenSeriesIds) }
+        val data = normalizeSeries(
+            series = visible,
+            x = { item -> x(item) },
+            y = y,
+            xResolver = ChartXResolver.Default,
+            missingValuePolicy = MissingValuePolicy.Break,
+            xAxisKind = ChartXAxisKind.Numeric,
+        ).withPaletteOffset(declaredSeries)
+        declaredSeries += series.size
+
+        layers += ResolvedLayer.Scatter3D(
+            key = "scatter3d${layers.size}",
+            data = data,
+            zValues = visible.associate { s -> s.id to s.data.map { z(it)?.toDouble() } },
+            sizes = size?.let { accessor ->
+                visible.associate { s -> s.id to s.data.map { accessor(it)?.toDouble() } }
+            },
+            colorValues = color?.let { accessor ->
+                visible.associate { s -> s.id to s.data.map { accessor(it)?.toDouble() } }
+            },
+            sizeScale = sizeScale,
+            colorScale = colorScale,
+            xAxis = categoryAxis,
+            yAxis = valueAxis,
+            zAxis = zAxis,
+            xUnit = ChartUnit.None,
+            yUnit = ChartUnit.None,
+            zUnit = zUnit,
+            zDomain = zDomain,
+            sceneDepth = sceneDepth,
+            camera = camera,
+            projection = projection,
+            lighting = lighting,
+            frame = frame,
+            gridPlanes = gridPlanes,
+            fit = fit,
+            marker = marker,
+            markerRadius = markerSize,
+            renderMode = renderMode,
+            guides = guides,
             debug = debug,
             onDiagnostics = onDiagnostics,
         )

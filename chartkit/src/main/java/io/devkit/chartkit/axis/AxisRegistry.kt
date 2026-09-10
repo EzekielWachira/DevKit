@@ -6,12 +6,28 @@ import io.devkit.chartkit.geometry.ChartOrientation
 import io.devkit.chartkit.scale.DomainPolicy
 
 /**
- * Which of a chart's two directions an axis measures.
+ * Which of a chart's directions an axis measures.
  *
  * Stated rather than inferred from the edge it is drawn against, because the
  * edge is a layout decision and the dimension is not: a horizontal bar chart
  * puts its **value** axis along the bottom, and a chart that read "bottom axis"
  * as "domain axis" would build the wrong scale for it.
+ *
+ * ### The Z case, and why it did not need a second registry
+ *
+ * [Z] arrived with the true 3D Cartesian charts and changed nothing about X or
+ * Y. Everything the registry does for an axis — give it a stable name, refuse
+ * two axes the same one, resolve a layer's binding by name, carry a title, a
+ * unit, a formatter and a domain policy — is dimension-independent, and a
+ * parallel `ScatterAxisRegistry` would have had to reimplement all of it to add
+ * the one property that actually differs.
+ *
+ * That one property is [onPlotEdge]. X and Y are drawn against an edge of the
+ * plot rectangle; Z is not drawn against anything, because there is no edge of
+ * a flat rectangle that means "away from the reader". A 3D chart places its Z
+ * labels at *projected* world positions on the plot volume instead, so the
+ * layout engine simply never asks a Z axis where it sits. See
+ * [io.devkit.chartkit.three.Cartesian3DCoordinates].
  */
 enum class AxisDimension {
 
@@ -20,6 +36,27 @@ enum class AxisDimension {
 
     /** A value axis — the quantity a layer is measured in. */
     Y,
+
+    /**
+     * The depth axis of a true 3D Cartesian chart.
+     *
+     * A third analytical variable with its own domain, ticks and formatter —
+     * not the visual depth a grouped 3D column chart uses to separate its
+     * stacks, which carries no quantity and has no axis. Keeping those two
+     * ideas apart is the whole reason this is a dimension rather than a flag on
+     * a scatter layer.
+     */
+    Z,
+    ;
+
+    /**
+     * Whether this dimension is drawn against a side of the plot rectangle.
+     *
+     * False only for [Z]. What reads it: axis measurement, gutter allocation
+     * and edge stacking, all of which have nothing to place for an axis with no
+     * edge — and would place it wrongly if forced to choose one.
+     */
+    val onPlotEdge: Boolean get() = this != Z
 }
 
 /**
@@ -157,6 +194,12 @@ data class ChartAxisSpec(
     fun positionOn(orientation: ChartOrientation): AxisPosition = position ?: when (dimension) {
         AxisDimension.X -> if (orientation.isVertical) AxisPosition.Bottom else AxisPosition.Start
         AxisDimension.Y -> if (orientation.isVertical) AxisPosition.Start else AxisPosition.Bottom
+        // A depth axis has no edge to be on. Nothing that lays out edges ever
+        // reaches here — [AxisRegistry.axesAt] filters by
+        // [AxisDimension.onPlotEdge] before asking — and the value returned is
+        // a placeholder that keeps this function total rather than a claim
+        // about where a Z axis is drawn.
+        AxisDimension.Z -> AxisPosition.Bottom
     }
 }
 
@@ -205,6 +248,16 @@ class AxisRegistry private constructor(
     val yAxes: List<ChartAxisSpec> = axes.filter { it.dimension == AxisDimension.Y }
 
     /**
+     * The depth axes of a true 3D Cartesian chart. Normally exactly one.
+     *
+     * Empty for every 2D chart and for a 3D column chart, whose depth carries
+     * grouping rather than a quantity — which is the distinction §210 asks to
+     * be kept explicit, and it is kept here by a Z axis simply not existing on
+     * charts that have no third variable.
+     */
+    val zAxes: List<ChartAxisSpec> = axes.filter { it.dimension == AxisDimension.Z }
+
+    /**
      * The chart's main value axis.
      *
      * The one marked [ChartAxisSpec.primary], or the first declared. Owns the
@@ -215,6 +268,9 @@ class AxisRegistry private constructor(
 
     /** The chart's domain axis. */
     val primaryX: ChartAxisSpec? = xAxes.firstOrNull { it.primary } ?: xAxes.firstOrNull()
+
+    /** The chart's depth axis, or `null` when it has no third dimension. */
+    val primaryZ: ChartAxisSpec? = zAxes.firstOrNull { it.primary } ?: zAxes.firstOrNull()
 
     /** The axis called [id], or `null`. */
     fun find(id: ChartAxisId): ChartAxisSpec? = byId[id]
@@ -257,7 +313,7 @@ class AxisRegistry private constructor(
      * on screen, which is the only mapping that does not need documenting.
      */
     fun axesAt(position: AxisPosition): List<ChartAxisSpec> =
-        axes.filter { positionOf(it) == position }
+        axes.filter { it.dimension.onPlotEdge && positionOf(it) == position }
 
     companion object {
 
@@ -280,7 +336,7 @@ class AxisRegistry private constructor(
                 }
                 validatePosition(spec, orientation)
             }
-            listOf(AxisDimension.X, AxisDimension.Y).forEach { dimension ->
+            AxisDimension.entries.forEach { dimension ->
                 val primaries = axes.filter { it.dimension == dimension && it.primary }
                 if (primaries.size > 1) {
                     throw ChartAxisException(
@@ -296,6 +352,14 @@ class AxisRegistry private constructor(
 
         private fun validatePosition(spec: ChartAxisSpec, orientation: ChartOrientation) {
             val stated = spec.position ?: return
+            if (spec.dimension == AxisDimension.Z) {
+                throw ChartAxisException(
+                    "Axis \"${spec.id.value}\" is a Z axis and was placed at $stated. A depth " +
+                        "axis is not drawn against an edge of the plot — its labels sit at " +
+                        "projected positions on the 3D volume — so there is no edge for this to " +
+                        "mean. Remove the position.",
+                )
+            }
             // The edge this dimension *would* have taken, which is what says
             // which pair of edges are legal. Asking `positionOn` would hand the
             // caller's own answer back and check nothing.
@@ -304,6 +368,9 @@ class AxisRegistry private constructor(
                     if (orientation.isVertical) AxisPosition.Bottom else AxisPosition.Start
                 AxisDimension.Y ->
                     if (orientation.isVertical) AxisPosition.Start else AxisPosition.Bottom
+                // Unreachable: a Z axis with a stated position was rejected
+                // above, and one without never gets here.
+                AxisDimension.Z -> return
             }
             val compatible = stated.isHorizontal == expected.isHorizontal
             if (!compatible) {
