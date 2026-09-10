@@ -275,22 +275,29 @@ def illustration(book_id: str, slug: str, title: str) -> list[str]:
                     "{ .chart-shot }"
                 )
                 break
-    clip = ASSETS / "clips" / f"{slug}.mp4"
-    if clip.exists():
-        # A plain `<video>`, muted and looping, because a recording of a gesture
-        # is a demonstration rather than a film: nobody wants to press play, and
-        # nobody wants sound. `playsinline` keeps iOS from taking it fullscreen.
-        # `../../`, not `../`. MkDocs rewrites paths in Markdown links relative
-        # to the *source* file, but passes raw HTML through untouched — and the
-        # rendered page lives one directory deeper than its source, at
-        # `chartkit/<slug>/index.html`. A path that is right in Markdown is off
-        # by one level here, and silently: the browser reports a media error
-        # rather than a missing file.
-        lines += [
-            f'<video class="chart-clip" src="../../assets/clips/{slug}.mp4"',
-            '       autoplay loop muted playsinline',
-            f'       aria-label="A recording of {title.lower()} being used"></video>',
-        ]
+    # Muted and looping, because a recording of a gesture is a demonstration
+    # rather than a film: nobody wants to press play, and nobody wants sound.
+    # `playsinline` keeps iOS from taking it fullscreen.
+    #
+    # `../../`, not `../`. MkDocs rewrites paths in Markdown links relative to
+    # the *source* file, but passes raw HTML through untouched — and the
+    # rendered page lives one directory deeper than its source, at
+    # `chartkit/<slug>/index.html`. A path that is right in Markdown is off by
+    # one level here, and silently: the browser reports a media error rather
+    # than a missing file.
+    #
+    # One per scheme, and `preload="none"` on both: the hidden one is never
+    # fetched, so a reader downloads the variant they can actually see rather
+    # than both. Autoplay starts the visible one anyway.
+    for suffix, variant in (("", "light"), ("-dark", "dark")):
+        clip = ASSETS / "clips" / f"{slug}{suffix}.mp4"
+        if clip.exists():
+            lines += [
+                f'<video class="chart-clip chart-clip--{variant}"'
+                f' src="../../assets/clips/{slug}{suffix}.mp4"',
+                '       autoplay loop muted playsinline preload="none"',
+                f'       aria-label="A recording of {title.lower()} being used"></video>',
+            ]
     return lines + [""] if lines else []
 
 
@@ -514,6 +521,22 @@ def build() -> int:
 
     if ASSETS.is_dir():
         shutil.copytree(ASSETS, out / "assets", dirs_exist_ok=True)
+
+    # A stylesheet that is copied but never referenced is worse than one that is
+    # missing: the site builds, every link resolves, every check passes, and the
+    # pages are simply unstyled. That shipped once — `extra_css` was added to
+    # `mkdocs.yml` and then lost to a `git reset` because only the stylesheet
+    # itself had been staged. Nothing downstream noticed.
+    config = (ROOT / "mkdocs.yml").read_text(encoding="utf-8")
+    for sheet in sorted((ROOT / "docs-src").glob("stylesheets/*.css")):
+        reference = f"stylesheets/{sheet.name}"
+        if reference not in config:
+            print(
+                f"error: docs-src/{reference} exists but mkdocs.yml does not list it "
+                f"under `extra_css`, so the site would build unstyled",
+                file=sys.stderr,
+            )
+            return 1
 
     for extra in sorted((ROOT / "docs-src").iterdir()):
         if extra.is_file():

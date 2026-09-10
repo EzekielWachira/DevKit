@@ -455,5 +455,21 @@ documentation, under a heading about charts.
 `record-docs-clips.sh` now force-stops the app, goes to the home screen, and
 starts recording only once the test's own activity is in front, stopping the
 moment the test ends. It also refuses to keep a recording whose test did not
-pass. **Watch a regenerated clip before committing it** — that is the check
-this cannot automate.
+pass.
+
+### A blank recording looks exactly like a good one
+
+Two more ways a clip comes out empty, both of which produce a valid MP4 of the
+right duration with nothing in it:
+
+- **The encoder needs time between runs.** Recording eight clips back to back,
+  the last pair was blank every time; the same clip recorded on its own was
+  fine. The script now waits five seconds after each recording.
+- **The scheme argument may not arrive.** `-e dark true` reached a stale test
+  APK once and was ignored, producing four correctly *named* dark clips holding
+  light recordings. The test now reports the scheme it actually rendered, to
+  logcat, and the script fails if it does not match what it asked for.
+
+Neither failure has a symptom in the file, its size, its duration or the test
+result. **Watch every regenerated clip before committing it** — that is the
+check this cannot automate, and the one that has caught every one of these.

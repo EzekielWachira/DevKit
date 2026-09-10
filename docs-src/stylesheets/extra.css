@@ -38,7 +38,16 @@
 /* A recorded gesture. Portrait, because it was filmed on a phone and cropping
    it would be a claim about where the chart ends that the recording cannot
    make. Shown small: it is evidence that the interaction exists, not the
-   primary way to read the page. */
+   primary way to read the page.
+
+   Recorded once per scheme and switched here, for the same reason the stills
+   are: a dark phone playing in the middle of a light page reads as a
+   screenshot of something else entirely. */
+[data-md-color-scheme="slate"] .md-typeset video.chart-clip--light,
+[data-md-color-scheme="default"] .md-typeset video.chart-clip--dark {
+  display: none;
+}
+
 .md-typeset video.chart-clip {
   display: block;
   width: 100%;
