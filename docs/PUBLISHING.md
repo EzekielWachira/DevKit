@@ -45,15 +45,15 @@ Group: **`io.github.ezekielwachira.devkit`**
 | Gradle module | Artifact | Purpose | Version | Class |
 | --- | --- | --- | --- | --- |
 | `:core` | `core` | Ecosystem version metadata and the distribution classification | `0.1.0` | runtime |
-| `:chartkit` | `chartkit` | Compose visualisation engine (Cartesian and polar), statistics, downsampling, streaming and the chart composables | `0.1.0` | runtime |
+| `:chartkit` | `chartkit` | Compose visualisation engine (Cartesian, polar, planar, 3D and geographic), statistics, downsampling, streaming and the chart composables | `0.2.0` | runtime |
 | `:fillkit:api` | `fillkit-api` | FillKit's Compose modifier, models, DSLs and no-op release runtime | `0.1.0` | runtime |
 | `:fillkit:engine` | `fillkit-engine` | FillKit's data generation engine | `0.1.0` | debug |
 | `:fillkit:debug` | `fillkit-debug` | FillKit's developer panel and QA launcher | `0.1.0` | debug |
 | `:fillkit:testing` | `fillkit-testing` | FillKit's Compose test support | `0.1.0` | test |
 | `:netkit` | `netkit` | Network scenario and failure simulation toolkit | `0.1.0` | debug |
-| `:devkit` | `devkit` | Umbrella: every release-safe library | `0.2.0` | runtime |
-| `:devkit-debug` | `devkit-debug` | Umbrella: every developer and QA tool | `0.2.0` | debug |
-| `:devkit-bom` | `devkit-bom` | Version alignment | `0.2.0` | — |
+| `:devkit` | `devkit` | Umbrella: every release-safe library | `0.3.0` | runtime |
+| `:devkit-debug` | `devkit-debug` | Umbrella: every developer and QA tool | `0.3.0` | debug |
+| `:devkit-bom` | `devkit-bom` | Version alignment | `0.3.0` | — |
 
 ### Why ChartKit is one artifact and FillKit is four
 
@@ -115,12 +115,20 @@ share `devkit.version.ecosystem`. That number names a *tested compatible
 combination* of kit versions, not the maturity of any one kit — which is why
 `devkit` and `fillkit-api` can diverge as soon as either moves.
 
-They have already diverged. The ecosystem moved to `0.2.0` when ChartKit joined
-the release-safe umbrella and the BOM: the *set* changed even though no
-individual kit did, and `devkit` `0.1.0` is immutable on Central and names an
-umbrella without ChartKit in it. That is the ecosystem version doing exactly
-what it is for — a shared version number would have forced every kit to move to
-describe a change to one of them.
+They have already diverged, twice, for two different reasons.
+
+`0.2.0` came when ChartKit joined the release-safe umbrella and the BOM: the
+*set* changed even though no individual kit did, and `devkit` `0.1.0` is
+immutable on Central and names an umbrella without ChartKit in it.
+
+`0.3.0` came when ChartKit moved to `0.2.0`. This is the other direction — a
+member moved, so the set naming it has to move as well. It is not optional: BOM
+`0.2.0` is immutable and pins `chartkit 0.1.0` forever, so without a new
+ecosystem version a ChartKit release would be invisible to every consumer using
+the BOM. **Whenever a kit version moves, the ecosystem version moves with it.**
+
+Both are the ecosystem version doing exactly what it is for — a shared version
+number would have forced every kit to move to describe a change to one of them.
 
 Everything lives in `gradle.properties`:
 
@@ -128,11 +136,11 @@ Everything lives in `gradle.properties`:
 devkit.group=io.github.ezekielwachira.devkit
 
 devkit.version.core=0.1.0
-devkit.version.chartkit=0.1.0
+devkit.version.chartkit=0.2.0
 devkit.version.fillkit=0.1.0
 devkit.version.netkit=0.1.0
 
-devkit.version.ecosystem=0.2.0
+devkit.version.ecosystem=0.3.0
 ```
 
 That file, and only that file, is the source of truth. `gradle/libs.versions.toml`
@@ -156,7 +164,7 @@ dependencies, so importing it pulls nothing:
 
 ```kotlin
 dependencies {
-    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.2.0"))
+    implementation(platform("io.github.ezekielwachira.devkit:devkit-bom:0.3.0"))
 
     implementation("io.github.ezekielwachira.devkit:chartkit")
     implementation("io.github.ezekielwachira.devkit:fillkit-api")
