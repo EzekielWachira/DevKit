@@ -398,7 +398,9 @@ No root publishing logic changes.
 [ ] ecosystem version bumped       if the compatible set changed
 [ ] BOM constraints updated        devkit-bom/build.gradle.kts
 [ ] umbrella membership correct    devkit / devkit-debug
+[ ] consumer-test versions bumped  consumer-test/gradle.properties
 [ ] Maven Local smoke test passes  ./scripts/verify-publication.sh
+                                   from a CLEAN ~/.m2 — see below
 [ ] POM inspected                  name, description, URL, SCM, developer, licence
 [ ] sources jar present            *-sources.jar in ~/.m2
 [ ] README compatibility table updated
@@ -408,3 +410,21 @@ No root publishing logic changes.
 [ ] CI secrets available
 [ ] release published
 ```
+
+### Verify from a clean `~/.m2`
+
+`verify-publication.sh` passes the parent build's versions to the consumer with
+`-P`, so the consumer can only be asked about the versions actually being
+published. Run it against a **clean** local repository anyway:
+
+```bash
+rm -rf ~/.m2/repository/io/github/ezekielwachira/devkit
+./scripts/verify-publication.sh
+```
+
+A developer's `~/.m2` accumulates artifacts from earlier `publishToMavenLocal`
+runs, and one of those can be the *previous* version built from *current*
+source — which compiles against APIs that have not shipped. That combination
+turned this check into a false pass once: it succeeded locally and failed in CI,
+where a clean `~/.m2` resolved the real previous version from Central. CI is
+right and the laptop is wrong in that disagreement, so make the laptop match.
