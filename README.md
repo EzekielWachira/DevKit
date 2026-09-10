@@ -4,6 +4,9 @@ An Android workspace of independently published Compose libraries — developer 
 QA tooling that stays out of your release build, and runtime libraries that ship
 with it.
 
+**📖 Full documentation: [ezekielwachira.github.io/DevKit](https://ezekielwachira.github.io/DevKit/)** —
+the same content as these READMEs, split into navigable pages with search.
+
 | Library | Ships in | What it does |
 | --- | --- | --- |
 | **ChartKit** | release + debug | Compose-native visualisation over your own data classes — line, area, bar, scatter, bubble, histogram, box plot, violin, heatmap, candlestick, OHLC, volume, waterfall, dumbbell, lollipop, bullet, timeline, range and Gantt on Cartesian coordinates; pie, donut, radial bar, radar, sunburst and gauge on polar ones; treemap, Sankey, funnel and network graphs on planar ones — with annotations, hierarchical drill-down, crosshair, pinch zoom, pan, range selection, linked charts and cross-filtering, log and symmetric-log scales, second value axes, custom layers, downsampling for large datasets, a Flow adapter for live streams, static report rendering and image export, on one shared engine. Documented in **[chartkit/README.md](chartkit/README.md)** |

@@ -20,3 +20,11 @@ consumer-test/local.properties
 
 # Kotlin compiler session files, written on every build.
 .kotlin/
+
+# Documentation site: both directories are generated.
+#
+# `site-src/` is assembled from the READMEs by scripts/build_docs.py, and
+# `site/` is what mkdocs renders from it. Committing either would create a
+# second copy of every README that could disagree with the first.
+/site-src/
+/site/
