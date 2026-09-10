@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1400" height="840" viewBox="0 0 1400 840">
+  <title>multiple series</title>
+  <g id="grid">
+    <line x1="171" y1="667.71" x2="1361.5" y2="667.71" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="171" y1="410.19" x2="1361.5" y2="410.19" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+    <line x1="171" y1="152.67" x2="1361.5" y2="152.67" stroke="#cac4d0" stroke-opacity="0.5" stroke-width="3.5"/>
+  </g>
+  <g id="line-0">
+    <path d="M270.21 564.7 L468.63 371.56 L667.04 456.54 L865.46 157.82 L1063.88 47.09 L1262.29 111.47" fill="none" stroke="#5125c5" stroke-opacity="1" stroke-width="7"/>
+    <circle cx="270.21" cy="564.7" r="10.5" fill="#5125c5" fill-opacity="1"/>
+    <circle cx="468.63" cy="371.56" r="10.5" fill="#5125c5" fill-opacity="1"/>
+    <circle cx="667.04" cy="456.54" r="10.5" fill="#5125c5" fill-opacity="1"/>
+    <circle cx="865.46" cy="157.82" r="10.5" fill="#5125c5" fill-opacity="1"/>
+    <circle cx="1063.88" cy="47.09" r="10.5" fill="#5125c5" fill-opacity="1"/>
+    <circle cx="1262.29" cy="111.47" r="10.5" fill="#5125c5" fill-opacity="1"/>
+    <path d="M270.21 708.91 L468.63 639.38 L667.04 598.18 L865.46 531.22 L1063.88 541.52 L1262.29 466.84" fill="none" stroke="#99c525" stroke-opacity="1" stroke-width="7"/>
+    <circle cx="270.21" cy="708.91" r="10.5" fill="#99c525" fill-opacity="1"/>
+    <circle cx="468.63" cy="639.38" r="10.5" fill="#99c525" fill-opacity="1"/>
+    <circle cx="667.04" cy="598.18" r="10.5" fill="#99c525" fill-opacity="1"/>
+    <circle cx="865.46" cy="531.22" r="10.5" fill="#99c525" fill-opacity="1"/>
+    <circle cx="1063.88" cy="541.52" r="10.5" fill="#99c525" fill-opacity="1"/>
+    <circle cx="1262.29" cy="466.84" r="10.5" fill="#99c525" fill-opacity="1"/>
+  </g>
+  <g id="axis-default-x">
+    <line x1="171" y1="742" x2="1361.5" y2="742" stroke="#cac4d0" stroke-opacity="1" stroke-width="1"/>
+    <text x="270.21" y="817.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Jan</text>
+    <text x="468.63" y="817.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Feb</text>
+    <text x="667.04" y="817.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Mar</text>
+    <text x="865.46" y="817.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Apr</text>
+    <text x="1063.88" y="817.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">May</text>
+    <text x="1262.29" y="817.65" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="middle" opacity="1">Jun</text>
+  </g>
+  <g id="axis-default-y">
+    <line x1="171" y1="14" x2="171" y2="742" stroke="#cac4d0" stroke-opacity="1" stroke-width="1"/>
+    <text x="136.35" y="680.71" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">20,000</text>
+    <text x="136.35" y="423.19" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">30,000</text>
+    <text x="136.35" y="165.67" fill="#49454f" font-size="38.5" font-family="sans-serif" text-anchor="end" opacity="1">40,000</text>
+  </g>
+</svg>

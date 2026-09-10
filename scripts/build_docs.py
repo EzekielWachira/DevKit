@@ -105,6 +105,12 @@ LINK_ALIASES = {
 #: Where a repository file that is not part of this site is read instead.
 REPO_BLOB = "https://github.com/EzekielWachira/DevKit/blob/main"
 
+#: Pictures of the charts, rendered on a device by `DocsAssetCaptureTest` and
+#: collected by `scripts/capture-docs-assets.sh`. A file named after a page is
+#: shown on that page; nothing lists the pairings, so adding a chart to the
+#: capture test is all it takes to illustrate its page.
+ASSETS = ROOT / "docs-assets"
+
 FENCE = re.compile(r"^(\s*)(```+|~~~+)")
 HEADING = re.compile(r"^(#{1,6})\s+(.*?)\s*#*$")
 LINK = re.compile(r"\[([^\]]*)\]\(([^)]+)\)")
@@ -241,6 +247,51 @@ def parse_contents(preamble: list[str]) -> list[tuple[str, list[str]]]:
         if anchors:
             groups.append((label, anchors))
     return groups
+
+
+def illustration(book_id: str, slug: str, title: str) -> list[str]:
+    """
+    The picture of this chart, if one was captured, light and dark.
+
+    Two files rather than one because the site follows the reader's system
+    setting, and a chart drawn for a light page is unreadable on a dark one —
+    the axis labels are the wrong colour, not merely dim. Material shows and
+    hides them with `#only-light` / `#only-dark`.
+
+    Written *after* the body is link-rewritten, so these paths are left exactly
+    as they are: they point into the copied asset tree, not at a documentation
+    page, and putting them through the rewriter would only give it something it
+    has no business resolving.
+    """
+    if not ASSETS.is_dir():
+        return []
+    lines: list[str] = []
+    for suffix, only in (("", "only-light"), ("-dark", "only-dark")):
+        for extension in ("svg", "png"):
+            candidate = ASSETS / book_id / f"{slug}{suffix}.{extension}"
+            if candidate.exists():
+                lines.append(
+                    f"![{title}](../assets/{book_id}/{slug}{suffix}.{extension}#{only})"
+                    "{ .chart-shot }"
+                )
+                break
+    clip = ASSETS / "clips" / f"{slug}.mp4"
+    if clip.exists():
+        # A plain `<video>`, muted and looping, because a recording of a gesture
+        # is a demonstration rather than a film: nobody wants to press play, and
+        # nobody wants sound. `playsinline` keeps iOS from taking it fullscreen.
+        # `../../`, not `../`. MkDocs rewrites paths in Markdown links relative
+        # to the *source* file, but passes raw HTML through untouched — and the
+        # rendered page lives one directory deeper than its source, at
+        # `chartkit/<slug>/index.html`. A path that is right in Markdown is off
+        # by one level here, and silently: the browser reports a media error
+        # rather than a missing file.
+        lines += [
+            f'<video class="chart-clip" src="../../assets/clips/{slug}.mp4"',
+            '       autoplay loop muted playsinline',
+            f'       aria-label="A recording of {title.lower()} being used"></video>',
+        ]
+    return lines + [""] if lines else []
 
 
 @dataclass
@@ -415,7 +466,10 @@ def build() -> int:
         written += 1
 
         for section, target in book_pages[book.id]:
-            page = [f"# {section.title}", ""] + rewrite(section.lines, book, target)
+            slug = Path(target).stem
+            page = [f"# {section.title}", ""]
+            page += illustration(book.id, slug, section.title)
+            page += rewrite(section.lines, book, target)
             (out / target).write_text("\n".join(page).rstrip() + "\n", encoding="utf-8")
             written += 1
 
@@ -457,6 +511,9 @@ def build() -> int:
             for section, target in rest:
                 summary.append(f"{indent}* [{section.title}]({target})")
     (out / "SUMMARY.md").write_text("\n".join(summary) + "\n", encoding="utf-8")
+
+    if ASSETS.is_dir():
+        shutil.copytree(ASSETS, out / "assets", dirs_exist_ok=True)
 
     for extra in sorted((ROOT / "docs-src").iterdir()):
         if extra.is_file():
