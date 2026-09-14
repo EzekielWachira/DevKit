@@ -227,6 +227,101 @@ shades a region whose height means something.
 Areas default to `DomainPolicy.Baseline` (zero included), because a filled
 region reads as a magnitude. Lines default to `Auto`.
 
+## Stacked areas
+
+Several series that are parts of one total, rather than alternatives:
+
+```kotlin
+AreaChart(
+    series = channels,
+    x = { it.month },
+    y = { it.visits },
+    stacking = AreaStacking.Stacked,
+)
+```
+
+```text
+None      ▁▂▃▄▅  each series filled from the axis, overlapping
+Stacked   ▄▄▄▄▄  each series sits on the one below
+Expand    █████  the same, rescaled so every column is 100%
+Stream    ◗◗◗◗◗  the same, centred on the axis rather than resting on it
+```
+
+Overlapping is still the default, because adding series together only means
+something when they are parts of a whole — a chart of revenue against forecast
+has no total, and stacking it would invent one.
+
+### It does not stack
+
+`BarStacking` does, and this calls it. A stacked area and a stacked bar are the
+same arithmetic over the same values — accumulate per sign, leave a hole where a
+series has no value — and the only thing an area adds is the option to move the
+whole column afterwards. Two implementations would have to agree about
+negatives, about missing values and about percentage totals, and nothing would
+notice when they stopped.
+
+So the guarantees are the bars': positives pile up from zero and negatives down
+from it, a **missing value leaves a hole rather than a zero-height band**, and a
+non-finite value is treated as missing. The series stacked *above* a hole close
+over it, because a stack has nothing else it can do with an absent part.
+
+### Stacking pairs values by domain position
+
+By category on a category axis, which is what `alignToCategories` already does
+for bars. By index on a continuous axis — and series measured at **different x
+values are rejected** rather than piled onto whatever happened to share a
+subscript, because the resulting chart would look entirely reasonable and mean
+nothing.
+
+### The defaults change with the mode
+
+A stack's fill *is* the data: the thickness of a band is its value, so each band
+has to be a region whose edges are visible. `AreaFill.Default` fades toward the
+baseline, which reads well for one series over an axis and turns five stacked
+series into a tinted line chart, so stacked charts default to `AreaFill.Stacked`
+— flat and near-opaque. Point markers default off for the same reason: a dot on
+every vertex of five series is sixty dots on boundaries that are already drawn.
+
+`Stream` also hides the value axis and the grid by default. Centring moves every
+band off zero, so the axis would read out numbers that are an artefact of the
+layout — "−2,000 visits" where no series is negative and no total is. Only the
+**thickness** of a band means anything in a stream graph, so nothing is offered
+to measure against. Pass `yAxis = ChartAxis.Default` to put it back.
+
+## Stream graph
+
+The fourth stacking mode, and the one that stops looking like a stacked area:
+
+```kotlin
+AreaChart(
+    series = channels,
+    x = { it.month },
+    y = { it.visits },
+    stacking = AreaStacking.Stream,
+)
+```
+
+Each column is shifted so the stack straddles zero instead of resting on it,
+which turns the hard bottom edge of a stacked area into a second flowing
+boundary. It costs the reader the ability to judge any one series against an
+axis — only the **thickness** of a band is readable — and buys legibility on
+many series over many columns, where a stacked area degenerates into thin
+slivers pinned to a line.
+
+It is a mode rather than a chart type because that is all it is: the values, the
+scales, the interpolation, the interaction and the accessibility layer are the
+area chart's, and the only difference is where the bottom of the first series is
+put. A `StreamGraph` composable would be a copy of `AreaChart` kept in agreement
+by hand.
+
+The shift is per column and is the midpoint of what that column occupies, so the
+band thicknesses — the only quantity the chart claims to show — are untouched.
+That is asserted in the tests against the same data stacked normally.
+
+This is the **silhouette** baseline. The Byron–Wattenberg "wiggle" baseline,
+which picks the offset minimising the total slope of the boundaries rather than
+centring them, is not implemented; it is on the roadmap.
+
 ## Bar chart
 
 ```kotlin
@@ -7369,7 +7464,8 @@ adopted for something it cannot do.
 ## Roadmap
 
 - Polar-area layers, and zoom over a polar angle
-- Stacked areas
+- The Byron–Wattenberg "wiggle" baseline for stream graphs, beside the
+  centred one that exists
 - Interactive range handles on a chart's own range selection
 - Fling panning
 - Completing vector export: a scene representation for the remaining layers

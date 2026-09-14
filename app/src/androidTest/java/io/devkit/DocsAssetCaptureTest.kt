@@ -53,6 +53,7 @@ import io.devkit.chartkit.charts.VennDiagram
 import io.devkit.chartkit.components.legend.LegendPosition
 import io.devkit.chartkit.annotation.horizontalRule
 import io.devkit.chartkit.annotation.verticalRule
+import io.devkit.chartkit.geometry.AreaStacking
 import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.set.SetDefinition
 import io.devkit.chartkit.set.SetIntersection
@@ -258,6 +259,26 @@ class DocsAssetCaptureTest {
         },
         Shot("gauge-chart") { _, m ->
             GaugeChart(value = 72.0, min = 0.0, max = 100.0, modifier = m)
+        },
+        Shot("stacked-areas") { _, m ->
+            AreaChart(
+                series = demo.channels.map { (name, points) ->
+                    ChartSeries(name.lowercase(), name, points)
+                },
+                x = { it.month }, y = { it.visits },
+                stacking = AreaStacking.Stacked,
+                modifier = m,
+            )
+        },
+        Shot("stream-graph") { _, m ->
+            AreaChart(
+                series = demo.channels.map { (name, points) ->
+                    ChartSeries(name.lowercase(), name, points)
+                },
+                x = { it.month }, y = { it.visits },
+                stacking = AreaStacking.Stream,
+                modifier = m,
+            )
         },
         Shot("chord-diagram") { _, m ->
             ChordDiagram(

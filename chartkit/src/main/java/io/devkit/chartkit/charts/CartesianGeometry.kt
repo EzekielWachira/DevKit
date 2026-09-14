@@ -202,6 +202,8 @@ internal sealed class ResolvedLayer {
         val pointMarkerThreshold: Int,
         val missingValuePolicy: MissingValuePolicy,
         val performance: ChartPerformance,
+        val stacking: io.devkit.chartkit.geometry.AreaStacking =
+            io.devkit.chartkit.geometry.AreaStacking.None,
         override val valueAxisId: ChartAxisId = ChartAxisId.DefaultY,
         override val declaredUnits: Set<ChartUnit> = emptySet(),
     ) : ResolvedLayer() {
@@ -962,6 +964,17 @@ internal fun buildCartesianGeometry(
         BarStacking.bounds(aligned.map { it.values }, layer.grouping) to aligned
     }
 
+    // A stacked area needs its series to agree about where their columns are:
+    // a stack adds one series' value to another's at the same domain position,
+    // and two series measured at different positions have no such pairing. On a
+    // category axis the alignment is by category, which `alignToCategories`
+    // already does for bars. On a continuous axis it is by index, and series of
+    // different lengths or different x values are rejected rather than stacked
+    // against whatever happened to share a subscript.
+    val areaBands = layers.filterIsInstance<ResolvedLayer.Line>()
+        .filter { it.stacking.isStacked }
+        .associateWith { layer -> areaStackBands(layer, categories, axisKind) }
+
     // One interval per axis, never merged. A layer bound to the pressure axis
     // must not widen the rainfall one — that is the whole point of having more
     // than one — so extents are collected per axis id and stay separate all the
@@ -972,6 +985,14 @@ internal fun buildCartesianGeometry(
                 is ResolvedLayer.Bars -> barBounds[layer]?.first
                     ?.let { BarStacking.domainOf(it) }
                     ?.let { add(it) }
+
+                // A stacked area's top edge is the running total, which is
+                // above every individual value; an axis fitted to the values
+                // alone would clip the stack it is supposed to measure.
+                is ResolvedLayer.Line -> areaBands[layer]
+                    ?.let { io.devkit.chartkit.geometry.AreaStackGeometry.domainOf(it) }
+                    ?.let { add(it) }
+                    ?: layer.valueExtent()?.let { add(it) }
 
                 // Stacked per stack group, then merged: two stacks side by
                 // side must both fit on one axis, and only stacking them
@@ -1605,6 +1626,7 @@ internal fun buildCartesianGeometry(
             }
 
             is ResolvedLayer.Line -> {
+                val bands = areaBands[layer]
                 val geometry = layer.data.visibleSeries.mapIndexed { index, series ->
                     lineGeometry(
                         series = series,
@@ -1616,6 +1638,8 @@ internal fun buildCartesianGeometry(
                         visibleDomain = if (axisKind == ChartXAxisKind.Category) null else xDomain,
                         performance = layer.performance,
                         plotExtent = plotExtent,
+                        stacking = layer.stacking,
+                        bands = bands?.getOrNull(index),
                     )
                 }
                 val lineLayer = LineLayer(
@@ -2069,6 +2093,61 @@ internal data class LegendSeries(
 /** A series' values placed into the chart's global category order. */
 internal class AlignedSeries(val values: List<Double?>, val sourceIndices: List<Int>)
 
+/**
+ * One stacked-area layer's bands, indexed `[seriesIndex][pointIndex]`.
+ *
+ * The result is aligned to each series' **own** point order rather than to the
+ * columns the stacking was computed over, so the geometry pass can read a
+ * band off the same subscript it reads the point from. Aligning once here is
+ * what keeps `lineGeometry` free of any knowledge of how columns were matched.
+ *
+ * A stack pairs values by domain position. On a category axis that pairing is
+ * by category, which is exactly what [alignToCategories] computes for bars. On
+ * a continuous axis there is no such key, so the pairing is by index — and
+ * series that do not agree about their x values are rejected rather than piled
+ * on whatever happened to share a subscript, because the resulting chart would
+ * look entirely reasonable and mean nothing.
+ */
+private fun areaStackBands(
+    layer: ResolvedLayer.Line,
+    categories: List<String>,
+    axisKind: ChartXAxisKind,
+): List<List<ClosedFloatingPointRange<Double>?>> {
+    val visible = layer.data.visibleSeries
+    if (visible.isEmpty()) return emptyList()
+
+    if (axisKind == ChartXAxisKind.Category) {
+        val aligned = visible.map { alignToCategories(it, categories) }
+        val bounds = io.devkit.chartkit.geometry.AreaStackGeometry.bounds(
+            aligned.map { it.values },
+            layer.stacking,
+        )
+        return visible.mapIndexed { seriesIndex, series ->
+            series.points.map { point ->
+                val column = categories.indexOf(point.x.label())
+                if (column < 0) null else bounds.getOrNull(seriesIndex)?.getOrNull(column)
+            }
+        }
+    }
+
+    val reference = visible.first().points.map { it.x }
+    visible.drop(1).forEach { series ->
+        if (series.points.map { it.x } != reference) {
+            throw io.devkit.chartkit.axis.ChartAxisException(
+                "Series \"${series.id}\" cannot be stacked against \"${visible.first().id}\": " +
+                    "they are measured at different x values. A stack adds one series' value " +
+                    "to another's at the same position, so the series must share their domain " +
+                    "positions — give every series the same x sequence, or use a category axis, " +
+                    "where they are matched by category and a missing one leaves a hole.",
+            )
+        }
+    }
+    return io.devkit.chartkit.geometry.AreaStackGeometry.bounds(
+        visible.map { series -> series.points.map { it.y } },
+        layer.stacking,
+    )
+}
+
 internal fun alignToCategories(series: PlotSeries, categories: List<String>): AlignedSeries {
     val values = arrayOfNulls<Double>(categories.size)
     val indices = IntArray(categories.size) { -1 }
@@ -2157,12 +2236,15 @@ internal fun lineGeometry(
     visibleDomain: NumericDomain? = null,
     performance: ChartPerformance = ChartPerformance.Exact,
     plotExtent: Float = 0f,
+    stacking: io.devkit.chartkit.geometry.AreaStacking =
+        io.devkit.chartkit.geometry.AreaStacking.None,
+    bands: List<ClosedFloatingPointRange<Double>?>? = null,
 ): LineSeriesGeometry {
     val domainValues = continuousDomainValues(series, data)
     val values = series.points.map { it.y }
     val retained = drawnIndices(domainValues, values, visibleDomain, performance, plotExtent)
 
-    fun positionOf(point: io.devkit.chartkit.model.PlotPoint): LinePoint? {
+    fun positionOf(point: io.devkit.chartkit.model.PlotPoint, index: Int): LinePoint? {
         val value = point.y ?: return null
         val domainPosition = when (val axis = coordinates.domainAxis) {
             is DomainAxis.Categories -> {
@@ -2171,15 +2253,30 @@ internal fun lineGeometry(
             }
             is DomainAxis.Continuous -> axis.scale.scale(data.continuousX(point))
         }
-        val valuePosition = coordinates.positionOfValue(value)
+        // On a stacked chart the point is drawn at the top of its band rather
+        // than at its own value, and the band's other edge becomes the row its
+        // fill closes to. The *value* is left alone: a tooltip, a selection and
+        // an accessibility announcement all still report what the caller
+        // supplied, not its position in the pile.
+        val band = bands?.getOrNull(index)?.takeIf { stacking.isStacked }
+        val drawnValue = band?.let {
+            io.devkit.chartkit.geometry.AreaStackGeometry.lineEdge(it, value, stacking)
+        } ?: value
+        val valuePosition = coordinates.positionOfValue(drawnValue)
         val offset = coordinates.pointAt(domainPosition, valuePosition)
-        return if (!offset.isFinite) null else LinePoint(offset, point.sourceIndex, value)
+        if (!offset.isFinite) return null
+        val baseline = band?.let {
+            val edge = io.devkit.chartkit.geometry.AreaStackGeometry.fillEdge(it, value, stacking)
+            coordinates.pointAt(domainPosition, coordinates.positionOfValue(edge))
+                .takeIf { position -> position.isFinite }?.y
+        }
+        return LinePoint(offset, point.sourceIndex, value, baseline)
     }
 
     val drawn: List<LinePoint?> = if (retained == null) {
-        series.points.map(::positionOf)
+        series.points.mapIndexed { index, point -> positionOf(point, index) }
     } else {
-        retained.map { index -> series.points.getOrNull(index)?.let(::positionOf) }
+        retained.map { index -> series.points.getOrNull(index)?.let { positionOf(it, index) } }
     }
 
     val present = drawn.filterNotNull()

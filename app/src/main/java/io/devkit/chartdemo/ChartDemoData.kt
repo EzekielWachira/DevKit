@@ -495,6 +495,37 @@ object ChartDemoData {
         ServiceNode("reporting", 700.0),
     )
 
+    data class ChannelPoint(val month: String, val visits: Double)
+
+    /**
+     * Five acquisition channels over a year.
+     *
+     * Shaped for a stacked area rather than a line chart: the series are parts
+     * of one total, they all move, and no single one dominates — which is the
+     * case where the stacking mode actually changes what the reader can see.
+     */
+    val channels: List<Pair<String, List<ChannelPoint>>> = run {
+        val months = listOf(
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        )
+        // A fixed phase and amplitude per channel, so the demo is identical on
+        // every run and on every device.
+        listOf(
+            Triple("Organic", 1_400.0, 0.0),
+            Triple("Paid", 900.0, 1.1),
+            Triple("Social", 620.0, 2.3),
+            Triple("Referral", 430.0, 3.4),
+            Triple("Email", 300.0, 4.6),
+        ).map { (name, base, phase) ->
+            name to months.mapIndexed { index, month ->
+                val wave = 1.0 + 0.45 * kotlin.math.sin(index / 1.9 + phase)
+                val drift = 1.0 + index * 0.03
+                ChannelPoint(month, kotlin.math.round(base * wave * drift))
+            }
+        }
+    }
+
     data class Region(val code: String, val name: String)
 
     data class Migration(val from: String, val to: String, val people: Double)

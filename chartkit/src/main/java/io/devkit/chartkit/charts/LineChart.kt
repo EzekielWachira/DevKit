@@ -13,6 +13,7 @@ import io.devkit.chartkit.axis.ChartGrid
 import io.devkit.chartkit.components.legend.LegendPosition
 import io.devkit.chartkit.formatter.ChartValueFormatter
 import io.devkit.chartkit.geometry.ChartOrientation
+import io.devkit.chartkit.geometry.AreaStacking
 import io.devkit.chartkit.geometry.LineInterpolation
 import io.devkit.chartkit.interaction.ChartInteraction
 import io.devkit.chartkit.interaction.CrosshairConfig
@@ -211,6 +212,7 @@ fun <T> LineChart(
     legendTogglesSeries: Boolean = false,
     valueDomain: DomainPolicy = DomainPolicy.Default,
     valueLabels: Boolean = false,
+    stacking: AreaStacking = AreaStacking.None,
     valueFormatter: ChartValueFormatter? = null,
     animation: ChartAnimation = ChartAnimation.Default,
     interaction: ChartInteraction = ChartInteraction.Default,
@@ -269,7 +271,7 @@ fun <T> LineChart(
 
     val layers = remember(
         animatedData, interpolation, lineStyle, fill, pointMode, lineWidth, valueLabels,
-        performance, missingValuePolicy,
+        performance, missingValuePolicy, stacking,
     ) {
         listOf(
             ResolvedLayer.Line(
@@ -284,6 +286,7 @@ fun <T> LineChart(
                 pointMarkerThreshold = performance.pointMarkerThreshold,
                 missingValuePolicy = missingValuePolicy,
                 performance = performance,
+                stacking = stacking,
             ),
         )
     }
@@ -437,10 +440,21 @@ fun <T> AreaChart(
 /**
  * A multi-series area chart.
  *
- * Overlapping rather than stacked: each series is filled from the baseline
+ * Overlapping by default: each series is filled from the baseline
  * independently, which is the honest reading when the series are alternatives
- * — revenue against forecast — rather than parts of a whole. Stacked areas are
- * not supported; see the README's limitations.
+ * — revenue against forecast — rather than parts of a whole. Adding them
+ * together in that case would produce a total that means nothing, so it is not
+ * what happens unless you ask.
+ *
+ * [stacking] asks. [io.devkit.chartkit.geometry.AreaStacking.Stacked] rests
+ * each series on the one below, `Expand` rescales every column to a hundred
+ * percent, and `Stream` centres the pile on the axis — the stream graph. The
+ * three differ only in where the bottom of the first series is put; see
+ * [io.devkit.chartkit.geometry.AreaStacking].
+ *
+ * Stacking pairs values by domain position: by category on a category axis,
+ * and by index on a continuous one, where series measured at different x values
+ * are rejected rather than piled on whatever shares a subscript.
  */
 @JvmName("AreaChartSeries")
 @Composable
@@ -449,12 +463,22 @@ fun <T> AreaChart(
     x: (T) -> Any?,
     y: (T) -> Number?,
     modifier: Modifier = Modifier,
-    fill: AreaFill = AreaFill.Default,
+    stacking: AreaStacking = AreaStacking.None,
+    // Both of these read differently once the series are piled up, and both
+    // defaults are wrong for a stack: see `AreaFill.Stacked` for the fill, and
+    // for the markers, a dot on every vertex of five stacked series is sixty
+    // dots on boundaries that are already drawn.
+    fill: AreaFill = if (stacking.isStacked) AreaFill.Stacked else AreaFill.Default,
     interpolation: LineInterpolation = LineInterpolation.Linear,
-    pointMode: PointMode = PointMode.Auto,
+    pointMode: PointMode = if (stacking.isStacked) PointMode.None else PointMode.Auto,
     xAxis: ChartAxis = ChartAxis.Default,
-    yAxis: ChartAxis = ChartAxis.Default,
-    grid: ChartGrid = ChartGrid.Horizontal,
+    // Centring moves every band off zero, so the value axis of a stream graph
+    // reads out numbers that are an artefact of the layout — "-2,000 visits"
+    // where no series is negative and no total is. Only the thickness of a band
+    // means anything, so nothing is offered to measure against. Pass
+    // `ChartAxis.Default` to put it back.
+    yAxis: ChartAxis = if (stacking == AreaStacking.Stream) ChartAxis.Hidden else ChartAxis.Default,
+    grid: ChartGrid = if (stacking == AreaStacking.Stream) ChartGrid.None else ChartGrid.Horizontal,
     legend: LegendPosition = if (series.size > 1) LegendPosition.Bottom else LegendPosition.None,
     legendTogglesSeries: Boolean = false,
     valueDomain: DomainPolicy = DomainPolicy.Baseline,
@@ -500,6 +524,7 @@ fun <T> AreaChart(
         legend = legend,
         legendTogglesSeries = legendTogglesSeries,
         valueDomain = valueDomain,
+        stacking = stacking,
         valueFormatter = valueFormatter,
         animation = animation,
         interaction = interaction,
