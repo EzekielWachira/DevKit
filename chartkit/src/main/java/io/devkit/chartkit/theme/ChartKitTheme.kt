@@ -1064,6 +1064,12 @@ data class ChartDimensions(
     /** Space kept between the geography and the plot's edge. */
     val geoMapPadding: Dp = 12.dp,
 
+    /** A hexbin cell's radius at the map's default zoom. */
+    val geoHexbinSize: Dp = 7.dp,
+
+    /** The outline drawn around a hexbin cell. */
+    val geoHexbinStroke: Dp = 0.5.dp,
+
     /** A marker belonging to a feature whose geometry is a point. */
     val geoFeatureMarkerRadius: Dp = 3.dp,
 

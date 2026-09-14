@@ -33,6 +33,7 @@ import io.devkit.chartkit.accessibility.geoDataTable
 import io.devkit.chartkit.accessibility.geoPointDataTable
 import io.devkit.chartkit.charts.ChoroplethMap
 import io.devkit.chartkit.charts.GeoChart
+import io.devkit.chartkit.layer.geo.GeoHexbinSelection
 import io.devkit.chartkit.charts.GeoJoinReport
 import io.devkit.chartkit.charts.WorldMap
 import io.devkit.chartkit.components.legend.LegendPosition
@@ -54,6 +55,7 @@ enum class MapDemo(val label: String, val tag: String) {
     Projections("Projections", "projections"),
     Points("Points", "points"),
     Bubbles("Bubbles", "bubbles"),
+    Hexbin("Hexbin", "hexbin"),
     Routes("Routes", "routes"),
     Layered("Layered", "layered"),
     Missing("Missing vs zero", "missing"),
@@ -317,6 +319,28 @@ fun WorldMapScreen(modifier: Modifier = Modifier) {
                         size = { it.people },
                         color = { it.people },
                         label = { it.name },
+                    )
+                }
+
+                MapDemo.Hexbin -> GeoChart(
+                    projection = GeoProjection.World,
+                    viewportState = camera,
+                    onSelectionChanged = { selection ->
+                        readout = (selection?.item as? GeoHexbinSelection)?.let { bin ->
+                            val records = if (bin.count == 1) "1 sighting" else "${bin.count} sightings"
+                            "$records in this cell"
+                        } ?: "Tap a cell"
+                    },
+                    modifier = chartModifier,
+                ) {
+                    map(world)
+                    // Two thousand marks drawn as points would be one blob;
+                    // binned, the clusters are the thing you can actually see.
+                    hexbin(
+                        data = WorldDemoData.sightings,
+                        longitude = { it.longitude },
+                        latitude = { it.latitude },
+                        seriesName = "Sightings",
                     )
                 }
 
@@ -633,6 +657,12 @@ private val MapDemo.explanation: String
             "The same marks, with population driving the bubble's area rather than its radius. " +
                 "A city twice the size covers twice the space, which is what a reader " +
                 "perceives — mapping onto the radius would make it look four times as large."
+        MapDemo.Hexbin ->
+            "Two thousand sightings. Drawn as points they would be one blob \u2014 the marks " +
+                "overlap, the overlaps are opaque, and two records look like two hundred. " +
+                "Binned, the clusters are the thing you can see. The bins are fixed in " +
+                "projected space, so panning changes no numbers and zooming magnifies the " +
+                "same cells rather than recounting them."
         MapDemo.Routes ->
             "Links drawn as paths. Tokyo–Lima crosses ±180° and is split before projection, so " +
                 "it leaves one edge of the map and arrives at the other instead of being drawn " +

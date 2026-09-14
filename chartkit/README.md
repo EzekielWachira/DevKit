@@ -3521,6 +3521,84 @@ device.
 - **No screenshot tests**, because the repository has no screenshot testing
   infrastructure to add them to.
 
+## Hexbin maps
+
+Point **density**, binned onto a hexagonal grid:
+
+```kotlin
+GeoChart(projection = GeoProjection.World) {
+    map(world)
+    hexbin(
+        data = observations,
+        longitude = { it.lon },
+        latitude = { it.lat },
+    )
+}
+```
+
+```text
+   ╱‾╲ ╱‾╲       one hexagon = the records near here
+   ╲_╱ ╲_╱       colour      = how many, or what they come to
+   ╱‾╲ ╱‾╲
+```
+
+### When this instead of points
+
+A point map of any density stops being a map of points and becomes a blob: the
+marks overlap, the overlaps are opaque, and the reader cannot tell two records
+from two hundred. Binning answers the question the picture could actually
+support — "how many are near here" — instead of the one it could not.
+
+### Why hexagons and not squares
+
+Every hexagon has six neighbours all the same distance from its centre. A square
+grid has four at one distance and four diagonals at another, so a square bin's
+contents are not uniformly close to its centre, and a cluster lying on a
+diagonal reads differently from one lying square. Hexagons also tile without the
+strong horizontal and vertical banding that makes a square heatmap look like a
+grid rather than like the data.
+
+### The bins do not move when the reader does
+
+They are computed in **projected** space, so a pan changes no numbers and a zoom
+magnifies the same bins rather than recomputing them — which also keeps the work
+off the gesture loop, the same reason a choropleth's vertices are projected
+once.
+
+d3-hexbin and most web implementations do the opposite: they bin in screen
+coordinates and rebin on every zoom, so the hexagons stay one size under the
+reader's eye. That is a reasonable choice with a real cost — the numbers change
+as you pan. A bin reading "14" reads "9" after a nudge, because its boundaries
+moved. The trade here is the other way: stable counts, and hexagons that grow as
+you zoom in.
+
+### Aggregates, and a bin with nothing to aggregate
+
+`Count` needs no value accessor. `Sum`, `Mean` and `Max` read one, and a bin
+whose records all lack a measurement has **no total** — it is drawn in the map's
+"no data" colour rather than at the bottom of the scale, where it would sit
+beside the genuinely low places. That is the choropleth's rule, applied to bins.
+
+### The ramp comes from the bins
+
+Leave `colorScale` out and the layer builds one from what the bins actually came
+to. It cannot be built where the chart is declared, because the bins do not
+exist until there is a projection to bin in — and the first draft of this
+guessed a ramp from the *record count* instead, which was the only number
+available that early. On two thousand records whose busiest cell held nine, that
+put every cell inside the bottom half of a percent of the ramp and the whole map
+came out one colour. Pass a scale when two maps must be coloured comparably.
+
+### Hit testing is against the hexagon
+
+Not against a circle through its corners or its edges. A hexagon's corners reach
+about 15% further than its edges, so a circular test either refuses taps on the
+corners or accepts taps in the gaps between cells — and on a tiled grid every
+one of those gaps belongs to a neighbour. A point lying exactly on an edge is
+treated as inside both cells and resolved to whichever is asked first: testing
+exactly would leave a dead hairline along every boundary, and would let a point
+be counted into a cell that then refuses to admit it.
+
 ## Annotations
 
 Reference marks in the chart's own coordinate space:

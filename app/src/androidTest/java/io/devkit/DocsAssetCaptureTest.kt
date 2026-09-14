@@ -60,6 +60,7 @@ import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.set.SetDefinition
 import io.devkit.chartkit.set.SetIntersection
 import io.devkit.chartkit.charts.FunnelChart
+import io.devkit.chartkit.charts.GeoChart
 import io.devkit.chartkit.charts.GaugeChart
 import io.devkit.chartkit.charts.Heatmap
 import io.devkit.chartkit.charts.Histogram
@@ -315,6 +316,16 @@ class DocsAssetCaptureTest {
                 category = { it.month }, value = { it.millimetres },
                 modifier = m,
             )
+        },
+        Shot("hexbin-maps") { _, m ->
+            GeoChart(projection = GeoProjection.World, modifier = m) {
+                map(worldGeometry())
+                hexbin(
+                    data = WorldDemoData.sightings,
+                    longitude = { it.longitude },
+                    latitude = { it.latitude },
+                )
+            }
         },
         Shot("chord-diagram") { _, m ->
             ChordDiagram(
