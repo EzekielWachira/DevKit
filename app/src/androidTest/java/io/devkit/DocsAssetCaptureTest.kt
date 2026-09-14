@@ -38,6 +38,7 @@ import io.devkit.chartkit.axis.AxisStyleMode
 import io.devkit.chartkit.axis.ChartAxisId
 import io.devkit.chartkit.scale.DomainPolicy
 import io.devkit.chartkit.charts.CandlestickChart
+import io.devkit.chartkit.charts.ChordDiagram
 import io.devkit.chartkit.charts.CartesianChart
 import io.devkit.chartkit.charts.ExperimentalChartKitApi
 import io.devkit.chartkit.charts.ChoroplethMap
@@ -257,6 +258,14 @@ class DocsAssetCaptureTest {
         },
         Shot("gauge-chart") { _, m ->
             GaugeChart(value = 72.0, min = 0.0, max = 100.0, modifier = m)
+        },
+        Shot("chord-diagram") { _, m ->
+            ChordDiagram(
+                groups = demo.regions, flows = demo.migrations,
+                groupId = { it.code }, groupLabel = { it.name },
+                source = { it.from }, target = { it.to }, value = { it.people },
+                modifier = m,
+            )
         },
         Shot("network-graph") { _, m ->
             // The force simulation runs on Dispatchers.Default, which neither

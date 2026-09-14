@@ -1448,6 +1448,87 @@ tooltip; tapping a band selects that flow. Both hand back a typed selection —
 Unconnected flows take a different **colour** as well as a lower opacity,
 because connection state carried by opacity alone is invisible on a dense diagram.
 
+## Chord diagram
+
+Flows between groups that are peers rather than stages, arranged on a circle:
+
+```kotlin
+ChordDiagram(
+    groups = regions,
+    flows = migrations,
+    groupId = { it.code },
+    groupLabel = { it.name },
+    source = { it.from },
+    target = { it.to },
+    value = { it.people },
+    modifier = Modifier.fillMaxWidth().height(320.dp),
+)
+```
+
+```text
+     ╭──── Europe ────╮
+    ╱   ╲         ╱    ╲
+  Asia ══╬═══════╬═ Africa
+    ╲   ╱         ╲    ╱
+     ╰── Americas ────╯
+```
+
+### When this rather than a Sankey
+
+A Sankey lays flow out left to right, which encodes a **direction of travel
+through stages**: right for a funnel, a pipeline or a budget, and unable to
+express a flow that goes back. A circle has no upstream, so two groups can
+exchange in both directions and a group can flow into itself. Reach for a Sankey
+when the stages are ordered and a chord when they are peers — migration between
+regions, trade between countries, traffic between pages.
+
+A group's arc is sized by **everything touching it**, in and out. Sizing by
+outflow alone — the Circos convention — draws a region that only receives as a
+zero-width sliver, which is exactly the region a reader is usually looking for.
+
+### One ribbon per flow
+
+The classic Circos and D3 chord merges the two directions between a pair into a
+single ribbon with ends of different widths: the end in group `i` sized by
+`M[i][j]`, the end in `j` by `M[j][i]`. It is a dense encoding, and it costs the
+reader the ability to say what any one ribbon means — a ribbon wide at one end
+and narrow at the other is two numbers wearing one shape, and nothing in the
+picture says which is which.
+
+Here a ribbon is exactly one of your flows and **both of its ends are that
+flow's value**. Two directions between the same pair are two ribbons. The cost
+is one more shape on a dense diagram; what it buys is that every ribbon carries
+one number, a tap on it hands back your own flow object, and the arithmetic
+closes — each group's arc is precisely the sum of the ribbon ends attached to
+it, which is what makes the angular widths readable as quantities at all. That
+last property is asserted in the tests rather than assumed.
+
+### Self-flows are drawn, not dropped
+
+A flow from a group to itself is cut by `SankeyChart`, where it would be a cycle
+in something that has to be ordered into columns. A chord diagram has no
+columns, so it is simply a ribbon that leaves an arc and returns to it —
+internal migration within a region, traffic from a page back to itself.
+
+### Padding is taken out of the data, not added to the circle
+
+Some gap between groups is load bearing: without it two adjacent groups read as
+one arc. It is capped internally, so a diagram of forty groups at a generous pad
+cannot become all gaps and no data.
+
+### Selecting
+
+Tapping a group emphasises everything it connects to and lists its flows in the
+tooltip, split into "to" and "from"; tapping a ribbon selects that one flow.
+Both hand back a typed selection — `ChordGroupSelection` or `ChordFlowSelection`
+— carrying your own object. Hit testing uses the **same** flattened outline the
+ribbon is drawn from, so a tap lands where the ink is; two independent
+approximations of a curved band would disagree at the edges, and the
+disagreement would be invisible until someone tapped it.
+
+Built on the same `PolarCoordinates` as pie, donut and radial bar — one layer,
+not a second engine.
+
 ## Funnel chart
 
 ```kotlin

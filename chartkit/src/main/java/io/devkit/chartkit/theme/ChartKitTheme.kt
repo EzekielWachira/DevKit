@@ -847,6 +847,18 @@ data class ChartDimensions(
     /** Vertical space between two funnel stages. */
     val funnelStageSpacing: Dp = 3.dp,
 
+    /** The thickness of a chord group's band on the rim. */
+    val chordBandThickness: Dp = 10.dp,
+
+    /**
+     * Angular space between two chord groups, in degrees.
+     *
+     * Load bearing rather than decorative: without a gap two adjacent groups
+     * read as one arc, and the diagram's central claim — that a group's angular
+     * width is its share of the flow — becomes unreadable.
+     */
+    val chordGroupPadding: Float = 2f,
+
     // ---- comparison -----------------------------------------------------
 
     /** The line joining one waterfall bar to the next. */

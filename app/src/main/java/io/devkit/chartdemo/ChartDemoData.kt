@@ -495,6 +495,41 @@ object ChartDemoData {
         ServiceNode("reporting", 700.0),
     )
 
+    data class Region(val code: String, val name: String)
+
+    data class Migration(val from: String, val to: String, val people: Double)
+
+    val regions: List<Region> = listOf(
+        Region("eur", "Europe"),
+        Region("asi", "Asia"),
+        Region("afr", "Africa"),
+        Region("nam", "N America"),
+        Region("sam", "S America"),
+        Region("oce", "Oceania"),
+    )
+
+    /**
+     * Movement between regions, in both directions.
+     *
+     * Illustrative figures, not a migration statistic. They are shaped to show
+     * what the chart is for: pairs that exchange in both directions at
+     * different rates, a region that mostly receives, and one flow that returns
+     * to where it started.
+     */
+    val migrations: List<Migration> = listOf(
+        Migration("asi", "eur", 1_240.0),
+        Migration("eur", "asi", 610.0),
+        Migration("afr", "eur", 890.0),
+        Migration("eur", "afr", 310.0),
+        Migration("sam", "nam", 1_060.0),
+        Migration("nam", "sam", 340.0),
+        Migration("asi", "nam", 980.0),
+        Migration("asi", "oce", 420.0),
+        Migration("eur", "oce", 260.0),
+        Migration("afr", "asi", 370.0),
+        Migration("eur", "eur", 540.0),
+    )
+
     val serviceCalls: List<ServiceEdge> = listOf(
         ServiceEdge("gateway", "auth", 9_400.0),
         ServiceEdge("gateway", "catalogue", 5_600.0),
