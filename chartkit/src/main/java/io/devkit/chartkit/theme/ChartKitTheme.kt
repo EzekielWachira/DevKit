@@ -847,6 +847,12 @@ data class ChartDimensions(
     /** Vertical space between two funnel stages. */
     val funnelStageSpacing: Dp = 3.dp,
 
+    /** Horizontal space between two mosaic columns. */
+    val mosaicColumnSpacing: Dp = 2.dp,
+
+    /** Vertical space between two cells within a mosaic column. */
+    val mosaicCellSpacing: Dp = 1.dp,
+
     /** The thickness of a chord group's band on the rim. */
     val chordBandThickness: Dp = 10.dp,
 

@@ -27,7 +27,11 @@ import io.devkit.chartkit.charts.DumbbellChart
 import io.devkit.chartkit.charts.GaugeChart
 import io.devkit.chartkit.charts.GaugeShape
 import io.devkit.chartkit.charts.LollipopChart
+import io.devkit.chartkit.charts.MosaicChart
 import io.devkit.chartkit.charts.WaterfallChart
+import io.devkit.chartkit.layer.comparison.MosaicCellSelection
+import io.devkit.chartkit.layer.comparison.MosaicLabels
+import io.devkit.chartkit.model.ChartSeries
 import io.devkit.chartkit.formatter.ChartNumberFormatters
 import io.devkit.chartkit.layer.comparison.BulletRange
 import io.devkit.chartkit.layer.polar.GaugeBand
@@ -46,6 +50,7 @@ fun ChartComparisonScreen(modifier: Modifier = Modifier) {
     var connectors by rememberSaveable { mutableStateOf(true) }
     var needle by rememberSaveable { mutableStateOf(false) }
     var readout by remember { mutableStateOf("Tap a bar") }
+    var mosaicReadout by remember { mutableStateOf("Tap a cell") }
 
     val money = remember { ChartNumberFormatters.compact() }
     val plain = remember { ChartNumberFormatters.integer() }
@@ -200,6 +205,41 @@ fun ChartComparisonScreen(modifier: Modifier = Modifier) {
                 .fillMaxWidth()
                 .height(240.dp)
                 .testTag("gauge"),
+        )
+
+        HorizontalDivider()
+        Text("Mosaic", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "Width is the region's total and height is a segment's share of it, so a cell's " +
+                "area is its revenue wherever it sits. A 100% stacked bar would make every " +
+                "region the same width and hide that LATAM is a tenth the size of North " +
+                "America; a plain stacked bar would show that and make the mixes hard to " +
+                "compare. Tap a cell for its value, its share of its region, and its " +
+                "region's share of the whole.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        MosaicChart(
+            series = ChartDemoData.revenueBySegment.map { (name, rows) ->
+                ChartSeries(name.lowercase(), name, rows)
+            },
+            category = { it.region },
+            value = { it.revenue },
+            labels = MosaicLabels.ColumnsWithShare,
+            valueFormatter = plain,
+            onSelectionChanged = { selection ->
+                mosaicReadout = (selection?.item as? MosaicCellSelection)?.let { cell ->
+                    "${cell.seriesName} in ${cell.columnLabel}: ${plain.format(cell.value)}"
+                } ?: "Tap a cell"
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(280.dp)
+                .testTag("mosaic"),
+        )
+        Text(
+            mosaicReadout,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.testTag("mosaic-readout"),
         )
     }
 }

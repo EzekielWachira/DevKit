@@ -1370,6 +1370,76 @@ ChartNavigator(viewportState = viewport) {
 }
 ```
 
+## Mosaic chart
+
+Variable-width stacked columns — the Marimekko:
+
+```kotlin
+MosaicChart(
+    series = listOf(
+        ChartSeries("enterprise", "Enterprise", enterpriseByRegion),
+        ChartSeries("mid", "Mid-market", midByRegion),
+        ChartSeries("smb", "SMB", smbByRegion),
+    ),
+    category = { it.region },
+    value = { it.revenue },
+)
+```
+
+```text
+┌────────┬───┬──────────────┬──┐
+│        │   │              │  │   width  = the column's total
+├────────┼───┼──────────────┼──┤   height = a series' share of it
+│        │   │              │  │   area   = the value itself
+└────────┴───┴──────────────┴──┘
+```
+
+### Two questions at once
+
+A 100% stacked bar chart answers "what is each column made of" and throws away
+how big the columns are. A plain stacked bar chart answers "how big" and makes
+composition hard to compare, because every column is a different height and the
+eye cannot compare segments that do not start level. A mosaic gives width to the
+first question and height to the second — market share by region where the
+regions are not the same size, spend by department where the departments are not.
+
+### Area is the value, and that is why the height is fixed
+
+Width is proportional to a column's total and a cell's height is its share of
+that total, so the two cancel: a cell covers `k × total × (value / total)`, which
+is `k × value`, wherever it sits. Two cells of equal value cover equal area
+across the whole chart, and that is what lets the eye compare them.
+
+There is deliberately **no option** to scale a column's height by its total as
+well. It reads as a reasonable setting and destroys exactly that property: the
+total would be encoded twice and a cell's area would become proportional to
+`total × value`, which is not a quantity anybody has. The first draft had that
+option; the test asserting equal areas is what found it.
+
+### Only positive values
+
+A column's width is a sum of parts and a cell's height is its share of that sum.
+A negative part has no share of a total it reduces, and a negative total has no
+width, so non-positive and non-finite values are counted nowhere and drawn
+nowhere rather than being folded into a column whose width would then mean
+nothing.
+
+### It is not a treemap
+
+A treemap also encodes quantity as area, but it can put a rectangle anywhere, so
+two rectangles are hard to compare unless they share an edge. A mosaic keeps one
+categorical dimension on each axis, so every cell in a row is comparable by
+height and every column by width. The cost is that it takes exactly two
+dimensions where a treemap nests arbitrarily deep.
+
+### Narrow columns go unlabelled
+
+A column narrower than its own name is left unlabelled rather than given a
+truncated one. On a mosaic the narrow columns are precisely the ones whose names
+collide, and a row of "…" says less than the legend already does — the same rule
+the treemap follows. The legend and the tooltip still name every series, and the
+accessibility announcement reports each column's total and its share.
+
 ## Treemap
 
 Nested rectangles whose **areas** are proportional to their values. Charts your

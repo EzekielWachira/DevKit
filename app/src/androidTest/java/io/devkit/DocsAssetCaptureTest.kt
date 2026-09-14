@@ -46,11 +46,13 @@ import io.devkit.chartkit.charts.ColumnChart3D
 import io.devkit.chartkit.charts.DonutChart
 import io.devkit.chartkit.charts.DialGauge
 import io.devkit.chartkit.charts.DumbbellChart
+import io.devkit.chartkit.charts.MosaicChart
 import io.devkit.chartkit.charts.OhlcChart
 import io.devkit.chartkit.charts.PieChart3D
 import io.devkit.chartkit.charts.RangeChart
 import io.devkit.chartkit.charts.VennDiagram
 import io.devkit.chartkit.components.legend.LegendPosition
+import io.devkit.chartkit.layer.comparison.MosaicLabels
 import io.devkit.chartkit.annotation.horizontalRule
 import io.devkit.chartkit.annotation.verticalRule
 import io.devkit.chartkit.geometry.AreaStacking
@@ -277,6 +279,16 @@ class DocsAssetCaptureTest {
                 },
                 x = { it.month }, y = { it.visits },
                 stacking = AreaStacking.Stream,
+                modifier = m,
+            )
+        },
+        Shot("mosaic-chart") { _, m ->
+            MosaicChart(
+                series = demo.revenueBySegment.map { (name, rows) ->
+                    ChartSeries(name.lowercase(), name, rows)
+                },
+                category = { it.region }, value = { it.revenue },
+                labels = MosaicLabels.ColumnsWithShare,
                 modifier = m,
             )
         },

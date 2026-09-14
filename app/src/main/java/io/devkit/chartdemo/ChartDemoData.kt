@@ -495,6 +495,36 @@ object ChartDemoData {
         ServiceNode("reporting", 700.0),
     )
 
+    data class SegmentRevenue(val region: String, val revenue: Double)
+
+    /**
+     * Revenue by region and customer segment.
+     *
+     * Shaped for a mosaic: the regions are deliberately very different sizes —
+     * which is the case a 100% stacked bar throws away — and their mixes differ
+     * too, so both encodings have something to say.
+     */
+    val revenueBySegment: List<Pair<String, List<SegmentRevenue>>> = listOf(
+        "Enterprise" to listOf(
+            SegmentRevenue("N America", 4_800.0),
+            SegmentRevenue("Europe", 2_600.0),
+            SegmentRevenue("APAC", 1_150.0),
+            SegmentRevenue("LATAM", 320.0),
+        ),
+        "Mid-market" to listOf(
+            SegmentRevenue("N America", 2_100.0),
+            SegmentRevenue("Europe", 1_900.0),
+            SegmentRevenue("APAC", 1_400.0),
+            SegmentRevenue("LATAM", 480.0),
+        ),
+        "SMB" to listOf(
+            SegmentRevenue("N America", 900.0),
+            SegmentRevenue("Europe", 1_100.0),
+            SegmentRevenue("APAC", 1_650.0),
+            SegmentRevenue("LATAM", 700.0),
+        ),
+    )
+
     data class ChannelPoint(val month: String, val visits: Double)
 
     /**
