@@ -614,6 +614,69 @@ and the accessibility layer. A polar chart costs two layers, not a second engine
 
 ---
 
+## Polar area chart
+
+Equal-angle wedges of unequal radius — the Nightingale rose:
+
+```kotlin
+PolarAreaChart(
+    data = monthlyRainfall,
+    category = { it.month },
+    value = { it.millimetres },
+)
+```
+
+```text
+      ╱│╲        every wedge takes the same angle
+     ╱ │ ╲       and reaches out by its own value
+    ╱──┼──╲
+```
+
+### When this rather than a pie
+
+A pie gives every slice the same radius and varies the angle, so the only thing
+it can say is what **share of a total** each slice is — which makes it wrong
+whenever the values do not have a meaningful total. This varies the radius
+instead, so it can show monthly rainfall, deaths by cause or wind by direction,
+none of which sum to anything a reader wants. It also reads around a cycle:
+twelve equal wedges are twelve months, and the shape closes where the year does.
+
+### Area carries the value, not radius
+
+The default is `PolarAreaScaling.Area`, where the radius is the **square root**
+of the value. A wedge is read by how much ink it covers, and area grows with the
+square of the radius — so scaling the radius linearly doubles the apparent size
+of a doubled value twice over, and a series running 1 to 4 looks like one
+running 1 to 16. Nightingale's own diagrams are area-proportional; the later
+"coxcombs" that are not are why the form has a reputation for exaggerating.
+
+That the ink is the quantity is asserted directly in the tests: wedge area per
+unit of value is constant across every wedge.
+
+`PolarAreaScaling.Radius` is offered for the cases where a radial distance
+genuinely *is* the quantity — a reach, a range in kilometres. Refusing it would
+only push callers into pre-transforming their data, which hides the decision
+rather than removing it.
+
+### The rings are not evenly spaced
+
+A rose with no scale behind it is a shape rather than a reading. The concentric
+rings exist for the same reason a Cartesian chart has gridlines — and because
+the default scaling puts *area* in proportion to the value, a ring at half the
+value sits at 0.71 of the radius, not halfway out. Drawing them evenly would be
+a second, contradictory scale underneath the first.
+
+### A zero and a missing value look the same
+
+Both reach a radius of zero, and there is no ink at zero radius to tell them
+apart. A choropleth has a colour to spare for "no data"; a radius encoding has
+nowhere to put the distinction, so this does not invent one. The accessibility
+summary says "no value" where a value is absent, which is the one place the
+difference survives.
+
+Set `maxValue` when two roses must be comparable — without it each chart
+rescales to itself, and two roses of very different magnitudes look identical.
+
 ## Radar chart
 
 ```kotlin

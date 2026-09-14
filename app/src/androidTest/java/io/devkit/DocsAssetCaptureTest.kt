@@ -71,6 +71,7 @@ import io.devkit.chartkit.render.ChartRenderMode
 import io.devkit.chartkit.charts.ParallelCoordinatesChart
 import io.devkit.chartkit.charts.ParallelDimension
 import io.devkit.chartkit.charts.PieChart
+import io.devkit.chartkit.charts.PolarAreaChart
 import io.devkit.chartkit.charts.RadarChart
 import io.devkit.chartkit.charts.RadialBarChart
 import io.devkit.chartkit.charts.SankeyChart
@@ -305,6 +306,13 @@ class DocsAssetCaptureTest {
                     ParallelDimension("Range") { it.range },
                 ),
                 group = { it.origin },
+                modifier = m,
+            )
+        },
+        Shot("polar-area-chart") { _, m ->
+            PolarAreaChart(
+                demo.rainfall,
+                category = { it.month }, value = { it.millimetres },
                 modifier = m,
             )
         },

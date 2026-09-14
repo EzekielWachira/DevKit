@@ -495,6 +495,30 @@ object ChartDemoData {
         ServiceNode("reporting", 700.0),
     )
 
+    data class MonthlyRain(val month: String, val millimetres: Double)
+
+    /**
+     * A year of rainfall.
+     *
+     * The case a pie chart cannot take: twelve months do not add up to
+     * anything a reader wants, so there is no whole for a slice to be a share
+     * of — and the values run around a cycle, which is what the circle is for.
+     */
+    val rainfall: List<MonthlyRain> = listOf(
+        MonthlyRain("Jan", 112.0),
+        MonthlyRain("Feb", 86.0),
+        MonthlyRain("Mar", 74.0),
+        MonthlyRain("Apr", 51.0),
+        MonthlyRain("May", 38.0),
+        MonthlyRain("Jun", 22.0),
+        MonthlyRain("Jul", 14.0),
+        MonthlyRain("Aug", 19.0),
+        MonthlyRain("Sep", 43.0),
+        MonthlyRain("Oct", 79.0),
+        MonthlyRain("Nov", 104.0),
+        MonthlyRain("Dec", 126.0),
+    )
+
     data class Car(
         val name: String,
         val origin: String,
