@@ -7784,7 +7784,7 @@ adopted for something it cannot do.
 ## Testing
 
 ```bash
-./gradlew :chartkit:testDebugUnitTest          # 1,405 JVM tests
+./gradlew :chartkit:testDebugUnitTest          # 1,456 JVM tests
 ./gradlew :chartkit:connectedDebugAndroidTest  # 301 Compose UI tests
 ```
 
