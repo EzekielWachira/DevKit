@@ -847,6 +847,24 @@ data class ChartDimensions(
     /** Vertical space between two funnel stages. */
     val funnelStageSpacing: Dp = 3.dp,
 
+    /** The stroke of one row's line on a parallel-coordinates chart. */
+    val parallelLineWidth: Dp = 1.5.dp,
+
+    /** The width of a brush handle drawn on a parallel axis. */
+    val parallelBrushWidth: Dp = 12.dp,
+
+    /**
+     * How far from an axis a drag still counts as brushing it.
+     *
+     * Generous, because the axis itself is a hairline and a finger is not. Kept
+     * under half the usual gap between two axes, so a drag can never be
+     * ambiguous between neighbours.
+     */
+    val parallelBrushReach: Dp = 28.dp,
+
+    /** How far from a line a tap still selects it. */
+    val parallelHitRadius: Dp = 12.dp,
+
     /** Horizontal space between two mosaic columns. */
     val mosaicColumnSpacing: Dp = 2.dp,
 

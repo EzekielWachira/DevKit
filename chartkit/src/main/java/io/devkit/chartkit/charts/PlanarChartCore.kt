@@ -115,6 +115,17 @@ internal fun PlanarChartCore(
     onDragStart: ((ChartOffset, PlanarCoordinates) -> Unit)? = null,
     onDrag: ((ChartOffset, PlanarCoordinates) -> Unit)? = null,
     onDragEnd: (() -> Unit)? = null,
+    /**
+     * A first refusal on every tap, before selection sees it.
+     *
+     * Returning `true` means the chart handled the tap itself and no selection
+     * should happen. It exists because some charts have targets that are not
+     * marks — a parallel-coordinates axis is a control, not a datum, and a tap
+     * on it means "clear this filter" rather than "select something here".
+     * Routing that through `hitTest` would make a selection out of something
+     * that is not one.
+     */
+    onTap: ((ChartOffset, PlanarCoordinates) -> Boolean)? = null,
 ) {
     val theme = ChartKitTheme.current
 
@@ -171,6 +182,7 @@ internal fun PlanarChartCore(
                         onDragStart = onDragStart,
                         onDrag = onDrag,
                         onDragEnd = onDragEnd,
+                        onTap = onTap,
                     )
                 }
             }
@@ -206,6 +218,7 @@ private fun PlanarPlot(
     onDragStart: ((ChartOffset, PlanarCoordinates) -> Unit)?,
     onDrag: ((ChartOffset, PlanarCoordinates) -> Unit)?,
     onDragEnd: (() -> Unit)?,
+    onTap: ((ChartOffset, PlanarCoordinates) -> Boolean)?,
 ) {
     val theme = ChartKitTheme.current
     val density = LocalDensity.current
@@ -301,14 +314,21 @@ private fun PlanarPlot(
                 // that do nothing": a modifier that consumes events would still
                 // stop a parent from scrolling.
                 .then(
-                    if (renderMode.isStatic || (!tapSelects && dragMode == PlanarDragMode.None)) {
+                    if (renderMode.isStatic ||
+                        (!tapSelects && onTap == null && dragMode == PlanarDragMode.None)
+                    ) {
                         Modifier
                     } else {
-                        Modifier.pointerInput(coordinates, renderers, tapSelects) {
+                        Modifier.pointerInput(coordinates, renderers, tapSelects, onTap) {
                             detectTapGestures(
                                 onTap = { offset ->
+                                    val point = ChartOffset(offset.x, offset.y)
+                                    // The chart's own controls get first refusal.
+                                    if (onTap?.invoke(point, coordinates) == true) {
+                                        return@detectTapGestures
+                                    }
                                     if (!tapSelects) return@detectTapGestures
-                                    val hit = select(ChartOffset(offset.x, offset.y))
+                                    val hit = select(point)
                                     when {
                                         hit != null && hit != state.selection -> {
                                             state.selection = hit

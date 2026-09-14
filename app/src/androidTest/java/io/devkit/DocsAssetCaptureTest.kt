@@ -68,6 +68,8 @@ import io.devkit.chartkit.charts.LineChart
 import io.devkit.chartkit.charts.NetworkGraph
 import io.devkit.chartkit.layer.graph.GraphLabels
 import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.charts.ParallelCoordinatesChart
+import io.devkit.chartkit.charts.ParallelDimension
 import io.devkit.chartkit.charts.PieChart
 import io.devkit.chartkit.charts.RadarChart
 import io.devkit.chartkit.charts.RadialBarChart
@@ -289,6 +291,20 @@ class DocsAssetCaptureTest {
                 },
                 category = { it.region }, value = { it.revenue },
                 labels = MosaicLabels.ColumnsWithShare,
+                modifier = m,
+            )
+        },
+        Shot("parallel-coordinates") { _, m ->
+            ParallelCoordinatesChart(
+                data = demo.cars,
+                dimensions = listOf(
+                    ParallelDimension("Price") { it.price },
+                    ParallelDimension("MPG") { it.economy },
+                    ParallelDimension("Power") { it.power },
+                    ParallelDimension("Weight") { it.weight },
+                    ParallelDimension("Range") { it.range },
+                ),
+                group = { it.origin },
                 modifier = m,
             )
         },

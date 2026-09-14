@@ -1370,6 +1370,86 @@ ChartNavigator(viewportState = viewport) {
 }
 ```
 
+## Parallel coordinates
+
+Many rows compared across many measures:
+
+```kotlin
+ParallelCoordinatesChart(
+    data = cars,
+    dimensions = listOf(
+        ParallelDimension("Price") { it.price },
+        ParallelDimension("MPG") { it.economy },
+        ParallelDimension("Power") { it.power },
+        ParallelDimension("Weight") { it.weight },
+    ),
+    group = { it.origin },
+)
+```
+
+```text
+ price   mpg    hp    weight
+   │      │      │      │
+   ├──────┼──╲   │   ╱──┤      one polyline = one row
+   │   ╲  │   ╲──┼──╱   │
+   ├────╲─┼──────┼──────┤
+```
+
+### Every axis has its own domain
+
+That is what makes the chart work at all. The dimensions are in different units,
+and forcing them onto one scale would flatten every axis but the largest into a
+line along the bottom. The consequence is worth stating plainly, because the
+picture does not — **vertical position is comparable only within an axis.** A
+line high on two axes is high on each of them separately; it is not "higher
+overall", because there is no overall.
+
+An axis takes its own minimum and maximum rather than zero to the maximum:
+padding the bottom out to a zero nobody measured would compress every real
+difference into the top. Pass a `domain` on a dimension to fix it instead — when
+two charts must be comparable, or when the axis means something the data does
+not reach.
+
+### What this does that a radar cannot
+
+`RadarChart` is the other multivariate view and it degrades past six or eight
+metrics: the spokes crowd and the polygon becomes a shape rather than a reading.
+This takes ten or twenty dimensions and hundreds of rows, and trades the radar's
+single readable silhouette for the ability to see *groups* of rows behaving
+alike.
+
+### Brushing is the point
+
+A plot of any size is a thicket. Its value is not in reading one line but in
+asking "which rows are high here **and** low there", and the way that question
+gets asked is by dragging a range down one axis and seeing which lines survive
+on the others. Without it the chart is a picture; with it, it is a query.
+
+Drag down an axis to brush it. The excluded rows are **muted, not removed** —
+a reader brushing is comparing a subset against the whole, and removing rows
+would rescale the axes under the finger doing the dragging.
+
+Tap a brushed axis to clear it. That gesture exists separately because a drag
+both clears and rebrushes — it clears on touch-down and rebrushes as the finger
+moves — so no drag can ever leave an axis unfiltered. This is the kind of thing
+that is invisible until someone tries it, so it is covered by an instrumented
+test that drives real gestures on a device rather than by the JVM tests that
+cover the arithmetic.
+
+Brush ranges are in **value space**, not pixels: a brush means "between 1,200kg
+and 1,600kg", so it survives a rotation, a resize and a different density, and
+can be set from code against numbers you recognise. A row *missing* the value an
+axis is brushed on is excluded — letting it through because nothing contradicts
+the filter would put rows of unknown weight into the answer to a question about
+weight.
+
+```kotlin
+val brushes = rememberParallelBrushState()
+
+ParallelCoordinatesChart(data = cars, dimensions = dims, brushState = brushes)
+Button(onClick = { brushes.clearAll() }) { Text("Reset ${brushes.activeCount}") }
+```
+
 ## Mosaic chart
 
 Variable-width stacked columns — the Marimekko:

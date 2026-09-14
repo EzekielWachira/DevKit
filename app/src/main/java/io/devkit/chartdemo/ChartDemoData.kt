@@ -495,6 +495,49 @@ object ChartDemoData {
         ServiceNode("reporting", 700.0),
     )
 
+    data class Car(
+        val name: String,
+        val origin: String,
+        val price: Double,
+        val economy: Double,
+        val power: Double,
+        val weight: Double,
+        val range: Double,
+    )
+
+    /**
+     * A small fleet across five measures in five different units.
+     *
+     * Shaped so the groups behave differently rather than scattering: the
+     * European cars are light and economical, the American ones heavy and
+     * powerful, and the Japanese ones sit between — which is what a parallel
+     * plot is for seeing, and what a scatter of any two of these columns would
+     * not show.
+     */
+    val cars: List<Car> = run {
+        fun car(
+            name: String, origin: String,
+            price: Double, economy: Double, power: Double, weight: Double, range: Double,
+        ) = Car(name, origin, price, economy, power, weight, range)
+        listOf(
+            car("A-1", "Europe", 28_400.0, 52.0, 110.0, 1_180.0, 620.0),
+            car("A-2", "Europe", 31_900.0, 48.0, 130.0, 1_260.0, 590.0),
+            car("A-3", "Europe", 24_700.0, 58.0, 95.0, 1_090.0, 640.0),
+            car("A-4", "Europe", 35_200.0, 44.0, 150.0, 1_340.0, 560.0),
+            car("A-5", "Europe", 27_100.0, 55.0, 105.0, 1_140.0, 610.0),
+            car("B-1", "America", 42_600.0, 26.0, 280.0, 1_960.0, 520.0),
+            car("B-2", "America", 51_300.0, 21.0, 340.0, 2_180.0, 480.0),
+            car("B-3", "America", 38_900.0, 29.0, 245.0, 1_870.0, 540.0),
+            car("B-4", "America", 46_800.0, 24.0, 310.0, 2_050.0, 500.0),
+            car("B-5", "America", 35_400.0, 31.0, 225.0, 1_790.0, 555.0),
+            car("C-1", "Japan", 30_700.0, 41.0, 165.0, 1_480.0, 600.0),
+            car("C-2", "Japan", 33_500.0, 38.0, 185.0, 1_560.0, 575.0),
+            car("C-3", "Japan", 28_900.0, 45.0, 150.0, 1_410.0, 615.0),
+            car("C-4", "Japan", 36_200.0, 35.0, 205.0, 1_640.0, 565.0),
+            car("C-5", "Japan", 26_300.0, 47.0, 140.0, 1_370.0, 625.0),
+        )
+    }
+
     data class SegmentRevenue(val region: String, val revenue: Double)
 
     /**
