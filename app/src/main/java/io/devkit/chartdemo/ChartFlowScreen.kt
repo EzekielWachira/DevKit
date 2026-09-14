@@ -23,9 +23,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import io.devkit.chartkit.charts.FunnelChart
+import io.devkit.chartkit.charts.ChordDiagram
 import io.devkit.chartkit.charts.SankeyChart
 import io.devkit.chartkit.formatter.ChartNumberFormatters
 import io.devkit.chartkit.layer.flow.FunnelLabels
+import io.devkit.chartkit.layer.flow.ChordFlowSelection
+import io.devkit.chartkit.layer.flow.ChordGroupSelection
+import io.devkit.chartkit.layer.flow.ChordLabels
 import io.devkit.chartkit.layer.flow.SankeyLabels
 import io.devkit.chartkit.layer.flow.SankeyLinkSelection
 import io.devkit.chartkit.layer.flow.SankeyNodeSelection
@@ -53,6 +57,9 @@ fun ChartFlowScreen(modifier: Modifier = Modifier) {
             value = { it.users },
         )
     }
+
+    var chordValues by remember { mutableStateOf(false) }
+    var chordReadout by remember { mutableStateOf("Tap a group or a ribbon") }
 
     Column(
         modifier
@@ -105,6 +112,58 @@ fun ChartFlowScreen(modifier: Modifier = Modifier) {
                 .testTag("sankey"),
         )
         Text(readout, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("flow-readout"))
+
+        HorizontalDivider()
+        Text("Chord", style = MaterialTheme.typography.titleMedium)
+        Text(
+            "The same claim as a Sankey — width is weight — with no left and no right. A " +
+                "circle has no upstream, so two groups can exchange in both directions and a " +
+                "group can flow into itself; Europe's loop back to Europe is internal " +
+                "movement. Each group's arc is everything touching it, in and out, so a " +
+                "region that mostly receives is still drawn at the size of what it receives.",
+            style = MaterialTheme.typography.bodyMedium,
+        )
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            FilterChip(
+                selected = chordValues,
+                onClick = { chordValues = !chordValues },
+                label = { Text("Group totals") },
+                modifier = Modifier.testTag("chord-values"),
+            )
+        }
+
+        ChordDiagram(
+            groups = ChartDemoData.regions,
+            flows = ChartDemoData.migrations,
+            groupId = { it.code },
+            groupLabel = { it.name },
+            source = { it.from },
+            target = { it.to },
+            value = { it.people },
+            labels = if (chordValues) ChordLabels.OutsideWithValue else ChordLabels.Outside,
+            valueFormatter = count,
+            onSelectionChanged = { selection ->
+                chordReadout = when (val item = selection?.item) {
+                    is ChordGroupSelection ->
+                        "${item.label}: ${count.format(selection.y)} in and out"
+
+                    is ChordFlowSelection ->
+                        "${item.sourceLabel} \u2192 ${item.targetLabel}: ${count.format(selection.y)}"
+
+                    else -> "Tap a group or a ribbon"
+                }
+            },
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(320.dp)
+                .testTag("chord"),
+        )
+        Text(
+            chordReadout,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.testTag("chord-readout"),
+        )
 
         HorizontalDivider()
         Text("Funnel", style = MaterialTheme.typography.titleMedium)

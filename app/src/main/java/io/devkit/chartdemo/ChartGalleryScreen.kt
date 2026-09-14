@@ -28,6 +28,7 @@ import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.axis.ChartAxis
 import io.devkit.chartkit.axis.ChartGrid
 import io.devkit.chartkit.charts.AreaChart
+import io.devkit.chartkit.geometry.AreaStacking
 import io.devkit.chartkit.charts.BarChart
 import io.devkit.chartkit.charts.CartesianChart
 import io.devkit.chartkit.charts.ExperimentalChartKitApi
@@ -140,6 +141,9 @@ private fun Chart(
     modifier: Modifier,
 ) {
     val revenueSeries = remember { ChartDemoData.revenueSeries().take(2) }
+    val channelSeries = remember {
+        ChartDemoData.channels.map { (name, points) -> ChartSeries(name.lowercase(), name, points) }
+    }
     val cohorts = remember { ChartDemoData.cohortSeries() }
 
     when (kind) {
@@ -191,6 +195,46 @@ private fun Chart(
             interpolation = interpolation,
             pointMode = pointMode,
             grid = grid,
+            legend = legend,
+            legendTogglesSeries = true,
+            valueFormatter = formatter,
+            animation = animation,
+            modifier = modifier,
+        )
+
+        ChartKind.StackedArea -> AreaChart(
+            series = channelSeries,
+            x = { it.month },
+            y = { it.visits },
+            stacking = AreaStacking.Stacked,
+            interpolation = interpolation,
+            grid = grid,
+            legend = legend,
+            legendTogglesSeries = true,
+            valueFormatter = formatter,
+            animation = animation,
+            modifier = modifier,
+        )
+
+        ChartKind.PercentArea -> AreaChart(
+            series = channelSeries,
+            x = { it.month },
+            y = { it.visits },
+            stacking = AreaStacking.Expand,
+            interpolation = interpolation,
+            grid = grid,
+            legend = legend,
+            legendTogglesSeries = true,
+            animation = animation,
+            modifier = modifier,
+        )
+
+        ChartKind.StreamGraph -> AreaChart(
+            series = channelSeries,
+            x = { it.month },
+            y = { it.visits },
+            stacking = AreaStacking.Stream,
+            interpolation = interpolation,
             legend = legend,
             legendTogglesSeries = true,
             valueFormatter = formatter,
@@ -354,6 +398,24 @@ internal enum class ChartKind(
     MultiArea(
         "Multi-area",
         "Overlapping areas — each measured from the baseline, not stacked.",
+        isLineLike = true,
+        supportsValueLabels = false,
+    ),
+    StackedArea(
+        "Stacked area",
+        "Parts of one total: each band rests on the one below, so the top edge is the sum.",
+        isLineLike = true,
+        supportsValueLabels = false,
+    ),
+    PercentArea(
+        "100% area",
+        "The same stack rescaled so every column fills the plot — composition without totals.",
+        isLineLike = true,
+        supportsValueLabels = false,
+    ),
+    StreamGraph(
+        "Stream",
+        "The stack centred on the axis. Only a band's thickness is readable, so there is no value axis.",
         isLineLike = true,
         supportsValueLabels = false,
     ),

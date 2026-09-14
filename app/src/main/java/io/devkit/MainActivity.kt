@@ -470,7 +470,7 @@ private enum class SampleScreen(
         "Polar charts",
         "P",
         SampleKit.ChartKit,
-        "Pie, donut, radial bars and a gauge",
+        "Pie, donut, radial bars, a gauge and a Nightingale rose",
     ),
     ChartExplore(
         "Zoom, pan and range",
@@ -494,7 +494,7 @@ private enum class SampleScreen(
         "Radar",
         "R",
         SampleKit.ChartKit,
-        "Multi-metric profiles on polar coordinates",
+        "Multi-metric profiles, on polar coordinates and on parallel axes",
     ),
     ChartFinancial(
         "Financial charts",
@@ -536,13 +536,13 @@ private enum class SampleScreen(
         "Flow",
         "F",
         SampleKit.ChartKit,
-        "Sankey diagrams and funnels",
+        "Sankey diagrams, chord diagrams and funnels",
     ),
     ChartComparison(
         "Comparison",
         "W",
         SampleKit.ChartKit,
-        "Waterfall, dumbbell, lollipop, bullet and gauge",
+        "Waterfall, dumbbell, lollipop, bullet, gauge and mosaic",
     ),
     ChartTime(
         "Time and intervals",
@@ -572,7 +572,7 @@ private enum class SampleScreen(
         "World maps",
         "W",
         SampleKit.ChartKit,
-        "GeoJSON and TopoJSON, projections, points, bubbles, routes and layers",
+        "GeoJSON and TopoJSON, projections, points, bubbles, hexbins, routes and layers",
     ),
     ChartSets(
         "Set relationships",

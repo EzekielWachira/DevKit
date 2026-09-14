@@ -39,6 +39,17 @@ internal data class LinePoint(
     val position: ChartOffset,
     val sourceIndex: Int,
     val value: Double,
+    /**
+     * The pixel row this point's area fill closes to, when it is not the axis.
+     *
+     * `null` on an unstacked chart, where every series fills to one baseline
+     * and a per-point copy of it would be the same number repeated. Present on
+     * a stacked area, where the bottom of a band is the top of the one below
+     * and therefore moves with the domain. Carried on the point rather than in
+     * a parallel array so it cannot drift out of alignment when a series is
+     * downsampled or split into segments.
+     */
+    val baseline: Float? = null,
 )
 
 /**

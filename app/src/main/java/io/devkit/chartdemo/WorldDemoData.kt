@@ -153,6 +153,63 @@ object WorldDemoData {
         Place("Anchorage", -149.9, 61.2, 0.3),
     )
 
+    /** One synthetic sighting, for the density demos. */
+    class Sighting(val longitude: Double, val latitude: Double, val magnitude: Double)
+
+    /**
+     * Synthetic sightings, clustered around the cities.
+     *
+     * Declared **after** [cities] because it reads them: an object's properties
+     * initialise in declaration order, so placing this above would see an empty
+     * list and fail at class-load time rather than anywhere useful.
+     *
+     * A point map of this many marks is a blob — which is the point: it is the
+     * case a hexbin map exists for. A fixed linear congruential sequence, so
+     * the demo is identical on every run and on every device, and a screenshot
+     * of it is worth something.
+     */
+    val sightings: List<Sighting> = run {
+        var state = 20_240_917L
+        fun next(): Double {
+            state = (state * 6364136223846793005L + 1442695040888963407L) and 0x7FFFFFFFFFFFFFFFL
+            return (state ushr 16).toDouble() / (1L shl 47).toDouble()
+        }
+        // Box–Muller, so the clusters fall off smoothly rather than filling a
+        // square around each city.
+        fun gaussian(): Double {
+            val u = next().coerceAtLeast(1e-9)
+            val v = next()
+            return kotlin.math.sqrt(-2.0 * kotlin.math.ln(u)) * kotlin.math.cos(2.0 * Math.PI * v)
+        }
+        buildList {
+            cities.forEach { city ->
+                // Bigger cities get more sightings, so the map has something to
+                // say beyond where the cities are.
+                val count = (city.people * 2.2).toInt().coerceIn(8, 90)
+                repeat(count) {
+                    add(
+                        Sighting(
+                            longitude = (city.longitude + gaussian() * 6.0).coerceIn(-179.0, 179.0),
+                            latitude = (city.latitude + gaussian() * 4.0).coerceIn(-84.0, 84.0),
+                            magnitude = 1.0 + next() * 9.0,
+                        ),
+                    )
+                }
+            }
+            // A thin scatter everywhere else, so the dense places read as dense
+            // rather than as the only places with any data at all.
+            repeat(320) {
+                add(
+                    Sighting(
+                        longitude = -179.0 + next() * 358.0,
+                        latitude = -55.0 + next() * 125.0,
+                        magnitude = 1.0 + next() * 9.0,
+                    ),
+                )
+            }
+        }
+    }
+
     /** A link between two places. */
     class Route(val name: String, val from: String, val to: String, val volume: Double)
 

@@ -30,7 +30,9 @@ import io.devkit.chartkit.accessibility.ChartAccessibility
 import io.devkit.chartkit.animation.ChartAnimation
 import io.devkit.chartkit.charts.DonutChart
 import io.devkit.chartkit.charts.PieChart
+import io.devkit.chartkit.charts.PolarAreaChart
 import io.devkit.chartkit.charts.RadialBarChart
+import io.devkit.chartkit.geometry.PolarAreaScaling
 import io.devkit.chartkit.components.legend.LegendPosition
 import io.devkit.chartkit.formatter.ChartNumberFormatters
 import io.devkit.chartkit.layer.polar.SliceLabelContent
@@ -55,6 +57,7 @@ fun ChartPolarScreen(modifier: Modifier = Modifier) {
     val money = remember { ChartNumberFormatters.compact() }
     val pieState = rememberChartState<ChartDemoData.Expense>()
     val metricState = rememberChartState<ChartDemoData.Metric>()
+    val rainState = rememberChartState<ChartDemoData.MonthlyRain>()
     val animation = if (animate) ChartAnimation.Default else ChartAnimation.None
 
     Column(
@@ -179,9 +182,25 @@ fun ChartPolarScreen(modifier: Modifier = Modifier) {
                     .height(320.dp)
                     .testTag(ChartDemoTestTags.Chart),
             )
+
+            PolarKind.Rose -> PolarAreaChart(
+                data = ChartDemoData.rainfall,
+                category = { it.month },
+                value = { it.millimetres },
+                // Area rather than radius: a wedge is read by how much ink it
+                // covers, and scaling the radius linearly would double a
+                // doubled value twice over.
+                scaling = PolarAreaScaling.Area,
+                animation = animation,
+                state = rainState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(340.dp)
+                    .testTag(ChartDemoTestTags.Chart),
+            )
         }
 
-        SelectionLine(kind, pieState.selection, metricState.selection)
+        SelectionLine(kind, pieState.selection, metricState.selection, rainState.selection)
 
         HorizontalDivider()
         Text("Controls", style = MaterialTheme.typography.titleSmall)
@@ -221,8 +240,11 @@ private fun SelectionLine(
     kind: PolarKind,
     slice: ChartSelection<ChartDemoData.Expense>?,
     metric: ChartSelection<ChartDemoData.Metric>?,
+    rain: ChartSelection<ChartDemoData.MonthlyRain>? = null,
 ) {
     val text = when (kind) {
+        PolarKind.Rose -> rain?.let { "${it.item.month}: ${it.item.millimetres} mm" }
+
         PolarKind.RadialBar, PolarKind.Gauge -> metric?.let {
             "${it.item.name}: ${it.item.value}${it.item.unit} " +
                 "(${(it.polar?.fraction ?: 0.0).times(100).toInt()}% of the range)"
@@ -244,4 +266,9 @@ private enum class PolarKind(val label: String, val description: String) {
     Donut("Donut", "The same slices with an inner radius, and Compose content in the hole."),
     RadialBar("Radial bars", "Concentric rings, each measured against a configurable range."),
     Gauge("Gauge", "The same radial bars drawn within a 270° sweep."),
+    Rose(
+        "Rose",
+        "Equal angles, unequal radii. For values that do not sum to a whole \u2014 and area, " +
+            "not radius, carries the number.",
+    ),
 }

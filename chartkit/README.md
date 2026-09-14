@@ -227,6 +227,101 @@ shades a region whose height means something.
 Areas default to `DomainPolicy.Baseline` (zero included), because a filled
 region reads as a magnitude. Lines default to `Auto`.
 
+## Stacked areas
+
+Several series that are parts of one total, rather than alternatives:
+
+```kotlin
+AreaChart(
+    series = channels,
+    x = { it.month },
+    y = { it.visits },
+    stacking = AreaStacking.Stacked,
+)
+```
+
+```text
+None      ▁▂▃▄▅  each series filled from the axis, overlapping
+Stacked   ▄▄▄▄▄  each series sits on the one below
+Expand    █████  the same, rescaled so every column is 100%
+Stream    ◗◗◗◗◗  the same, centred on the axis rather than resting on it
+```
+
+Overlapping is still the default, because adding series together only means
+something when they are parts of a whole — a chart of revenue against forecast
+has no total, and stacking it would invent one.
+
+### It does not stack
+
+`BarStacking` does, and this calls it. A stacked area and a stacked bar are the
+same arithmetic over the same values — accumulate per sign, leave a hole where a
+series has no value — and the only thing an area adds is the option to move the
+whole column afterwards. Two implementations would have to agree about
+negatives, about missing values and about percentage totals, and nothing would
+notice when they stopped.
+
+So the guarantees are the bars': positives pile up from zero and negatives down
+from it, a **missing value leaves a hole rather than a zero-height band**, and a
+non-finite value is treated as missing. The series stacked *above* a hole close
+over it, because a stack has nothing else it can do with an absent part.
+
+### Stacking pairs values by domain position
+
+By category on a category axis, which is what `alignToCategories` already does
+for bars. By index on a continuous axis — and series measured at **different x
+values are rejected** rather than piled onto whatever happened to share a
+subscript, because the resulting chart would look entirely reasonable and mean
+nothing.
+
+### The defaults change with the mode
+
+A stack's fill *is* the data: the thickness of a band is its value, so each band
+has to be a region whose edges are visible. `AreaFill.Default` fades toward the
+baseline, which reads well for one series over an axis and turns five stacked
+series into a tinted line chart, so stacked charts default to `AreaFill.Stacked`
+— flat and near-opaque. Point markers default off for the same reason: a dot on
+every vertex of five series is sixty dots on boundaries that are already drawn.
+
+`Stream` also hides the value axis and the grid by default. Centring moves every
+band off zero, so the axis would read out numbers that are an artefact of the
+layout — "−2,000 visits" where no series is negative and no total is. Only the
+**thickness** of a band means anything in a stream graph, so nothing is offered
+to measure against. Pass `yAxis = ChartAxis.Default` to put it back.
+
+## Stream graph
+
+The fourth stacking mode, and the one that stops looking like a stacked area:
+
+```kotlin
+AreaChart(
+    series = channels,
+    x = { it.month },
+    y = { it.visits },
+    stacking = AreaStacking.Stream,
+)
+```
+
+Each column is shifted so the stack straddles zero instead of resting on it,
+which turns the hard bottom edge of a stacked area into a second flowing
+boundary. It costs the reader the ability to judge any one series against an
+axis — only the **thickness** of a band is readable — and buys legibility on
+many series over many columns, where a stacked area degenerates into thin
+slivers pinned to a line.
+
+It is a mode rather than a chart type because that is all it is: the values, the
+scales, the interpolation, the interaction and the accessibility layer are the
+area chart's, and the only difference is where the bottom of the first series is
+put. A `StreamGraph` composable would be a copy of `AreaChart` kept in agreement
+by hand.
+
+The shift is per column and is the midpoint of what that column occupies, so the
+band thicknesses — the only quantity the chart claims to show — are untouched.
+That is asserted in the tests against the same data stacked normally.
+
+This is the **silhouette** baseline. The Byron–Wattenberg "wiggle" baseline,
+which picks the offset minimising the total slope of the boundaries rather than
+centring them, is not implemented; it is on the roadmap.
+
 ## Bar chart
 
 ```kotlin
@@ -518,6 +613,69 @@ selection model, the tooltip overlay, the animation clock, the legend, the theme
 and the accessibility layer. A polar chart costs two layers, not a second engine.
 
 ---
+
+## Polar area chart
+
+Equal-angle wedges of unequal radius — the Nightingale rose:
+
+```kotlin
+PolarAreaChart(
+    data = monthlyRainfall,
+    category = { it.month },
+    value = { it.millimetres },
+)
+```
+
+```text
+      ╱│╲        every wedge takes the same angle
+     ╱ │ ╲       and reaches out by its own value
+    ╱──┼──╲
+```
+
+### When this rather than a pie
+
+A pie gives every slice the same radius and varies the angle, so the only thing
+it can say is what **share of a total** each slice is — which makes it wrong
+whenever the values do not have a meaningful total. This varies the radius
+instead, so it can show monthly rainfall, deaths by cause or wind by direction,
+none of which sum to anything a reader wants. It also reads around a cycle:
+twelve equal wedges are twelve months, and the shape closes where the year does.
+
+### Area carries the value, not radius
+
+The default is `PolarAreaScaling.Area`, where the radius is the **square root**
+of the value. A wedge is read by how much ink it covers, and area grows with the
+square of the radius — so scaling the radius linearly doubles the apparent size
+of a doubled value twice over, and a series running 1 to 4 looks like one
+running 1 to 16. Nightingale's own diagrams are area-proportional; the later
+"coxcombs" that are not are why the form has a reputation for exaggerating.
+
+That the ink is the quantity is asserted directly in the tests: wedge area per
+unit of value is constant across every wedge.
+
+`PolarAreaScaling.Radius` is offered for the cases where a radial distance
+genuinely *is* the quantity — a reach, a range in kilometres. Refusing it would
+only push callers into pre-transforming their data, which hides the decision
+rather than removing it.
+
+### The rings are not evenly spaced
+
+A rose with no scale behind it is a shape rather than a reading. The concentric
+rings exist for the same reason a Cartesian chart has gridlines — and because
+the default scaling puts *area* in proportion to the value, a ring at half the
+value sits at 0.71 of the radius, not halfway out. Drawing them evenly would be
+a second, contradictory scale underneath the first.
+
+### A zero and a missing value look the same
+
+Both reach a radius of zero, and there is no ink at zero radius to tell them
+apart. A choropleth has a colour to spare for "no data"; a radius encoding has
+nowhere to put the distinction, so this does not invent one. The accessibility
+summary says "no value" where a value is absent, which is the one place the
+difference survives.
+
+Set `maxValue` when two roses must be comparable — without it each chart
+rescales to itself, and two roses of very different magnitudes look identical.
 
 ## Radar chart
 
@@ -1275,6 +1433,156 @@ ChartNavigator(viewportState = viewport) {
 }
 ```
 
+## Parallel coordinates
+
+Many rows compared across many measures:
+
+```kotlin
+ParallelCoordinatesChart(
+    data = cars,
+    dimensions = listOf(
+        ParallelDimension("Price") { it.price },
+        ParallelDimension("MPG") { it.economy },
+        ParallelDimension("Power") { it.power },
+        ParallelDimension("Weight") { it.weight },
+    ),
+    group = { it.origin },
+)
+```
+
+```text
+ price   mpg    hp    weight
+   │      │      │      │
+   ├──────┼──╲   │   ╱──┤      one polyline = one row
+   │   ╲  │   ╲──┼──╱   │
+   ├────╲─┼──────┼──────┤
+```
+
+### Every axis has its own domain
+
+That is what makes the chart work at all. The dimensions are in different units,
+and forcing them onto one scale would flatten every axis but the largest into a
+line along the bottom. The consequence is worth stating plainly, because the
+picture does not — **vertical position is comparable only within an axis.** A
+line high on two axes is high on each of them separately; it is not "higher
+overall", because there is no overall.
+
+An axis takes its own minimum and maximum rather than zero to the maximum:
+padding the bottom out to a zero nobody measured would compress every real
+difference into the top. Pass a `domain` on a dimension to fix it instead — when
+two charts must be comparable, or when the axis means something the data does
+not reach.
+
+### What this does that a radar cannot
+
+`RadarChart` is the other multivariate view and it degrades past six or eight
+metrics: the spokes crowd and the polygon becomes a shape rather than a reading.
+This takes ten or twenty dimensions and hundreds of rows, and trades the radar's
+single readable silhouette for the ability to see *groups* of rows behaving
+alike.
+
+### Brushing is the point
+
+A plot of any size is a thicket. Its value is not in reading one line but in
+asking "which rows are high here **and** low there", and the way that question
+gets asked is by dragging a range down one axis and seeing which lines survive
+on the others. Without it the chart is a picture; with it, it is a query.
+
+Drag down an axis to brush it. The excluded rows are **muted, not removed** —
+a reader brushing is comparing a subset against the whole, and removing rows
+would rescale the axes under the finger doing the dragging.
+
+Tap a brushed axis to clear it. That gesture exists separately because a drag
+both clears and rebrushes — it clears on touch-down and rebrushes as the finger
+moves — so no drag can ever leave an axis unfiltered. This is the kind of thing
+that is invisible until someone tries it, so it is covered by an instrumented
+test that drives real gestures on a device rather than by the JVM tests that
+cover the arithmetic.
+
+Brush ranges are in **value space**, not pixels: a brush means "between 1,200kg
+and 1,600kg", so it survives a rotation, a resize and a different density, and
+can be set from code against numbers you recognise. A row *missing* the value an
+axis is brushed on is excluded — letting it through because nothing contradicts
+the filter would put rows of unknown weight into the answer to a question about
+weight.
+
+```kotlin
+val brushes = rememberParallelBrushState()
+
+ParallelCoordinatesChart(data = cars, dimensions = dims, brushState = brushes)
+Button(onClick = { brushes.clearAll() }) { Text("Reset ${brushes.activeCount}") }
+```
+
+## Mosaic chart
+
+Variable-width stacked columns — the Marimekko:
+
+```kotlin
+MosaicChart(
+    series = listOf(
+        ChartSeries("enterprise", "Enterprise", enterpriseByRegion),
+        ChartSeries("mid", "Mid-market", midByRegion),
+        ChartSeries("smb", "SMB", smbByRegion),
+    ),
+    category = { it.region },
+    value = { it.revenue },
+)
+```
+
+```text
+┌────────┬───┬──────────────┬──┐
+│        │   │              │  │   width  = the column's total
+├────────┼───┼──────────────┼──┤   height = a series' share of it
+│        │   │              │  │   area   = the value itself
+└────────┴───┴──────────────┴──┘
+```
+
+### Two questions at once
+
+A 100% stacked bar chart answers "what is each column made of" and throws away
+how big the columns are. A plain stacked bar chart answers "how big" and makes
+composition hard to compare, because every column is a different height and the
+eye cannot compare segments that do not start level. A mosaic gives width to the
+first question and height to the second — market share by region where the
+regions are not the same size, spend by department where the departments are not.
+
+### Area is the value, and that is why the height is fixed
+
+Width is proportional to a column's total and a cell's height is its share of
+that total, so the two cancel: a cell covers `k × total × (value / total)`, which
+is `k × value`, wherever it sits. Two cells of equal value cover equal area
+across the whole chart, and that is what lets the eye compare them.
+
+There is deliberately **no option** to scale a column's height by its total as
+well. It reads as a reasonable setting and destroys exactly that property: the
+total would be encoded twice and a cell's area would become proportional to
+`total × value`, which is not a quantity anybody has. The first draft had that
+option; the test asserting equal areas is what found it.
+
+### Only positive values
+
+A column's width is a sum of parts and a cell's height is its share of that sum.
+A negative part has no share of a total it reduces, and a negative total has no
+width, so non-positive and non-finite values are counted nowhere and drawn
+nowhere rather than being folded into a column whose width would then mean
+nothing.
+
+### It is not a treemap
+
+A treemap also encodes quantity as area, but it can put a rectangle anywhere, so
+two rectangles are hard to compare unless they share an edge. A mosaic keeps one
+categorical dimension on each axis, so every cell in a row is comparable by
+height and every column by width. The cost is that it takes exactly two
+dimensions where a treemap nests arbitrarily deep.
+
+### Narrow columns go unlabelled
+
+A column narrower than its own name is left unlabelled rather than given a
+truncated one. On a mosaic the narrow columns are precisely the ones whose names
+collide, and a row of "…" says less than the legend already does — the same rule
+the treemap follows. The legend and the tooltip still name every series, and the
+accessibility announcement reports each column's total and its share.
+
 ## Treemap
 
 Nested rectangles whose **areas** are proportional to their values. Charts your
@@ -1447,6 +1755,87 @@ tooltip; tapping a band selects that flow. Both hand back a typed selection —
 `SankeyNodeSelection` or `SankeyLinkSelection` — carrying your own object.
 Unconnected flows take a different **colour** as well as a lower opacity,
 because connection state carried by opacity alone is invisible on a dense diagram.
+
+## Chord diagram
+
+Flows between groups that are peers rather than stages, arranged on a circle:
+
+```kotlin
+ChordDiagram(
+    groups = regions,
+    flows = migrations,
+    groupId = { it.code },
+    groupLabel = { it.name },
+    source = { it.from },
+    target = { it.to },
+    value = { it.people },
+    modifier = Modifier.fillMaxWidth().height(320.dp),
+)
+```
+
+```text
+     ╭──── Europe ────╮
+    ╱   ╲         ╱    ╲
+  Asia ══╬═══════╬═ Africa
+    ╲   ╱         ╲    ╱
+     ╰── Americas ────╯
+```
+
+### When this rather than a Sankey
+
+A Sankey lays flow out left to right, which encodes a **direction of travel
+through stages**: right for a funnel, a pipeline or a budget, and unable to
+express a flow that goes back. A circle has no upstream, so two groups can
+exchange in both directions and a group can flow into itself. Reach for a Sankey
+when the stages are ordered and a chord when they are peers — migration between
+regions, trade between countries, traffic between pages.
+
+A group's arc is sized by **everything touching it**, in and out. Sizing by
+outflow alone — the Circos convention — draws a region that only receives as a
+zero-width sliver, which is exactly the region a reader is usually looking for.
+
+### One ribbon per flow
+
+The classic Circos and D3 chord merges the two directions between a pair into a
+single ribbon with ends of different widths: the end in group `i` sized by
+`M[i][j]`, the end in `j` by `M[j][i]`. It is a dense encoding, and it costs the
+reader the ability to say what any one ribbon means — a ribbon wide at one end
+and narrow at the other is two numbers wearing one shape, and nothing in the
+picture says which is which.
+
+Here a ribbon is exactly one of your flows and **both of its ends are that
+flow's value**. Two directions between the same pair are two ribbons. The cost
+is one more shape on a dense diagram; what it buys is that every ribbon carries
+one number, a tap on it hands back your own flow object, and the arithmetic
+closes — each group's arc is precisely the sum of the ribbon ends attached to
+it, which is what makes the angular widths readable as quantities at all. That
+last property is asserted in the tests rather than assumed.
+
+### Self-flows are drawn, not dropped
+
+A flow from a group to itself is cut by `SankeyChart`, where it would be a cycle
+in something that has to be ordered into columns. A chord diagram has no
+columns, so it is simply a ribbon that leaves an arc and returns to it —
+internal migration within a region, traffic from a page back to itself.
+
+### Padding is taken out of the data, not added to the circle
+
+Some gap between groups is load bearing: without it two adjacent groups read as
+one arc. It is capped internally, so a diagram of forty groups at a generous pad
+cannot become all gaps and no data.
+
+### Selecting
+
+Tapping a group emphasises everything it connects to and lists its flows in the
+tooltip, split into "to" and "from"; tapping a ribbon selects that one flow.
+Both hand back a typed selection — `ChordGroupSelection` or `ChordFlowSelection`
+— carrying your own object. Hit testing uses the **same** flattened outline the
+ribbon is drawn from, so a tap lands where the ink is; two independent
+approximations of a curved band would disagree at the edges, and the
+disagreement would be invisible until someone tapped it.
+
+Built on the same `PolarCoordinates` as pie, donut and radial bar — one layer,
+not a second engine.
 
 ## Funnel chart
 
@@ -3131,6 +3520,84 @@ device.
   solvable — the shared arc could be simplified once — and is not solved yet.
 - **No screenshot tests**, because the repository has no screenshot testing
   infrastructure to add them to.
+
+## Hexbin maps
+
+Point **density**, binned onto a hexagonal grid:
+
+```kotlin
+GeoChart(projection = GeoProjection.World) {
+    map(world)
+    hexbin(
+        data = observations,
+        longitude = { it.lon },
+        latitude = { it.lat },
+    )
+}
+```
+
+```text
+   ╱‾╲ ╱‾╲       one hexagon = the records near here
+   ╲_╱ ╲_╱       colour      = how many, or what they come to
+   ╱‾╲ ╱‾╲
+```
+
+### When this instead of points
+
+A point map of any density stops being a map of points and becomes a blob: the
+marks overlap, the overlaps are opaque, and the reader cannot tell two records
+from two hundred. Binning answers the question the picture could actually
+support — "how many are near here" — instead of the one it could not.
+
+### Why hexagons and not squares
+
+Every hexagon has six neighbours all the same distance from its centre. A square
+grid has four at one distance and four diagonals at another, so a square bin's
+contents are not uniformly close to its centre, and a cluster lying on a
+diagonal reads differently from one lying square. Hexagons also tile without the
+strong horizontal and vertical banding that makes a square heatmap look like a
+grid rather than like the data.
+
+### The bins do not move when the reader does
+
+They are computed in **projected** space, so a pan changes no numbers and a zoom
+magnifies the same bins rather than recomputing them — which also keeps the work
+off the gesture loop, the same reason a choropleth's vertices are projected
+once.
+
+d3-hexbin and most web implementations do the opposite: they bin in screen
+coordinates and rebin on every zoom, so the hexagons stay one size under the
+reader's eye. That is a reasonable choice with a real cost — the numbers change
+as you pan. A bin reading "14" reads "9" after a nudge, because its boundaries
+moved. The trade here is the other way: stable counts, and hexagons that grow as
+you zoom in.
+
+### Aggregates, and a bin with nothing to aggregate
+
+`Count` needs no value accessor. `Sum`, `Mean` and `Max` read one, and a bin
+whose records all lack a measurement has **no total** — it is drawn in the map's
+"no data" colour rather than at the bottom of the scale, where it would sit
+beside the genuinely low places. That is the choropleth's rule, applied to bins.
+
+### The ramp comes from the bins
+
+Leave `colorScale` out and the layer builds one from what the bins actually came
+to. It cannot be built where the chart is declared, because the bins do not
+exist until there is a projection to bin in — and the first draft of this
+guessed a ramp from the *record count* instead, which was the only number
+available that early. On two thousand records whose busiest cell held nine, that
+put every cell inside the bottom half of a percent of the ramp and the whole map
+came out one colour. Pass a scale when two maps must be coloured comparably.
+
+### Hit testing is against the hexagon
+
+Not against a circle through its corners or its edges. A hexagon's corners reach
+about 15% further than its edges, so a circular test either refuses taps on the
+corners or accepts taps in the gaps between cells — and on a tiled grid every
+one of those gaps belongs to a neighbour. A point lying exactly on an edge is
+treated as inside both cells and resolved to whichever is asked first: testing
+exactly would leave a dead hairline along every boundary, and would let a point
+be counted into a cell that then refuses to admit it.
 
 ## Annotations
 
@@ -7288,7 +7755,8 @@ adopted for something it cannot do.
 ## Roadmap
 
 - Polar-area layers, and zoom over a polar angle
-- Stacked areas
+- The Byron–Wattenberg "wiggle" baseline for stream graphs, beside the
+  centred one that exists
 - Interactive range handles on a chart's own range selection
 - Fling panning
 - Completing vector export: a scene representation for the remaining layers
@@ -7316,7 +7784,7 @@ adopted for something it cannot do.
 ## Testing
 
 ```bash
-./gradlew :chartkit:testDebugUnitTest          # 1,306 JVM tests
+./gradlew :chartkit:testDebugUnitTest          # 1,456 JVM tests
 ./gradlew :chartkit:connectedDebugAndroidTest  # 301 Compose UI tests
 ```
 

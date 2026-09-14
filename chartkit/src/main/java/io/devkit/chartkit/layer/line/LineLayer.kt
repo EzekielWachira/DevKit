@@ -81,6 +81,19 @@ data class AreaFill(
 
     companion object {
         val Default: AreaFill = AreaFill()
+
+        /**
+         * Flat and near-opaque, for bands that sit on one another.
+         *
+         * The default fades towards the baseline, which reads well for one
+         * series over an axis — the fill is decoration on a line, and the eye
+         * is meant to follow the line. In a stack the fill *is* the data: the
+         * thickness of a band is its value, so each band has to be a region the
+         * eye can see the edges of. A gradient fading across the whole plot
+         * makes the lower bands disappear and the upper ones float, and at the
+         * default alpha five stacked series read as a tinted line chart.
+         */
+        val Stacked: AreaFill = AreaFill(alpha = 0.85f, gradient = false)
     }
 }
 
@@ -597,14 +610,27 @@ internal class LineLayer(
         }
     }
 
+    /**
+     * The filled band under one run of points.
+     *
+     * On an unstacked chart the band closes to a single row and the return
+     * journey is two lines. On a stacked one the bottom edge is the top of the
+     * series below and moves with the domain, so the path retraces the run
+     * backwards along each point's own baseline — which is why the baseline
+     * travels on the point rather than beside it.
+     */
     private fun appendAreaSegment(path: Path, segment: LineSegment, baseline: Float) {
         val points = segment.points
         if (points.isEmpty()) return
         appendSegment(path, segment)
-        val last = points.last().position
-        val first = points.first().position
-        path.lineTo(last.x, baseline)
-        path.lineTo(first.x, baseline)
+        if (points.any { it.baseline != null }) {
+            points.asReversed().forEach { point ->
+                path.lineTo(point.position.x, point.baseline ?: baseline)
+            }
+        } else {
+            path.lineTo(points.last().position.x, baseline)
+            path.lineTo(points.first().position.x, baseline)
+        }
         path.close()
     }
 

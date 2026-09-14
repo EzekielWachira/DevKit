@@ -847,6 +847,42 @@ data class ChartDimensions(
     /** Vertical space between two funnel stages. */
     val funnelStageSpacing: Dp = 3.dp,
 
+    /** The stroke of one row's line on a parallel-coordinates chart. */
+    val parallelLineWidth: Dp = 1.5.dp,
+
+    /** The width of a brush handle drawn on a parallel axis. */
+    val parallelBrushWidth: Dp = 12.dp,
+
+    /**
+     * How far from an axis a drag still counts as brushing it.
+     *
+     * Generous, because the axis itself is a hairline and a finger is not. Kept
+     * under half the usual gap between two axes, so a drag can never be
+     * ambiguous between neighbours.
+     */
+    val parallelBrushReach: Dp = 28.dp,
+
+    /** How far from a line a tap still selects it. */
+    val parallelHitRadius: Dp = 12.dp,
+
+    /** Horizontal space between two mosaic columns. */
+    val mosaicColumnSpacing: Dp = 2.dp,
+
+    /** Vertical space between two cells within a mosaic column. */
+    val mosaicCellSpacing: Dp = 1.dp,
+
+    /** The thickness of a chord group's band on the rim. */
+    val chordBandThickness: Dp = 10.dp,
+
+    /**
+     * Angular space between two chord groups, in degrees.
+     *
+     * Load bearing rather than decorative: without a gap two adjacent groups
+     * read as one arc, and the diagram's central claim — that a group's angular
+     * width is its share of the flow — becomes unreadable.
+     */
+    val chordGroupPadding: Float = 2f,
+
     // ---- comparison -----------------------------------------------------
 
     /** The line joining one waterfall bar to the next. */
@@ -1027,6 +1063,12 @@ data class ChartDimensions(
 
     /** Space kept between the geography and the plot's edge. */
     val geoMapPadding: Dp = 12.dp,
+
+    /** A hexbin cell's radius at the map's default zoom. */
+    val geoHexbinSize: Dp = 7.dp,
+
+    /** The outline drawn around a hexbin cell. */
+    val geoHexbinStroke: Dp = 0.5.dp,
 
     /** A marker belonging to a feature whose geometry is a point. */
     val geoFeatureMarkerRadius: Dp = 3.dp,

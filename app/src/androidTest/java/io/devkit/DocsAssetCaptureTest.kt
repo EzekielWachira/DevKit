@@ -38,6 +38,7 @@ import io.devkit.chartkit.axis.AxisStyleMode
 import io.devkit.chartkit.axis.ChartAxisId
 import io.devkit.chartkit.scale.DomainPolicy
 import io.devkit.chartkit.charts.CandlestickChart
+import io.devkit.chartkit.charts.ChordDiagram
 import io.devkit.chartkit.charts.CartesianChart
 import io.devkit.chartkit.charts.ExperimentalChartKitApi
 import io.devkit.chartkit.charts.ChoroplethMap
@@ -45,17 +46,21 @@ import io.devkit.chartkit.charts.ColumnChart3D
 import io.devkit.chartkit.charts.DonutChart
 import io.devkit.chartkit.charts.DialGauge
 import io.devkit.chartkit.charts.DumbbellChart
+import io.devkit.chartkit.charts.MosaicChart
 import io.devkit.chartkit.charts.OhlcChart
 import io.devkit.chartkit.charts.PieChart3D
 import io.devkit.chartkit.charts.RangeChart
 import io.devkit.chartkit.charts.VennDiagram
 import io.devkit.chartkit.components.legend.LegendPosition
+import io.devkit.chartkit.layer.comparison.MosaicLabels
 import io.devkit.chartkit.annotation.horizontalRule
 import io.devkit.chartkit.annotation.verticalRule
+import io.devkit.chartkit.geometry.AreaStacking
 import io.devkit.chartkit.geometry.BarGrouping
 import io.devkit.chartkit.set.SetDefinition
 import io.devkit.chartkit.set.SetIntersection
 import io.devkit.chartkit.charts.FunnelChart
+import io.devkit.chartkit.charts.GeoChart
 import io.devkit.chartkit.charts.GaugeChart
 import io.devkit.chartkit.charts.Heatmap
 import io.devkit.chartkit.charts.Histogram
@@ -64,7 +69,10 @@ import io.devkit.chartkit.charts.LineChart
 import io.devkit.chartkit.charts.NetworkGraph
 import io.devkit.chartkit.layer.graph.GraphLabels
 import io.devkit.chartkit.render.ChartRenderMode
+import io.devkit.chartkit.charts.ParallelCoordinatesChart
+import io.devkit.chartkit.charts.ParallelDimension
 import io.devkit.chartkit.charts.PieChart
+import io.devkit.chartkit.charts.PolarAreaChart
 import io.devkit.chartkit.charts.RadarChart
 import io.devkit.chartkit.charts.RadialBarChart
 import io.devkit.chartkit.charts.SankeyChart
@@ -257,6 +265,75 @@ class DocsAssetCaptureTest {
         },
         Shot("gauge-chart") { _, m ->
             GaugeChart(value = 72.0, min = 0.0, max = 100.0, modifier = m)
+        },
+        Shot("stacked-areas") { _, m ->
+            AreaChart(
+                series = demo.channels.map { (name, points) ->
+                    ChartSeries(name.lowercase(), name, points)
+                },
+                x = { it.month }, y = { it.visits },
+                stacking = AreaStacking.Stacked,
+                modifier = m,
+            )
+        },
+        Shot("stream-graph") { _, m ->
+            AreaChart(
+                series = demo.channels.map { (name, points) ->
+                    ChartSeries(name.lowercase(), name, points)
+                },
+                x = { it.month }, y = { it.visits },
+                stacking = AreaStacking.Stream,
+                modifier = m,
+            )
+        },
+        Shot("mosaic-chart") { _, m ->
+            MosaicChart(
+                series = demo.revenueBySegment.map { (name, rows) ->
+                    ChartSeries(name.lowercase(), name, rows)
+                },
+                category = { it.region }, value = { it.revenue },
+                labels = MosaicLabels.ColumnsWithShare,
+                modifier = m,
+            )
+        },
+        Shot("parallel-coordinates") { _, m ->
+            ParallelCoordinatesChart(
+                data = demo.cars,
+                dimensions = listOf(
+                    ParallelDimension("Price") { it.price },
+                    ParallelDimension("MPG") { it.economy },
+                    ParallelDimension("Power") { it.power },
+                    ParallelDimension("Weight") { it.weight },
+                    ParallelDimension("Range") { it.range },
+                ),
+                group = { it.origin },
+                modifier = m,
+            )
+        },
+        Shot("polar-area-chart") { _, m ->
+            PolarAreaChart(
+                demo.rainfall,
+                category = { it.month }, value = { it.millimetres },
+                modifier = m,
+            )
+        },
+        Shot("hexbin-maps") { _, m ->
+            GeoChart(projection = GeoProjection.World, modifier = m) {
+                map(worldGeometry())
+                hexbin(
+                    data = WorldDemoData.sightings,
+                    longitude = { it.longitude },
+                    latitude = { it.latitude },
+                )
+            }
+        },
+        Shot("chord-diagram") { _, m ->
+            ChordDiagram(
+                groups = demo.regions, flows = demo.migrations,
+                groupId = { it.code }, groupLabel = { it.name },
+                source = { it.from }, target = { it.to }, value = { it.people },
+                modifier = m,
+            )
         },
         Shot("network-graph") { _, m ->
             // The force simulation runs on Dispatchers.Default, which neither

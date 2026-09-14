@@ -80,6 +80,20 @@ internal class GeoPointSpec(
     val slop: Dp,
 ) : GeoLayerSpec
 
+/** Point density binned onto a hexagonal grid. */
+internal class GeoHexbinSpec(
+    override val id: String,
+    override val seriesName: String,
+    val coordinates: List<GeoCoordinate>,
+    val values: List<Double?>?,
+    val items: List<Any?>,
+    val binSize: Dp,
+    val aggregate: io.devkit.chartkit.geo.HexAggregate,
+    val colorScale: ColorScale?,
+    val fallbackColor: Color,
+    val strokeWidth: Dp,
+) : GeoLayerSpec
+
 /** One route. */
 internal data class GeoPathSpec(
     val coordinates: List<GeoCoordinate>,
@@ -331,6 +345,86 @@ class GeoChartScope internal constructor(
     }
 
     /**
+     * Point **density**, binned onto a hexagonal grid.
+     *
+     * ```kotlin
+     * hexbin(
+     *     data = observations,
+     *     longitude = { it.lon },
+     *     latitude = { it.lat },
+     * )
+     * ```
+     *
+     * ### When this instead of [points]
+     *
+     * A point map of any density stops being a map of points and becomes a
+     * blob: the marks overlap, the overlaps are opaque, and the reader cannot
+     * tell two records from two hundred. Binning answers the question the
+     * picture could actually support — "how many are near here" — instead of
+     * the one it could not.
+     *
+     * ### The bins do not move when the reader does
+     *
+     * They are computed in projected space, so a pan changes no numbers and a
+     * zoom magnifies the same bins rather than recomputing them. The web
+     * convention is the other way round — screen-space bins, rebinned on every
+     * zoom so the hexagons stay one size — which keeps the picture even and
+     * makes the *numbers* move under the reader. See
+     * [io.devkit.chartkit.geo.GeoHexbin] for the trade in full.
+     *
+     * @param value an optional measurement per record, for the aggregates that
+     *   need one. A bin whose records all lack it has no total, and is drawn in
+     *   the map's "no data" colour rather than at the bottom of the scale.
+     * @param colorScale fixes the ramp. Left out, the layer builds one from
+     *   what the bins came to — which cannot be known here, because the bins do
+     *   not exist until there is a projection to bin in. Pass one when two maps
+     *   must be coloured comparably.
+     * @param binSize the hexagon's radius at the map's default zoom.
+     */
+    @Suppress("LongParameterList")
+    fun <T> hexbin(
+        data: List<T>,
+        longitude: (T) -> Double?,
+        latitude: (T) -> Double?,
+        value: ((T) -> Number?)? = null,
+        aggregate: io.devkit.chartkit.geo.HexAggregate = io.devkit.chartkit.geo.HexAggregate.Count,
+        binSize: Dp? = null,
+        colorScale: ColorScale? = null,
+        fill: Color? = null,
+        seriesName: String = "",
+        id: String = "hexbin",
+    ) {
+        val kept = data.filter { item ->
+            val lon = longitude(item)
+            val lat = latitude(item)
+            lon != null && lat != null && lon.isFinite() && lat.isFinite()
+        }
+        val coordinates = kept.map { GeoCoordinate(longitude(it)!!, latitude(it)!!) }
+        val values = value?.let { encode ->
+            kept.map { encode(it)?.toDouble()?.takeIf(Double::isFinite) }
+        }
+
+        // No scale is invented here. The bins do not exist until there is a
+        // projection to bin in, and a ramp guessed from the record count put
+        // every cell of a two-thousand-record map in the bottom half-percent of
+        // it. The layer builds one from what the bins actually came to; a
+        // caller who needs two maps to share a ramp passes one.
+
+        specs += GeoHexbinSpec(
+            id = id,
+            seriesName = seriesName,
+            coordinates = coordinates,
+            values = values,
+            items = kept,
+            binSize = binSize ?: theme.dimensions.geoHexbinSize,
+            aggregate = aggregate,
+            colorScale = colorScale,
+            fallbackColor = fill ?: theme.colors.geo.overlayPoint,
+            strokeWidth = theme.dimensions.geoHexbinStroke,
+        )
+    }
+
+    /**
      * Marks whose **area** carries a number: a bubble map.
      *
      * [points] with [points]'s `size` made required, and nothing else. It is
@@ -526,6 +620,15 @@ fun GeoChart(
             pointSpecs.map { spec -> spec.marks.map { projection.project(it.coordinate) } }
         }
 
+    val hexbinSpecs = specs.filterIsInstance<GeoHexbinSpec>()
+    val hexbinKey = hexbinSpecs.map { it.coordinates }
+    val projectedHexbins: List<List<io.devkit.chartkit.geo.ProjectedPoint>> =
+        remember(hexbinKey, projection) {
+            hexbinSpecs.map { spec ->
+                spec.coordinates.map(projection::project).filter { it.isFinite }
+            }
+        }
+
     val lineSpecs = specs.filterIsInstance<GeoLineSpec>()
     val pathKey = lineSpecs.map { spec -> spec.paths.map { it.coordinates } }
     val projectedPaths: List<List<List<List<io.devkit.chartkit.geo.ProjectedPoint>>>> =
@@ -550,12 +653,14 @@ fun GeoChart(
         projectedMarks,
         projectedPaths,
         specs,
+        projectedHexbins,
         valueFormatter,
     ) {
         buildGeoRenderers(
             specs = specs,
             projectedGeometry = projectedGeometry,
             projectedMarks = projectedMarks,
+            projectedHexbins = projectedHexbins,
             projectedPaths = projectedPaths,
             valueFormatter = valueFormatter,
         )
@@ -563,10 +668,16 @@ fun GeoChart(
 
     // The union of everything declared. A points-only map has no polygons to
     // fit, and must still frame its points.
-    val extent: ProjectedBounds? = remember(projectedGeometry, projectedMarks, projectedPaths) {
+    val extent: ProjectedBounds? = remember(
+        projectedGeometry,
+        projectedMarks,
+        projectedHexbins,
+        projectedPaths,
+    ) {
         val boxes = ArrayList<ProjectedBounds>()
         projectedGeometry.forEach { geometry -> geometry.bounds.toBounds()?.let { boxes += it } }
         projectedMarks.forEach { marks -> ProjectedBounds.of(marks)?.let { boxes += it } }
+        projectedHexbins.forEach { points -> ProjectedBounds.of(points)?.let { boxes += it } }
         projectedPaths.forEach { routes ->
             routes.forEach { pieces ->
                 pieces.forEach { piece -> ProjectedBounds.of(piece)?.let { boxes += it } }
@@ -644,11 +755,13 @@ private fun buildGeoRenderers(
     specs: List<GeoLayerSpec>,
     projectedGeometry: List<ProjectedGeometry>,
     projectedMarks: List<List<io.devkit.chartkit.geo.ProjectedPoint>>,
+    projectedHexbins: List<List<io.devkit.chartkit.geo.ProjectedPoint>>,
     projectedPaths: List<List<List<List<io.devkit.chartkit.geo.ProjectedPoint>>>>,
     valueFormatter: ChartValueFormatter,
 ): List<ChartLayerRenderer> {
     var featureIndex = 0
     var pointIndex = 0
+    var hexbinIndex = 0
     var lineIndex = 0
     return specs.mapNotNull { spec ->
         when (spec) {
@@ -691,6 +804,24 @@ private fun buildGeoRenderers(
                     valueFormatter = valueFormatter,
                     outlineWidth = spec.outlineWidth,
                     slop = spec.slop,
+                )
+            }
+
+            is GeoHexbinSpec -> {
+                val projected = projectedHexbins.getOrNull(hexbinIndex++) ?: return@mapNotNull null
+                io.devkit.chartkit.layer.geo.GeoHexbinLayer(
+                    id = spec.id,
+                    points = projected,
+                    values = spec.values,
+                    items = spec.items,
+                    binSize = spec.binSize,
+                    aggregate = spec.aggregate,
+                    colorScale = spec.colorScale,
+                    fallbackColor = spec.fallbackColor,
+                    seriesId = spec.id,
+                    seriesName = spec.seriesName,
+                    valueFormatter = valueFormatter,
+                    strokeWidth = spec.strokeWidth,
                 )
             }
 

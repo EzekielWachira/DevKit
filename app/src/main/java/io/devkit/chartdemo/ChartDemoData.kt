@@ -495,6 +495,169 @@ object ChartDemoData {
         ServiceNode("reporting", 700.0),
     )
 
+    data class MonthlyRain(val month: String, val millimetres: Double)
+
+    /**
+     * A year of rainfall.
+     *
+     * The case a pie chart cannot take: twelve months do not add up to
+     * anything a reader wants, so there is no whole for a slice to be a share
+     * of — and the values run around a cycle, which is what the circle is for.
+     */
+    val rainfall: List<MonthlyRain> = listOf(
+        MonthlyRain("Jan", 112.0),
+        MonthlyRain("Feb", 86.0),
+        MonthlyRain("Mar", 74.0),
+        MonthlyRain("Apr", 51.0),
+        MonthlyRain("May", 38.0),
+        MonthlyRain("Jun", 22.0),
+        MonthlyRain("Jul", 14.0),
+        MonthlyRain("Aug", 19.0),
+        MonthlyRain("Sep", 43.0),
+        MonthlyRain("Oct", 79.0),
+        MonthlyRain("Nov", 104.0),
+        MonthlyRain("Dec", 126.0),
+    )
+
+    data class Car(
+        val name: String,
+        val origin: String,
+        val price: Double,
+        val economy: Double,
+        val power: Double,
+        val weight: Double,
+        val range: Double,
+    )
+
+    /**
+     * A small fleet across five measures in five different units.
+     *
+     * Shaped so the groups behave differently rather than scattering: the
+     * European cars are light and economical, the American ones heavy and
+     * powerful, and the Japanese ones sit between — which is what a parallel
+     * plot is for seeing, and what a scatter of any two of these columns would
+     * not show.
+     */
+    val cars: List<Car> = run {
+        fun car(
+            name: String, origin: String,
+            price: Double, economy: Double, power: Double, weight: Double, range: Double,
+        ) = Car(name, origin, price, economy, power, weight, range)
+        listOf(
+            car("A-1", "Europe", 28_400.0, 52.0, 110.0, 1_180.0, 620.0),
+            car("A-2", "Europe", 31_900.0, 48.0, 130.0, 1_260.0, 590.0),
+            car("A-3", "Europe", 24_700.0, 58.0, 95.0, 1_090.0, 640.0),
+            car("A-4", "Europe", 35_200.0, 44.0, 150.0, 1_340.0, 560.0),
+            car("A-5", "Europe", 27_100.0, 55.0, 105.0, 1_140.0, 610.0),
+            car("B-1", "America", 42_600.0, 26.0, 280.0, 1_960.0, 520.0),
+            car("B-2", "America", 51_300.0, 21.0, 340.0, 2_180.0, 480.0),
+            car("B-3", "America", 38_900.0, 29.0, 245.0, 1_870.0, 540.0),
+            car("B-4", "America", 46_800.0, 24.0, 310.0, 2_050.0, 500.0),
+            car("B-5", "America", 35_400.0, 31.0, 225.0, 1_790.0, 555.0),
+            car("C-1", "Japan", 30_700.0, 41.0, 165.0, 1_480.0, 600.0),
+            car("C-2", "Japan", 33_500.0, 38.0, 185.0, 1_560.0, 575.0),
+            car("C-3", "Japan", 28_900.0, 45.0, 150.0, 1_410.0, 615.0),
+            car("C-4", "Japan", 36_200.0, 35.0, 205.0, 1_640.0, 565.0),
+            car("C-5", "Japan", 26_300.0, 47.0, 140.0, 1_370.0, 625.0),
+        )
+    }
+
+    data class SegmentRevenue(val region: String, val revenue: Double)
+
+    /**
+     * Revenue by region and customer segment.
+     *
+     * Shaped for a mosaic: the regions are deliberately very different sizes —
+     * which is the case a 100% stacked bar throws away — and their mixes differ
+     * too, so both encodings have something to say.
+     */
+    val revenueBySegment: List<Pair<String, List<SegmentRevenue>>> = listOf(
+        "Enterprise" to listOf(
+            SegmentRevenue("N America", 4_800.0),
+            SegmentRevenue("Europe", 2_600.0),
+            SegmentRevenue("APAC", 1_150.0),
+            SegmentRevenue("LATAM", 320.0),
+        ),
+        "Mid-market" to listOf(
+            SegmentRevenue("N America", 2_100.0),
+            SegmentRevenue("Europe", 1_900.0),
+            SegmentRevenue("APAC", 1_400.0),
+            SegmentRevenue("LATAM", 480.0),
+        ),
+        "SMB" to listOf(
+            SegmentRevenue("N America", 900.0),
+            SegmentRevenue("Europe", 1_100.0),
+            SegmentRevenue("APAC", 1_650.0),
+            SegmentRevenue("LATAM", 700.0),
+        ),
+    )
+
+    data class ChannelPoint(val month: String, val visits: Double)
+
+    /**
+     * Five acquisition channels over a year.
+     *
+     * Shaped for a stacked area rather than a line chart: the series are parts
+     * of one total, they all move, and no single one dominates — which is the
+     * case where the stacking mode actually changes what the reader can see.
+     */
+    val channels: List<Pair<String, List<ChannelPoint>>> = run {
+        val months = listOf(
+            "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+        )
+        // A fixed phase and amplitude per channel, so the demo is identical on
+        // every run and on every device.
+        listOf(
+            Triple("Organic", 1_400.0, 0.0),
+            Triple("Paid", 900.0, 1.1),
+            Triple("Social", 620.0, 2.3),
+            Triple("Referral", 430.0, 3.4),
+            Triple("Email", 300.0, 4.6),
+        ).map { (name, base, phase) ->
+            name to months.mapIndexed { index, month ->
+                val wave = 1.0 + 0.45 * kotlin.math.sin(index / 1.9 + phase)
+                val drift = 1.0 + index * 0.03
+                ChannelPoint(month, kotlin.math.round(base * wave * drift))
+            }
+        }
+    }
+
+    data class Region(val code: String, val name: String)
+
+    data class Migration(val from: String, val to: String, val people: Double)
+
+    val regions: List<Region> = listOf(
+        Region("eur", "Europe"),
+        Region("asi", "Asia"),
+        Region("afr", "Africa"),
+        Region("nam", "N America"),
+        Region("sam", "S America"),
+        Region("oce", "Oceania"),
+    )
+
+    /**
+     * Movement between regions, in both directions.
+     *
+     * Illustrative figures, not a migration statistic. They are shaped to show
+     * what the chart is for: pairs that exchange in both directions at
+     * different rates, a region that mostly receives, and one flow that returns
+     * to where it started.
+     */
+    val migrations: List<Migration> = listOf(
+        Migration("asi", "eur", 1_240.0),
+        Migration("eur", "asi", 610.0),
+        Migration("afr", "eur", 890.0),
+        Migration("eur", "afr", 310.0),
+        Migration("sam", "nam", 1_060.0),
+        Migration("nam", "sam", 340.0),
+        Migration("asi", "nam", 980.0),
+        Migration("asi", "oce", 420.0),
+        Migration("eur", "oce", 260.0),
+        Migration("afr", "asi", 370.0),
+        Migration("eur", "eur", 540.0),
+    )
+
     val serviceCalls: List<ServiceEdge> = listOf(
         ServiceEdge("gateway", "auth", 9_400.0),
         ServiceEdge("gateway", "catalogue", 5_600.0),
