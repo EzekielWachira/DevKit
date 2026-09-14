@@ -7573,8 +7573,6 @@ adopted for something it cannot do.
 - 3D charts, chord and arc diagrams
 - UpSet plots and set matrices. The set model is built to feed one — see the
   roadmap — but the layout does not exist yet
-- Polar-area charts, and stacked **areas** — multi-series areas overlap, each
-  measured from the baseline
 - Interactive range **handles** on a chart's own range selection: a range is
   dragged out afresh rather than resized by its edges. The overview navigator's
   window *does* have draggable edges
@@ -7711,8 +7709,8 @@ adopted for something it cannot do.
   by simplifying the shared arc once, and is not solved yet
 - There is no zoom-dependent level of detail. `simplification` is one tolerance
   applied at projection time; choose your dataset's resolution for the use case
-- Cartograms, dot-density maps, hexbin maps and contour maps are not drawn, and
-  there is no drill-down API or map-inset layout — though nothing in the
+- Cartograms, dot-density maps and contour maps are not drawn, and there is no
+  drill-down API or map-inset layout — though nothing in the
   architecture assumes a hierarchy, so a future drill-down replaces the geometry
   and animates the viewport rather than needing a rewrite
 - **Area-proportional set diagrams are approximations, and the size of the
@@ -7754,7 +7752,7 @@ adopted for something it cannot do.
 
 ## Roadmap
 
-- Polar-area layers, and zoom over a polar angle
+- Zoom over a polar angle
 - The Byron–Wattenberg "wiggle" baseline for stream graphs, beside the
   centred one that exists
 - Interactive range handles on a chart's own range selection
@@ -7766,7 +7764,8 @@ adopted for something it cannot do.
   neighbours cannot develop a sliver between them
 - Geographic drill-down — world to country to county — and map insets, over the
   geometry replacement and viewport animation that already exist
-- Cartograms, hexbin maps and dot-density maps, over the same coordinate system
+- Cartograms and dot-density maps, over the same coordinate system as the
+  hexbin maps
 - Curved dial labels, and a linear (thermometer) gauge over the same
   `GaugeScale`, which is a renderer rather than a model
 - UpSet plots, over the `SetDefinition` / `SetIntersection` / `SetAnalyzer`
